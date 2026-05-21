@@ -17,7 +17,12 @@
 
   async function checkStatus() {
     try {
-      connected = await invoke("rcon_status") as boolean;
+      const status = await invoke("rcon_status") as boolean;
+      if (connected && !status) {
+        addRconLog("连接已断开（服务器可能已关闭）", "error");
+        scrollToBottom();
+      }
+      connected = status;
     } catch { connected = false; }
   }
 

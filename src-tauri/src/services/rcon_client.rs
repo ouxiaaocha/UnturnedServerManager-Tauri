@@ -1,11 +1,13 @@
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpStream;
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 pub struct RconClient {
     stream: Option<TcpStream>,
     responses: Arc<Mutex<Vec<String>>>,
+    reader_alive: Arc<AtomicBool>,
 }
 
 impl RconClient {
@@ -13,11 +15,12 @@ impl RconClient {
         Self {
             stream: None,
             responses: Arc::new(Mutex::new(Vec::new())),
+            reader_alive: Arc::new(AtomicBool::new(false)),
         }
     }
 
     pub fn is_connected(&self) -> bool {
-        self.stream.is_some()
+        self.stream.is_some() && self.reader_alive.load(Ordering::SeqCst)
     }
 
     pub fn connect(&mut self, host: &str, port: u16, password: &str) -> Result<String, String> {
@@ -74,16 +77,19 @@ impl RconClient {
 
     pub fn disconnect(&mut self) {
         self.stream = None;
+        self.reader_alive.store(false, Ordering::SeqCst);
     }
 
     fn start_reader_thread(&self) {
         if let Some(ref stream) = self.stream {
             let stream_clone = stream.try_clone().ok();
             let responses = Arc::clone(&self.responses);
+            let alive = Arc::clone(&self.reader_alive);
 
             if let Some(s) = stream_clone {
                 // 读取线程用阻塞模式，不设超时
                 s.set_read_timeout(None).ok();
+                alive.store(true, Ordering::SeqCst);
 
                 std::thread::spawn(move || {
                     let reader = BufReader::new(s);
@@ -99,6 +105,7 @@ impl RconClient {
                             Err(_) => break,
                         }
                     }
+                    alive.store(false, Ordering::SeqCst);
                 });
             }
         }
