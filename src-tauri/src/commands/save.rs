@@ -442,6 +442,76 @@ pub fn save_plugin_notes(
     Ok("插件备注已保存".to_string())
 }
 
+#[derive(Serialize)]
+pub struct RocketRconInfo {
+    pub port: u16,
+    pub password: String,
+}
+
+#[tauri::command]
+pub fn read_rocket_rcon_config(
+    config: State<'_, Arc<Mutex<ConfigService>>>,
+    save_id: Option<String>,
+) -> Result<RocketRconInfo, String> {
+    let (server_root, server_id) = {
+        let cfg = config.lock().unwrap_or_else(|e| e.into_inner());
+        resolve_save_dir(&cfg, &save_id)?
+    };
+
+    let path = Path::new(&server_root)
+        .join("Servers")
+        .join(&server_id)
+        .join("Rocket")
+        .join("Rocket.config.xml");
+
+    if !path.exists() {
+        return Ok(RocketRconInfo { port: 27115, password: String::new() });
+    }
+
+    let content = fs::read_to_string(&path)
+        .map_err(|e| format!("读取 Rocket.config.xml 失败: {}", e))?;
+
+    let mut port: u16 = 27115;
+    let mut password = String::new();
+
+    if let Some(start) = content.find("Port=\"") {
+        let after = start + 6;
+        if let Some(end) = content[after..].find('"') {
+            port = content[after..after + end].parse().unwrap_or(27115);
+        }
+    }
+
+    if let Some(start) = content.find("Password=\"") {
+        let after = start + 10;
+        if let Some(end) = content[after..].find('"') {
+            password = content[after..after + end]
+                .replace("&amp;", "&")
+                .replace("&quot;", "\"")
+                .replace("&lt;", "<")
+                .replace("&gt;", ">")
+                .replace("&apos;", "'");
+        }
+    }
+
+    Ok(RocketRconInfo { port, password })
+}
+
+#[tauri::command]
+pub fn save_rocket_rcon_config(
+    config: State<'_, Arc<Mutex<ConfigService>>>,
+    save_id: Option<String>,
+    port: u16,
+    password: String,
+) -> Result<String, String> {
+    let (server_root, server_id) = {
+        let cfg = config.lock().unwrap_or_else(|e| e.into_inner());
+        resolve_save_dir(&cfg, &save_id)?
+    };
+
+    ConfigService::update_rocket_config(&server_root, &server_id, port, &password)?;
+    Ok("RCON 配置已保存".to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

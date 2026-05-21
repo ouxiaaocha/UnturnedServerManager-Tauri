@@ -87,6 +87,8 @@ pub fn run() {
             commands::save::open_plugin_config_dir,
             commands::save::load_plugin_notes,
             commands::save::save_plugin_notes,
+            commands::save::read_rocket_rcon_config,
+            commands::save::save_rocket_rcon_config,
             commands::installer::download_steamcmd,
             commands::installer::download_server,
             commands::setup::detect_rocket_module,

@@ -1,7 +1,7 @@
 use serde::Serialize;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
-use tauri::State;
+use tauri::{Emitter, State};
 
 use crate::services::process::ProcessManager;
 use crate::services::rcon_client::RconClient;
@@ -73,6 +73,7 @@ pub fn get_server_output(
 
 #[tauri::command]
 pub fn start_server(
+    app: tauri::AppHandle,
     process: State<'_, Arc<Mutex<ProcessManager>>>,
     config: State<'_, Arc<Mutex<ConfigService>>>,
     log: State<'_, Arc<Mutex<LogService>>>,
@@ -157,6 +158,8 @@ pub fn start_server(
     let ls = log.lock().unwrap_or_else(|e| e.into_inner());
     ls.log_operation(&format!("启动服务器: {} (存档: {}, 模式: {})", server_id, actual_id, mode_str));
 
+    let _ = app.emit("server-started", &actual_id);
+
     Ok("服务器已启动".to_string())
 }
 
@@ -231,6 +234,7 @@ pub fn force_stop_server(
 
 #[tauri::command(async)]
 pub async fn restart_server(
+    app: tauri::AppHandle,
     process: State<'_, Arc<Mutex<ProcessManager>>>,
     rcon: State<'_, Arc<Mutex<RconClient>>>,
     config: State<'_, Arc<Mutex<ConfigService>>>,
@@ -291,5 +295,5 @@ pub async fn restart_server(
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
     // Reuse start_server logic with the same save_id/launch_mode
-    start_server(process, config, log, active_rcon, save_id, launch_mode)
+    start_server(app, process, config, log, active_rcon, save_id, launch_mode)
 }

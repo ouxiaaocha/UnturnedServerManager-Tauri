@@ -1,5 +1,6 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
+  import { listen } from "@tauri-apps/api/event";
   import { rconLogs, addRconLog } from "$lib/stores.svelte";
 
   let connected = $state(false);
@@ -91,9 +92,22 @@
     checkStatus();
     const pollInterval = setInterval(pollResponses, 2000);
     const statusInterval = setInterval(checkStatus, 10000);
+
+    // Auto-connect when a server starts
+    const unlisten = listen("server-started", () => {
+      addRconLog("检测到服务器启动，5 秒后自动连接 RCON...", "system");
+      scrollToBottom();
+      setTimeout(async () => {
+        if (!connected && !connecting) {
+          await connect();
+        }
+      }, 5000);
+    });
+
     return () => {
       clearInterval(pollInterval);
       clearInterval(statusInterval);
+      unlisten.then(fn => fn());
     };
   });
 </script>
