@@ -111,7 +111,7 @@
             <div class="ml-auto w-1.5 h-1.5 rounded-full bg-[var(--accent)]"></div>
           {/if}
         </button>
-        <p class="text-[10px] text-[var(--text-muted)] px-3 mt-2">v0.1.0</p>
+        <p class="text-[10px] text-[var(--text-muted)] px-3 mt-2">v1.0.0</p>
       </div>
     </nav>
 
