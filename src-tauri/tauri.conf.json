@@ -1,6 +1,6 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "Unturned服务器管理工具",
+  "productName": "Unturned Server Manager",
   "version": "0.1.0",
   "identifier": "com.unturned.server-manager",
   "build": {
