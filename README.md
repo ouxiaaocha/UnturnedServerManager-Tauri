@@ -86,7 +86,7 @@ pnpm tauri build
 
 输出文件：
 ```
-src-tauri/target/release/app.exe                              # 便携版可执行文件
+src-tauri/target/release/unturned-server-manager.exe           # 便携版可执行文件
 src-tauri/target/release/bundle/nsis/xxx_x64-setup.exe       # NSIS 安装包
 ```
 
@@ -94,12 +94,12 @@ src-tauri/target/release/bundle/nsis/xxx_x64-setup.exe       # NSIS 安装包
 
 | 文件 | 说明 | 用途 |
 |------|------|------|
-| `app.exe` | 便携版主程序 | 直接运行，无需安装 |
+| `unturned-server-manager.exe` | 便携版主程序 | 直接运行，无需安装 |
 | `xxx_x64-setup.exe` | NSIS 安装包 | 分发给其他用户安装 |
 
 ### 便携版使用
 
-将 `src-tauri/target/release/app.exe` 复制到任意目录即可运行。软件会在同目录下自动创建：
+将 `src-tauri/target/release/unturned-server-manager.exe` 复制到任意目录即可运行。软件会在同目录下自动创建：
 - `config/` — 配置文件
 - `logs/` — 日志文件
 - `data/` — 数据文件
