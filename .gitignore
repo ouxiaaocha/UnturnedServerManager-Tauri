@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Tauri build artifacts
+src-tauri/target/
+
+# Config files generated at runtime
+config/
+
+# Logs
+logs/
+
+# Backups
+backups/
+
+# Data
+data/
+
+# Documentation epub
+*.epub
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Claude
+.claude/
+.agents/
+
+# Temp
+*.tmp
+*.temp

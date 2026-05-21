@@ -1,0 +1,61 @@
+use serde::{Deserialize, Serialize};
+use std::sync::{Arc, Mutex};
+use tauri::State;
+
+use crate::services::config_service::{ConfigService, atomic_write};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScheduleTask {
+    pub id: String,
+    pub enabled: bool,
+    #[serde(rename = "type")]
+    pub task_type: String, // "daily", "interval", "weekly"
+    pub time: Option<String>, // "04:00" for daily
+    pub interval_hours: Option<u32>, // for interval
+    pub weekday: Option<u8>, // 0-6 for weekly
+    pub announce_minutes: Vec<u32>, // [30, 10, 5, 1]
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ScheduleConfig {
+    pub tasks: Vec<ScheduleTask>,
+}
+
+#[tauri::command]
+pub fn get_schedules(config: State<'_, Arc<Mutex<ConfigService>>>) -> ScheduleConfig {
+    let cfg = config.lock().unwrap_or_else(|e| e.into_inner());
+    let path = cfg.config_dir().join("schedules.json");
+    if path.exists() {
+        let content = std::fs::read_to_string(&path).unwrap_or_default();
+        serde_json::from_str(&content).unwrap_or_default()
+    } else {
+        ScheduleConfig::default()
+    }
+}
+
+#[tauri::command]
+pub fn save_schedules(
+    config: State<'_, Arc<Mutex<ConfigService>>>,
+    tasks: ScheduleConfig,
+) -> Result<String, String> {
+    // Validate task types
+    for task in &tasks.tasks {
+        match task.task_type.as_str() {
+            "daily" | "interval" | "weekly" => {}
+            _ => return Err(format!("无效的任务类型: {}", task.task_type)),
+        }
+        if task.task_type == "interval" {
+            if let Some(hours) = task.interval_hours {
+                if hours == 0 || hours > 168 {
+                    return Err("间隔时间必须在 1-168 小时之间".to_string());
+                }
+            }
+        }
+    }
+
+    let cfg = config.lock().unwrap_or_else(|e| e.into_inner());
+    let path = cfg.config_dir().join("schedules.json");
+    let content = serde_json::to_string_pretty(&tasks).map_err(|e| format!("序列化失败: {}", e))?;
+    atomic_write(&path, &content)?;
+    Ok("定时任务已保存".to_string())
+}
