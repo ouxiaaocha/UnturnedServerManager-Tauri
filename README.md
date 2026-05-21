@@ -11,7 +11,11 @@
 | Windows 11 | ✅ | 全版本自带 WebView2，直接运行 |
 | Windows 10 21H2 及以上 | ✅ | 自带 WebView2，直接运行 |
 | Windows 10 1803 ~ 21H1 | ✅（需安装运行时） | 需先安装 [WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) |
+| Windows Server 2022 | ✅ | 自带 WebView2，直接运行 |
+| Windows Server 2019 | ✅（需安装运行时） | 需先安装 [WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) |
+| Windows Server 2016 | ✅（需安装运行时） | 需先安装 [WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) |
 | Windows 10 1803 以下 | ❌ | 不支持 WebView2 |
+| Windows Server 2012 R2 及以下 | ❌ | 不支持 WebView2 |
 | Windows 7 / 8 / 8.1 | ❌ | 不支持 |
 
 > macOS 和 Linux 暂未构建，如需支持请自行编译。
