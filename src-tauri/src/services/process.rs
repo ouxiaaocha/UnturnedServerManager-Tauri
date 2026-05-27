@@ -166,14 +166,6 @@ impl ProcessManager {
         Ok(())
     }
 
-    pub fn mark_stopped(&mut self) {
-        self.child = None;
-        self.state = ServerState::Stopped;
-        self.start_time = None;
-        let mut lines = self.output_lines.lock().unwrap_or_else(|e| e.into_inner());
-        lines.push("[系统] 服务器已停止".to_string());
-    }
-
     pub fn get_new_output(&self, from_index: usize) -> Vec<String> {
         let lines = self.output_lines.lock().unwrap_or_else(|e| e.into_inner());
         if from_index < lines.len() {
