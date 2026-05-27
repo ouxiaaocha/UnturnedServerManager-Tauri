@@ -24,10 +24,6 @@ impl LogService {
         self.write_log("operation", message);
     }
 
-    pub fn log_game(&self, message: &str) {
-        self.write_log("game", message);
-    }
-
     pub fn cleanup_old_logs(&self, retention_days: u32) {
         let cutoff = Local::now() - ChronoDuration::days(retention_days as i64);
         let cutoff_str = cutoff.format("%Y-%m-%d").to_string();

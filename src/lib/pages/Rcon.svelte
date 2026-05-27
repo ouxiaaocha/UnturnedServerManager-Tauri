@@ -2,19 +2,13 @@
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
   import { rconLogs, addRconLog } from "$lib/stores.svelte";
+  import { highlightText } from "$lib/utils";
 
   let connected = $state(false);
   let command = $state("");
   let connecting = $state(false);
   let logContainer: HTMLDivElement | undefined = $state();
   let logSearch = $state("");
-
-  function highlightText(text: string, query: string): string {
-    if (!query) return text.replace(/</g, '&lt;');
-    const escaped = text.replace(/</g, '&lt;');
-    const q = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    return escaped.replace(new RegExp(`(${q})`, 'gi'), '<mark class="bg-yellow-500/30 text-yellow-200 rounded px-0.5">$1</mark>');
-  }
 
   async function checkStatus() {
     try {
@@ -182,7 +176,7 @@
         </div>
         <button
           class="text-xs text-[var(--text-muted)] hover:text-white transition-colors duration-[var(--transition-fast)] px-2 py-1 rounded hover:bg-[var(--bg-card-hover)] cursor-pointer"
-          onclick={() => rconLogs.length = 0}
+          onclick={() => { rconLogs.splice(0, rconLogs.length); }}
         >
           清空
         </button>

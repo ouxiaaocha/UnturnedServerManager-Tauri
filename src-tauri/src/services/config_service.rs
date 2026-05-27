@@ -131,13 +131,6 @@ impl ConfigService {
         }
     }
 
-    pub fn save_app_settings(&self, settings: &AppSettings) -> Result<(), String> {
-        let path = self.config_dir().join("appsettings.json");
-        let content = serde_json::to_string_pretty(settings)
-            .map_err(|e| format!("序列化失败: {}", e))?;
-        atomic_write(&path, &content)
-    }
-
     pub fn is_first_run(&self) -> bool {
         let path = self.config_dir().join("servers.json");
         if !path.exists() {
@@ -174,7 +167,7 @@ impl ConfigService {
         let content = fs::read_to_string(&path)
             .map_err(|e| format!("读取失败: {}", e))?;
 
-        let mut new_content = content.clone();
+        let mut new_content = content;
 
         // Replace Port
         if let Some(start) = new_content.find("Port=\"") {

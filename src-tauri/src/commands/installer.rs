@@ -2,14 +2,10 @@ use std::fs;
 use std::io::{BufRead, BufReader, Read};
 use std::path::Path;
 use std::process::{Command, Stdio};
-use std::sync::{Arc, Mutex};
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter};
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
-
-use crate::services::config_service::ConfigService;
-use crate::services::log_service::LogService;
 
 fn emit(app: &AppHandle, msg: &str) {
     let _ = app.emit("installer-progress", msg.to_string());
@@ -106,8 +102,6 @@ fn do_download_steamcmd_inner(app: &AppHandle, steamcmd_dir: &Path, steamcmd_exe
         .stdout(Stdio::null()).stderr(Stdio::null())
         .status();
 
-    let _ = fs::remove_file(&zip_path);
-
     if ps_result.map(|s| !s.success()).unwrap_or(true) {
         // Fallback: zip crate
         emit(app, "[系统] 备用解压方案...");
@@ -127,17 +121,17 @@ fn do_download_steamcmd_inner(app: &AppHandle, steamcmd_dir: &Path, steamcmd_exe
         }
     }
 
+    let _ = fs::remove_file(&zip_path);
+
     if !steamcmd_exe.exists() {
         return Err("解压后未找到 steamcmd.exe".to_string());
     }
 
     emit(app, "[系统] 正在初始化 SteamCMD (首次自更新)...");
 
-    let exe_path = steamcmd_exe.clone();
-    let work_dir = steamcmd_dir.clone();
-    let mut init_cmd = Command::new(&exe_path);
+    let mut init_cmd = Command::new(steamcmd_exe);
     init_cmd.args(["+login", "anonymous", "+quit"])
-        .current_dir(&work_dir)
+        .current_dir(steamcmd_dir)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .stdin(Stdio::null());
@@ -182,14 +176,12 @@ fn do_download_steamcmd_inner(app: &AppHandle, steamcmd_dir: &Path, steamcmd_exe
 pub fn download_server(app: AppHandle, steamcmd_path: String) -> Result<(), String> {
     emit(&app, "[系统] 开始下载 Unturned 服务端...");
 
-    let path = if !steamcmd_path.is_empty() {
-        steamcmd_path
-    } else {
+    if steamcmd_path.is_empty() {
         return Err("SteamCMD 路径为空".to_string());
-    };
+    }
 
     std::thread::spawn(move || {
-        match do_download_server(&app, &path) {
+        match do_download_server(&app, &steamcmd_path) {
             Ok(p) => emit(&app, &format!("DONE:{}", p)),
             Err(e) => emit(&app, &format!("ERROR:{}", e)),
         }

@@ -188,8 +188,6 @@ impl ProcessManager {
     }
 }
 
-pub type SharedProcessManager = Mutex<ProcessManager>;
-
 fn append_game_log(game_log_dir: &Path, line: &str) -> std::io::Result<()> {
     let now = Local::now();
     let date = now.format("%Y-%m-%d").to_string();

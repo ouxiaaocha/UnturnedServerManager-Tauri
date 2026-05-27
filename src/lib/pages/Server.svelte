@@ -1,5 +1,6 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
+  import { highlightText, formatUptime } from "$lib/utils";
 
   let status = $state("已停止");
   let pid = $state("--");
@@ -27,13 +28,6 @@
     } catch {}
   }
 
-  function highlightText(text: string, query: string): string {
-    if (!query) return text.replace(/</g, '&lt;');
-    const escaped = text.replace(/</g, '&lt;');
-    const q = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    return escaped.replace(new RegExp(`(${q})`, 'gi'), '<mark class="bg-yellow-500/30 text-yellow-200 rounded px-0.5">$1</mark>');
-  }
-
   function classifyLine(line: string): string {
     if (line.includes("[Error]") || line.includes("Exception")) return "error";
     if (line.includes("[Warning]")) return "warning";
@@ -49,14 +43,7 @@
       const s: any = await invoke("get_server_status");
       status = s.state;
       pid = s.pid ? String(s.pid) : "--";
-      if (s.uptime_secs > 0) {
-        const h = Math.floor(s.uptime_secs / 3600);
-        const m = Math.floor((s.uptime_secs % 3600) / 60);
-        const sec = Math.floor(s.uptime_secs % 60);
-        uptime = h > 0 ? `${h}时${m}分${sec}秒` : m > 0 ? `${m}分${sec}秒` : `${sec}秒`;
-      } else {
-        uptime = "--";
-      }
+      uptime = formatUptime(s.uptime_secs);
 
       if (!isStarting && s.output_count > outputIndex) {
         const newLines: string[] = await invoke("get_server_output", { fromIndex: outputIndex });

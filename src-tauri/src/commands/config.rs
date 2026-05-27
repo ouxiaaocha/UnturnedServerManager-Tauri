@@ -64,11 +64,8 @@ pub fn auto_detect_paths() -> DetectResult {
                 if let Ok(entries) = std::fs::read_dir(&servers_dir) {
                     for entry in entries.flatten() {
                         if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
-                            let name = entry.file_name().to_string_lossy().to_string();
-                            if name != "." && name != ".." {
-                                result.server_id = Some(name);
-                                break;
-                            }
+                            result.server_id = Some(entry.file_name().to_string_lossy().to_string());
+                            break;
                         }
                     }
                 }

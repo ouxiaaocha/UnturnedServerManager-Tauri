@@ -62,8 +62,8 @@ pub fn start_scheduler(
                 continue;
             }
 
-            // Calculate weekday using chrono (0=Sunday)
-            let weekday = now.format("%w").to_string().parse::<u8>().unwrap_or(0);
+            // Calculate weekday (0=Sunday)
+            let weekday = now.weekday().num_days_from_sunday() as u8;
 
             for task in &tasks {
                 if !task.enabled {

@@ -52,11 +52,12 @@ pub fn rcon_send(
 
     let ls = log.lock().unwrap_or_else(|e| e.into_inner());
     // Sanitize: mask potential password-like commands
-    let sanitized = if command.to_lowercase().starts_with("login ") || command.to_lowercase().starts_with("password ") {
+    let cmd_lower = command.to_ascii_lowercase();
+    let sanitized = if cmd_lower.starts_with("login ") || cmd_lower.starts_with("password ") {
         let parts: Vec<&str> = command.splitn(2, ' ').collect();
         format!("{} ******", parts[0])
     } else {
-        command.clone()
+        command
     };
     ls.log_operation(&format!("RCON 命令: {}", sanitized));
     Ok(())

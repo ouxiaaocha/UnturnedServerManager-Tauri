@@ -18,14 +18,6 @@ pub struct ActiveRcon {
 }
 
 impl ActiveRcon {
-    pub fn new() -> Self {
-        Self {
-            host: "127.0.0.1".to_string(),
-            port: 27115,
-            password: String::new(),
-        }
-    }
-
     pub fn from_config(config: &ConfigService) -> Self {
         let servers = config.load_servers_config();
         if let Some(profile) = servers.servers.first() {
@@ -35,7 +27,11 @@ impl ActiveRcon {
                 password: profile.rcon.password.clone(),
             }
         } else {
-            Self::new()
+            Self {
+                host: "127.0.0.1".to_string(),
+                port: 27115,
+                password: String::new(),
+            }
         }
     }
 }

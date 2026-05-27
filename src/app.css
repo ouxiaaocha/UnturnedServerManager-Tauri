@@ -147,26 +147,3 @@ a {
 a:hover {
   color: var(--accent);
 }
-
-/* Utility Classes */
-.glass {
-  background: rgba(26, 26, 46, 0.8);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-}
-
-.glow-accent {
-  box-shadow: var(--shadow-glow);
-}
-
-.glow-success {
-  box-shadow: 0 0 20px var(--success-glow);
-}
-
-.glow-warning {
-  box-shadow: 0 0 20px var(--warning-glow);
-}
-
-.glow-danger {
-  box-shadow: 0 0 20px var(--danger-glow);
-}

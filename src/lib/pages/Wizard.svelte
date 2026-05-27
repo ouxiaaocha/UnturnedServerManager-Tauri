@@ -2,6 +2,7 @@
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
   import { open } from "@tauri-apps/plugin-dialog";
+  import { generatePassword } from "$lib/utils";
 
   let step = $state(0);
   let steamCmdPath = $state("");
@@ -47,13 +48,6 @@
 
   const { onComplete }: { onComplete: () => void } = $props();
 
-  function generatePassword(): string {
-    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*";
-    const arr = new Uint32Array(16);
-    crypto.getRandomValues(arr);
-    return Array.from(arr, v => chars[v % chars.length]).join("");
-  }
-
   const chineseWarning = "⚠ 目录不能包含中文字符，否则可能导致服务器无法启动";
 
   async function autoDetect() {
@@ -64,8 +58,7 @@
       if (result.steam_cmd_path) steamCmdPath = result.steam_cmd_path;
       if (result.server_root) serverRoot = result.server_root;
       if (result.server_id) serverId = result.server_id;
-      if (result.steam_cmd_path) error = "";
-      else error = "未能自动检测到 SteamCMD，请手动选择或自动下载";
+      if (!result.steam_cmd_path) error = "未能自动检测到 SteamCMD，请手动选择或自动下载";
     } catch (e: any) {
       error = `检测失败: ${e}`;
     }
@@ -245,8 +238,8 @@
         serverId = msg.slice(5);
         saveInitRunning = false;
         unlisten();
-        // Re-check Rocket status after successful init
-        checkSelectedSaveRocket();
+        // Re-check saves and Rocket status after successful init
+        checkExistingSaves();
       } else if (msg.startsWith("ERROR:")) {
         error = msg.slice(6);
         lastFailedAction = "save";
@@ -583,7 +576,7 @@
             <span class="text-sm text-[var(--text-secondary)]">正在检测存档...</span>
           </div>
 
-        {:else if existingSaves.length === 0}
+        {:else if existingSaves.length === 0 && !saveInitDone}
           <!-- No saves found -->
           <div class="bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg p-4 mb-4">
             <div class="flex items-center gap-3 mb-3">

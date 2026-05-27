@@ -70,9 +70,7 @@ impl RconClient {
 
     pub fn get_responses(&self) -> Vec<String> {
         let mut responses = self.responses.lock().unwrap_or_else(|e| e.into_inner());
-        let result = responses.clone();
-        responses.clear();
-        result
+        std::mem::take(&mut *responses)
     }
 
     pub fn disconnect(&mut self) {

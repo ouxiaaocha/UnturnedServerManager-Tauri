@@ -41,15 +41,29 @@ pub fn save_schedules(
     // Validate task types
     for task in &tasks.tasks {
         match task.task_type.as_str() {
-            "daily" | "interval" | "weekly" => {}
-            _ => return Err(format!("无效的任务类型: {}", task.task_type)),
-        }
-        if task.task_type == "interval" {
-            if let Some(hours) = task.interval_hours {
-                if hours == 0 || hours > 168 {
-                    return Err("间隔时间必须在 1-168 小时之间".to_string());
+            "daily" => {
+                if task.time.is_none() {
+                    return Err("每日任务必须指定时间".to_string());
                 }
             }
+            "weekly" => {
+                if task.time.is_none() {
+                    return Err("每周任务必须指定时间".to_string());
+                }
+                if task.weekday.is_none() || task.weekday.unwrap() > 6 {
+                    return Err("每周任务必须指定星期几 (0-6)".to_string());
+                }
+            }
+            "interval" => {
+                if let Some(hours) = task.interval_hours {
+                    if hours == 0 || hours > 168 {
+                        return Err("间隔时间必须在 1-168 小时之间".to_string());
+                    }
+                } else {
+                    return Err("间隔任务必须指定间隔时间".to_string());
+                }
+            }
+            _ => return Err(format!("无效的任务类型: {}", task.task_type)),
         }
     }
 

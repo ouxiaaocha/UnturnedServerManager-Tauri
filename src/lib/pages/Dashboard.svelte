@@ -1,5 +1,6 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
+  import { formatBytes, formatUptime } from "$lib/utils";
 
   let status = $state("已停止");
   let uptime = $state("--");
@@ -25,13 +26,6 @@
   let lastPollTime = 0;
   let firstNetPoll = true;
   let polling = false;
-
-  function formatBytes(bytes: number): string {
-    if (bytes < 1024) return bytes + " B";
-    if (bytes < 1048576) return (bytes / 1024).toFixed(1) + " KB";
-    if (bytes < 1073741824) return (bytes / 1048576).toFixed(1) + " MB";
-    return (bytes / 1073741824).toFixed(2) + " GB";
-  }
 
   function formatRate(bytesPerSec: number): string {
     if (bytesPerSec < 0) return "0 B/s";
@@ -60,14 +54,7 @@
       const s: any = await invoke("get_server_status");
       status = s.state;
       pid = s.pid ? String(s.pid) : "--";
-      if (s.uptime_secs > 0) {
-        const h = Math.floor(s.uptime_secs / 3600);
-        const m = Math.floor((s.uptime_secs % 3600) / 60);
-        const sec = Math.floor(s.uptime_secs % 60);
-        uptime = h > 0 ? `${h}时${m}分${sec}秒` : m > 0 ? `${m}分${sec}秒` : `${sec}秒`;
-      } else {
-        uptime = "--";
-      }
+      uptime = formatUptime(s.uptime_secs);
     } catch {}
   }
 

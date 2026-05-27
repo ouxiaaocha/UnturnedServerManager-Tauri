@@ -1,5 +1,6 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
+  import { highlightText } from "$lib/utils";
 
   let category = $state("app");
   let dates: string[] = $state([]);
@@ -32,13 +33,6 @@
       logLines = [`读取失败: ${e}`];
     }
     loading = false;
-  }
-
-  function highlightText(text: string, query: string): string {
-    if (!query) return text.replace(/</g, '&lt;');
-    const escaped = text.replace(/</g, '&lt;');
-    const q = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    return escaped.replace(new RegExp(`(${q})`, 'gi'), '<mark class="bg-yellow-500/30 text-yellow-200 rounded px-0.5">$1</mark>');
   }
 
   function classifyLogLine(line: string): string {

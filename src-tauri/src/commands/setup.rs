@@ -111,13 +111,11 @@ pub fn init_server_save(app: AppHandle, server_root: String, save_name: String) 
         return Err(format!("找不到 Unturned.exe ({})", exe_path.display()));
     }
 
-    let rcon_port: u16 = 27115;
-
     emit(&app, &format!("[系统] 正在初始化存档 \"{}\"...", save_name));
     emit(&app, "[系统] 首次启动需要一些时间，请耐心等待...");
 
     std::thread::spawn(move || {
-        match do_init_save(&app, &exe_path, &server_root, &save_name, rcon_port) {
+        match do_init_save(&app, &exe_path, &server_root, &save_name) {
             Ok(()) => {
                 emit(&app, &format!("DONE:{}", save_name));
             }
@@ -141,7 +139,6 @@ fn do_init_save(
     exe_path: &Path,
     server_root: &str,
     save_name: &str,
-    rcon_port: u16,
 ) -> Result<(), String> {
     let mut cmd = Command::new(exe_path);
     cmd.args([

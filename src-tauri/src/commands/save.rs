@@ -227,7 +227,7 @@ pub fn list_server_saves(
         for entry in entries.flatten() {
             if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
                 let name = entry.file_name().to_string_lossy().to_string();
-                if name.is_empty() || name == "." || name == ".." {
+                if name.is_empty() {
                     continue;
                 }
                 let primary_path = entry.path().join("Server").join("Commands.dat");

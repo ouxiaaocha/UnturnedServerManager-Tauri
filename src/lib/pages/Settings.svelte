@@ -7,6 +7,9 @@
   let saving = $state(false);
   let message = $state("");
 
+  // Preserve existing RCON settings when saving
+  let existingRcon = $state({ host: "127.0.0.1", port: 27115, password: "" });
+
   async function loadConfig() {
     try {
       const config: any = await invoke("get_config");
@@ -15,6 +18,9 @@
         steamCmdPath = s.steamCmdPath || "";
         serverRoot = s.serverRoot || "";
         serverId = s.id || "";
+        if (s.rcon) {
+          existingRcon = { host: s.rcon.host || "127.0.0.1", port: s.rcon.port || 27115, password: s.rcon.password || "" };
+        }
       }
     } catch {}
   }
@@ -47,9 +53,9 @@
           serverEntry: `+InternetServer/${serverId}`,
           rcon: {
             enabled: true,
-            host: "127.0.0.1",
-            port: 27115,
-            password: "",
+            host: existingRcon.host,
+            port: existingRcon.port,
+            password: existingRcon.password,
           }
         }]
       };

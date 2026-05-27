@@ -31,7 +31,7 @@ pub async fn run_update(
 
     let args = vec![
         "+force_install_dir".to_string(),
-        server_root.clone(),
+        server_root,
         "+login".to_string(),
         "anonymous".to_string(),
         "+app_update".to_string(),
@@ -52,6 +52,18 @@ pub async fn run_update(
 
     let mut output_lines = Vec::new();
 
+    // Drain stderr in a separate thread to prevent pipe deadlock
+    let stderr_handle = child.stderr.take().map(|stderr| {
+        std::thread::spawn(move || {
+            let mut lines = Vec::new();
+            for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+                let t = line.trim().to_string();
+                if !t.is_empty() { lines.push(t); }
+            }
+            lines
+        })
+    });
+
     // Stream stdout lines in real-time via Tauri events
     if let Some(stdout) = child.stdout.take() {
         let app_clone = app.clone();
@@ -62,6 +74,7 @@ pub async fn run_update(
         }
     }
 
+    let _errs = stderr_handle.map(|h| h.join().unwrap_or_default()).unwrap_or_default();
     let status = child.wait().map_err(|e| format!("等待失败: {}", e))?;
 
     let result_msg = if status.success() {
