@@ -15,7 +15,7 @@
       <h2 class="text-xl font-bold text-white mb-1">Unturned 服务器管理工具</h2>
       <p class="text-sm text-[var(--text-muted)] mb-4">一站式 Unturned 服务器管理客户端</p>
       <div class="inline-block bg-[var(--bg-elevated)] text-[var(--accent-light)] text-xs font-mono px-3 py-1 rounded-full">
-        v1.0.0
+        v1.0.1
       </div>
     </div>
 
