@@ -147,7 +147,11 @@ pub fn start_server(
 
     {
         let mut pm = process.lock().unwrap_or_else(|e| e.into_inner());
-        pm.start(&profile)?;
+        pm.start(&profile).map_err(|e| {
+            let ls = log.lock().unwrap_or_else(|e| e.into_inner());
+            ls.log_operation(&format!("[ERROR] 启动服务器失败: {}", e));
+            e
+        })?;
     }
 
     let mode_str = if mode == "lan" { "局域网" } else { "互联网" };
@@ -214,6 +218,8 @@ pub async fn stop_server(
     }
 
     // Timeout: force stop
+    let ls = log.lock().unwrap_or_else(|e| e.into_inner());
+    ls.log_operation("[Warning] 服务器未响应，执行强制停止");
     let mut pm = process.lock().unwrap_or_else(|e| e.into_inner());
     pm.force_stop()?;
     Ok("服务器已强制停止".to_string())

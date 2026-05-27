@@ -17,7 +17,11 @@ pub async fn rcon_connect(
     };
 
     let mut client = rcon.lock().unwrap_or_else(|e| e.into_inner());
-    let welcome = client.connect(&host, port, &password)?;
+    let welcome = client.connect(&host, port, &password).map_err(|e| {
+        let ls = log.lock().unwrap_or_else(|e| e.into_inner());
+        ls.log_operation(&format!("[ERROR] RCON 连接失败 ({}:{}): {}", host, port, e));
+        e
+    })?;
 
     let ls = log.lock().unwrap_or_else(|e| e.into_inner());
     ls.log_operation("RCON 连接成功");
@@ -45,9 +49,15 @@ pub fn rcon_send(
 ) -> Result<(), String> {
     let mut client = rcon.lock().unwrap_or_else(|e| e.into_inner());
     if !client.is_connected() {
+        let ls = log.lock().unwrap_or_else(|e| e.into_inner());
+        ls.log_operation("[Warning] RCON 命令发送失败: 未连接");
         return Err("RCON 未连接".to_string());
     }
-    client.send_command(&command)?;
+    client.send_command(&command).map_err(|e| {
+        let ls = log.lock().unwrap_or_else(|e| e.into_inner());
+        ls.log_operation(&format!("[ERROR] RCON 命令发送失败: {}", e));
+        e
+    })?;
     drop(client);
 
     let ls = log.lock().unwrap_or_else(|e| e.into_inner());

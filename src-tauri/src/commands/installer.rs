@@ -2,10 +2,13 @@ use std::fs;
 use std::io::{BufRead, BufReader, Read};
 use std::path::Path;
 use std::process::{Command, Stdio};
-use tauri::{AppHandle, Emitter};
+use std::sync::{Arc, Mutex};
+use tauri::{AppHandle, Emitter, State};
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
+
+use crate::services::log_service::LogService;
 
 fn emit(app: &AppHandle, msg: &str) {
     let _ = app.emit("installer-progress", msg.to_string());
@@ -21,13 +24,26 @@ fn exe_dir() -> std::path::PathBuf {
 /// Spawn background download + init. Emits installer-progress events.
 /// Final event: "DONE:<path>" on success, "ERROR:<message>" on failure.
 #[tauri::command]
-pub fn download_steamcmd(app: AppHandle) -> Result<(), String> {
+pub fn download_steamcmd(app: AppHandle, log: State<'_, Arc<Mutex<LogService>>>) -> Result<(), String> {
+    {
+        let ls = log.lock().unwrap_or_else(|e| e.into_inner());
+        ls.log_app("[系统] 开始下载 SteamCMD");
+    }
     emit(&app, "[系统] 开始下载 SteamCMD...");
 
+    let log_clone = log.inner().clone();
     std::thread::spawn(move || {
         match do_download_steamcmd(&app) {
-            Ok(path) => emit(&app, &format!("DONE:{}", path)),
-            Err(e) => emit(&app, &format!("ERROR:{}", e)),
+            Ok(path) => {
+                let ls = log_clone.lock().unwrap_or_else(|e| e.into_inner());
+                ls.log_app("[系统] SteamCMD 下载完成");
+                emit(&app, &format!("DONE:{}", path));
+            }
+            Err(e) => {
+                let ls = log_clone.lock().unwrap_or_else(|e| e.into_inner());
+                ls.log_app(&format!("[ERROR] SteamCMD 下载失败: {}", e));
+                emit(&app, &format!("ERROR:{}", e));
+            }
         }
     });
 
@@ -173,17 +189,32 @@ fn do_download_steamcmd_inner(app: &AppHandle, steamcmd_dir: &Path, steamcmd_exe
 }
 
 #[tauri::command]
-pub fn download_server(app: AppHandle, steamcmd_path: String) -> Result<(), String> {
-    emit(&app, "[系统] 开始下载 Unturned 服务端...");
-
+pub fn download_server(app: AppHandle, log: State<'_, Arc<Mutex<LogService>>>, steamcmd_path: String) -> Result<(), String> {
     if steamcmd_path.is_empty() {
+        let ls = log.lock().unwrap_or_else(|e| e.into_inner());
+        ls.log_app("[ERROR] 下载服务端失败: SteamCMD 路径为空");
         return Err("SteamCMD 路径为空".to_string());
     }
 
+    {
+        let ls = log.lock().unwrap_or_else(|e| e.into_inner());
+        ls.log_app("[系统] 开始下载 Unturned 服务端");
+    }
+    emit(&app, "[系统] 开始下载 Unturned 服务端...");
+
+    let log_clone = log.inner().clone();
     std::thread::spawn(move || {
         match do_download_server(&app, &steamcmd_path) {
-            Ok(p) => emit(&app, &format!("DONE:{}", p)),
-            Err(e) => emit(&app, &format!("ERROR:{}", e)),
+            Ok(p) => {
+                let ls = log_clone.lock().unwrap_or_else(|e| e.into_inner());
+                ls.log_app("[系统] Unturned 服务端下载完成");
+                emit(&app, &format!("DONE:{}", p));
+            }
+            Err(e) => {
+                let ls = log_clone.lock().unwrap_or_else(|e| e.into_inner());
+                ls.log_app(&format!("[ERROR] Unturned 服务端下载失败: {}", e));
+                emit(&app, &format!("ERROR:{}", e));
+            }
         }
     });
 

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
+  import { listen } from "@tauri-apps/api/event";
   import { generatePassword } from "$lib/utils";
 
   let activeTab = $state("save");
@@ -31,6 +32,18 @@
   let plugins = $state<any[]>([]);
   let pluginNotes = $state<Record<string, string>>({});
 
+  // Save init state
+  let showInitPanel = $state(false);
+  let newSaveName = $state("Server");
+  let initRunning = $state(false);
+  let initDone = $state(false);
+  let initLogs = $state<string[]>([]);
+
+  // Rocket status for selected save
+  let saveHasRocket = $state<boolean | null>(null);
+  let rocketInitRunning = $state(false);
+  let rocketInitDone = $state(false);
+
   // Race condition guard: discard stale responses when switching saves
   let loadGeneration = 0;
   let msgTimer: ReturnType<typeof setTimeout> | undefined;
@@ -44,7 +57,80 @@
         selectedSaveId = saves[0].id;
         await loadCommandsDat();
       }
+      await checkRocketStatus();
     } catch {}
+  }
+
+  async function checkRocketStatus() {
+    if (!selectedSaveId) {
+      saveHasRocket = null;
+      return;
+    }
+    try {
+      saveHasRocket = await invoke("check_save_rocket_status", { saveId: selectedSaveId }) as boolean;
+    } catch {
+      saveHasRocket = false;
+    }
+  }
+
+  async function initNewSave() {
+    if (!newSaveName.trim()) return;
+    initRunning = true;
+    initDone = false;
+    initLogs = [];
+    const unlisten = await listen<string>("installer-progress", (event) => {
+      const msg = event.payload;
+      if (msg.startsWith("DONE:")) {
+        initDone = true;
+        initRunning = false;
+        unlisten();
+        loadSaves();
+      } else if (msg.startsWith("ERROR:")) {
+        alert(`初始化失败: ${msg.slice(6)}`);
+        initRunning = false;
+        unlisten();
+      } else {
+        initLogs.push(msg);
+        if (initLogs.length > 200) initLogs = initLogs.slice(-100);
+      }
+    });
+    try {
+      await invoke("init_server_save", { saveName: newSaveName });
+    } catch (e: any) {
+      alert(`启动失败: ${e}`);
+      initRunning = false;
+      unlisten();
+    }
+  }
+
+  async function initRocketForSave() {
+    if (!selectedSaveId) return;
+    rocketInitRunning = true;
+    rocketInitDone = false;
+    initLogs = [];
+    const unlisten = await listen<string>("installer-progress", (event) => {
+      const msg = event.payload;
+      if (msg.startsWith("DONE:")) {
+        rocketInitDone = true;
+        rocketInitRunning = false;
+        unlisten();
+        checkRocketStatus();
+      } else if (msg.startsWith("ERROR:")) {
+        alert(`初始化失败: ${msg.slice(6)}`);
+        rocketInitRunning = false;
+        unlisten();
+      } else {
+        initLogs.push(msg);
+        if (initLogs.length > 200) initLogs = initLogs.slice(-100);
+      }
+    });
+    try {
+      await invoke("init_server_save", { saveName: selectedSaveId });
+    } catch (e: any) {
+      alert(`启动失败: ${e}`);
+      rocketInitRunning = false;
+      unlisten();
+    }
   }
 
   async function loadCommandsDat() {
@@ -148,6 +234,7 @@
 
   async function onSaveChange() {
     await loadCommandsDat();
+    await checkRocketStatus();
     if (activeTab === "plugins") {
       await loadPlugins();
     }
@@ -178,22 +265,118 @@
 
   <!-- Save Selector -->
   <div class="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-4 mb-5">
-    <div class="flex items-center gap-4">
+    <div class="flex items-center gap-4 flex-wrap">
       <label class="text-sm text-[var(--text-secondary)]">选择存档:</label>
-      <select
-        bind:value={selectedSaveId}
-        onchange={onSaveChange}
-        class="bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2 text-sm text-white focus:outline-none focus:border-[var(--accent)] transition-colors cursor-pointer min-w-[200px]"
-      >
-        {#each saves as save}
-          <option value={save.id}>{save.id}{save.name ? ` - ${save.name}` : ''}</option>
-        {/each}
-      </select>
       {#if saves.length === 0}
-        <span class="text-sm text-[var(--text-muted)]">未找到存档目录</span>
+        <span class="text-sm text-[var(--text-muted)]">未找到存档</span>
+      {:else}
+        <select
+          bind:value={selectedSaveId}
+          onchange={onSaveChange}
+          class="bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2 text-sm text-white focus:outline-none focus:border-[var(--accent)] transition-colors cursor-pointer min-w-[200px]"
+        >
+          {#each saves as save}
+            <option value={save.id}>{save.id}{save.name ? ` - ${save.name}` : ''}</option>
+          {/each}
+        </select>
+      {/if}
+      <button
+        class="px-4 py-2 bg-gradient-to-r from-[var(--accent)] to-cyan-600 hover:from-cyan-500 hover:to-[var(--accent)] text-white text-sm font-medium rounded-lg transition-all cursor-pointer flex items-center gap-2"
+        onclick={() => showInitPanel = !showInitPanel}
+      >
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+        </svg>
+        新建存档
+      </button>
+    </div>
+
+    <!-- Init New Save Panel -->
+    {#if showInitPanel}
+      <div class="mt-4 pt-4 border-t border-[var(--border)]">
+        <p class="text-xs text-[var(--text-muted)] mb-3">创建新的服务器存档。服务端会自动启动并生成世界数据和配置文件。</p>
+        <div class="flex items-end gap-3">
+          <div class="flex-1">
+            <label class="block text-xs text-[var(--text-muted)] mb-1.5">存档名称</label>
+            <input type="text" bind:value={newSaveName} placeholder="Server"
+              disabled={initRunning || initDone}
+              class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2 text-sm text-white placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors disabled:opacity-50" />
+            <p class="text-[10px] text-[var(--danger)] mt-1">不能包含中文字符和特殊符号</p>
+          </div>
+          <button
+            class="px-5 py-2 bg-gradient-to-r from-[var(--success)] to-emerald-600 hover:from-emerald-500 hover:to-[var(--success)] text-white text-sm font-medium rounded-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2 flex-shrink-0"
+            onclick={initNewSave} disabled={initRunning || initDone || !newSaveName.trim()}
+          >
+            {#if initRunning}
+              <div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+              初始化中...
+            {:else}
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              开始初始化
+            {/if}
+          </button>
+        </div>
+        {#if initDone}
+          <p class="text-xs text-[var(--success)] mt-2 flex items-center gap-1">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+            存档初始化成功！
+          </p>
+        {/if}
+        {#if initRunning && initLogs.length > 0}
+          <div class="mt-3 bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg p-3 max-h-32 overflow-y-auto">
+            {#each initLogs as log}
+              <p class="text-xs text-[var(--text-secondary)] leading-5 font-mono">{log}</p>
+            {/each}
+          </div>
+        {/if}
+      </div>
+    {/if}
+  </div>
+
+  <!-- Rocket Status Warning -->
+  {#if selectedSaveId && saveHasRocket === false}
+    <div class="bg-[var(--warning-glow)] border border-[var(--warning)]/30 rounded-xl p-4 mb-5">
+      <div class="flex items-center gap-3 mb-2">
+        <svg class="w-5 h-5 text-[var(--warning)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+        </svg>
+        <span class="text-sm text-[var(--warning)] font-medium">存档 "{selectedSaveId}" 缺少 Rocket 配置</span>
+      </div>
+      <p class="text-xs text-[var(--text-secondary)] mb-3">RCON 和插件功能需要 Rocket 配置文件。运行一次服务端来自动生成。</p>
+      <div class="flex items-center gap-3">
+        <button
+          class="px-5 py-2 bg-gradient-to-r from-[var(--warning)] to-amber-600 hover:from-amber-500 hover:to-[var(--warning)] text-white text-sm font-medium rounded-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2"
+          onclick={initRocketForSave} disabled={rocketInitRunning || rocketInitDone}
+        >
+          {#if rocketInitRunning}
+            <div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+            初始化中...
+          {:else}
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            初始化 Rocket 配置
+          {/if}
+        </button>
+        {#if rocketInitDone}
+          <span class="text-xs text-[var(--success)] flex items-center gap-1">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+            初始化成功
+          </span>
+        {/if}
+      </div>
+      {#if rocketInitRunning && initLogs.length > 0}
+        <div class="mt-3 bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg p-3 max-h-32 overflow-y-auto">
+          {#each initLogs as log}
+            <p class="text-xs text-[var(--text-secondary)] leading-5 font-mono">{log}</p>
+          {/each}
+        </div>
       {/if}
     </div>
-  </div>
+  {/if}
 
   <!-- Tabs -->
   <div class="flex gap-2 mb-5">

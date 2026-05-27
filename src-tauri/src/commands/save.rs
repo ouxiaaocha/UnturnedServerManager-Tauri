@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use crate::services::config_service::ConfigService;
+use crate::services::log_service::LogService;
 
 #[derive(Serialize)]
 pub struct SaveInfo {
@@ -303,6 +304,7 @@ pub fn read_commands_dat(
 #[tauri::command]
 pub fn save_commands_dat(
     config: State<'_, Arc<Mutex<ConfigService>>>,
+    log: State<'_, Arc<Mutex<LogService>>>,
     save_id: Option<String>,
     info: CommandsDatInfo,
 ) -> Result<String, String> {
@@ -338,10 +340,17 @@ pub fn save_commands_dat(
 
     let content = build_commands_dat_lines(&existing_lines, &info).join("\n");
     crate::services::config_service::atomic_write(&path, &content)
-        .map_err(|e| format!("保存 Commands.dat 失败: {}", e))?;
+        .map_err(|e| {
+            let ls = log.lock().unwrap_or_else(|e| e.into_inner());
+            ls.log_app(&format!("[ERROR] 保存 Commands.dat 失败 ({}): {}", server_id, e));
+            format!("保存 Commands.dat 失败: {}", e)
+        })?;
 
     // Sync Rocket.config.xml with RCON settings
     let _ = ConfigService::update_rocket_config(&server_root, &server_id, rcon_port, &rcon_password);
+
+    let ls = log.lock().unwrap_or_else(|e| e.into_inner());
+    ls.log_operation(&format!("保存存档配置: {}", server_id));
 
     Ok("Commands.dat 已保存".to_string())
 }
@@ -499,6 +508,7 @@ pub fn read_rocket_rcon_config(
 #[tauri::command]
 pub fn save_rocket_rcon_config(
     config: State<'_, Arc<Mutex<ConfigService>>>,
+    log: State<'_, Arc<Mutex<LogService>>>,
     save_id: Option<String>,
     port: u16,
     password: String,
@@ -508,7 +518,16 @@ pub fn save_rocket_rcon_config(
         resolve_save_dir(&cfg, &save_id)?
     };
 
-    ConfigService::update_rocket_config(&server_root, &server_id, port, &password)?;
+    ConfigService::update_rocket_config(&server_root, &server_id, port, &password)
+        .map_err(|e| {
+            let ls = log.lock().unwrap_or_else(|e| e.into_inner());
+            ls.log_app(&format!("[ERROR] 保存 RCON 配置失败 ({}): {}", server_id, e));
+            e
+        })?;
+
+    let ls = log.lock().unwrap_or_else(|e| e.into_inner());
+    ls.log_operation(&format!("保存 RCON 配置: 存档 {}", server_id));
+
     Ok("RCON 配置已保存".to_string())
 }
 

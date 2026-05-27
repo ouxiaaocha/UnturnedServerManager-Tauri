@@ -2,8 +2,12 @@ use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::process::{Command, Stdio};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, State};
+
+use crate::services::config_service::ConfigService;
+use crate::services::log_service::LogService;
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
@@ -34,22 +38,38 @@ pub fn detect_rocket_module(server_root: String) -> Result<bool, String> {
 
 /// Copy Rocket.Unturned from Extras to Modules (background thread).
 #[tauri::command]
-pub fn install_rocket_module(app: AppHandle, server_root: String) -> Result<(), String> {
+pub fn install_rocket_module(
+    app: AppHandle,
+    log: State<'_, Arc<Mutex<LogService>>>,
+    server_root: String,
+) -> Result<(), String> {
     let src = Path::new(&server_root).join("Extras").join("Rocket.Unturned");
     if !src.exists() {
+        let ls = log.lock().unwrap_or_else(|e| e.into_inner());
+        ls.log_app(&format!("[ERROR] 安装 Rocket 失败: 未找到 Extras/Rocket.Unturned 目录 ({})", src.display()));
         return Err(format!("未找到 Extras/Rocket.Unturned 目录 ({})", src.display()));
+    }
+
+    {
+        let ls = log.lock().unwrap_or_else(|e| e.into_inner());
+        ls.log_app("[系统] 开始安装 Rocket.Unturned 模块");
     }
 
     emit(&app, "[系统] 正在安装 Rocket.Unturned 模块...");
 
+    let log_clone = log.inner().clone();
     std::thread::spawn(move || {
         let dst = Path::new(&server_root).join("Modules").join("Rocket.Unturned");
         match copy_dir_recursive(&src, &dst) {
             Ok(count) => {
+                let ls = log_clone.lock().unwrap_or_else(|e| e.into_inner());
+                ls.log_app(&format!("[系统] Rocket.Unturned 安装成功，已复制 {} 个文件", count));
                 emit(&app, &format!("[系统] 已复制 {} 个文件", count));
                 emit(&app, "DONE:已安装");
             }
             Err(e) => {
+                let ls = log_clone.lock().unwrap_or_else(|e| e.into_inner());
+                ls.log_app(&format!("[ERROR] Rocket.Unturned 安装失败: {}", e));
                 // Clean up partial copy
                 let _ = fs::remove_dir_all(&dst);
                 emit(&app, &format!("ERROR:安装失败: {}", e));
@@ -80,8 +100,22 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<usize, String> {
 
 /// Check if a save has Rocket initialized (Rocket folder + Rocket.config.xml).
 #[tauri::command]
-pub fn check_save_rocket_status(server_root: String, save_id: String) -> Result<bool, String> {
-    if server_root.is_empty() || save_id.is_empty() {
+pub fn check_save_rocket_status(
+    config: State<'_, Arc<Mutex<ConfigService>>>,
+    server_root: Option<String>,
+    save_id: String,
+) -> Result<bool, String> {
+    let server_root = if let Some(sr) = server_root.filter(|s| !s.is_empty()) {
+        sr
+    } else {
+        let cfg = config.lock().unwrap_or_else(|e| e.into_inner());
+        let servers_config = cfg.load_servers_config();
+        match servers_config.servers.first() {
+            Some(p) => p.server_root.clone(),
+            None => return Ok(false),
+        }
+    };
+    if save_id.is_empty() {
         return Ok(false);
     }
     let rocket_config = Path::new(&server_root)
@@ -95,31 +129,69 @@ pub fn check_save_rocket_status(server_root: String, save_id: String) -> Result<
 /// Initialize a server save by running the server once until "Loading level: 100%".
 /// Uses background thread + events.
 #[tauri::command]
-pub fn init_server_save(app: AppHandle, server_root: String, save_name: String) -> Result<(), String> {
+pub fn init_server_save(
+    app: AppHandle,
+    config: State<'_, Arc<Mutex<ConfigService>>>,
+    log: State<'_, Arc<Mutex<LogService>>>,
+    server_root: Option<String>,
+    save_name: String,
+) -> Result<(), String> {
+    let server_root = if let Some(sr) = server_root.filter(|s| !s.is_empty()) {
+        sr
+    } else {
+        let cfg = config.lock().unwrap_or_else(|e| e.into_inner());
+        let servers_config = cfg.load_servers_config();
+        match servers_config.servers.first() {
+            Some(p) => p.server_root.clone(),
+            None => {
+                let ls = log.lock().unwrap_or_else(|e| e.into_inner());
+                ls.log_app("[ERROR] 初始化存档失败: 没有配置服务器");
+                return Err("没有配置服务器".to_string());
+            }
+        }
+    };
     if save_name.is_empty() {
+        let ls = log.lock().unwrap_or_else(|e| e.into_inner());
+        ls.log_app("[ERROR] 初始化存档失败: 存档名称不能为空");
         return Err("存档名称不能为空".to_string());
     }
     if save_name.chars().any(|c| c >= '\u{4e00}' && c <= '\u{9fff}') {
+        let ls = log.lock().unwrap_or_else(|e| e.into_inner());
+        ls.log_app("[ERROR] 初始化存档失败: 存档名称不能包含中文字符");
         return Err("存档名称不能包含中文字符".to_string());
     }
     if save_name.contains('/') || save_name.contains('\\') || save_name.contains("..") || save_name.contains(':') {
+        let ls = log.lock().unwrap_or_else(|e| e.into_inner());
+        ls.log_app("[ERROR] 初始化存档失败: 存档名称包含非法字符");
         return Err("存档名称包含非法字符".to_string());
     }
 
     let exe_path = Path::new(&server_root).join("Unturned.exe");
     if !exe_path.exists() {
+        let ls = log.lock().unwrap_or_else(|e| e.into_inner());
+        ls.log_app(&format!("[ERROR] 初始化存档失败: 找不到 Unturned.exe ({})", exe_path.display()));
         return Err(format!("找不到 Unturned.exe ({})", exe_path.display()));
+    }
+
+    {
+        let ls = log.lock().unwrap_or_else(|e| e.into_inner());
+        ls.log_app(&format!("[系统] 开始初始化存档 \"{}\"", save_name));
     }
 
     emit(&app, &format!("[系统] 正在初始化存档 \"{}\"...", save_name));
     emit(&app, "[系统] 首次启动需要一些时间，请耐心等待...");
 
+    let log_clone = log.inner().clone();
     std::thread::spawn(move || {
         match do_init_save(&app, &exe_path, &server_root, &save_name) {
             Ok(()) => {
+                let ls = log_clone.lock().unwrap_or_else(|e| e.into_inner());
+                ls.log_app(&format!("[系统] 存档 \"{}\" 初始化成功", save_name));
                 emit(&app, &format!("DONE:{}", save_name));
             }
             Err(e) => {
+                let ls = log_clone.lock().unwrap_or_else(|e| e.into_inner());
+                ls.log_app(&format!("[ERROR] 存档 \"{}\" 初始化失败: {}", save_name, e));
                 // Clean up partial save directory
                 let save_dir = Path::new(&server_root).join("Servers").join(&save_name);
                 let _ = fs::remove_dir_all(&save_dir);
