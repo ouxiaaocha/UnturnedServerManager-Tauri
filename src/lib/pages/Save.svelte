@@ -37,12 +37,13 @@
   let newSaveName = $state("Server");
   let initRunning = $state(false);
   let initDone = $state(false);
-  let initLogs = $state<string[]>([]);
+  let newSaveLogs = $state<string[]>([]);
 
   // Rocket status for selected save
   let saveHasRocket = $state<boolean | null>(null);
   let rocketInitRunning = $state(false);
   let rocketInitDone = $state(false);
+  let rocketInitLogs = $state<string[]>([]);
 
   // Race condition guard: discard stale responses when switching saves
   let loadGeneration = 0;
@@ -77,7 +78,7 @@
     if (!newSaveName.trim()) return;
     initRunning = true;
     initDone = false;
-    initLogs = [];
+    newSaveLogs = [];
     const unlisten = await listen<string>("installer-progress", (event) => {
       const msg = event.payload;
       if (msg.startsWith("DONE:")) {
@@ -90,8 +91,8 @@
         initRunning = false;
         unlisten();
       } else {
-        initLogs.push(msg);
-        if (initLogs.length > 200) initLogs = initLogs.slice(-100);
+        newSaveLogs.push(msg);
+        if (newSaveLogs.length > 200) newSaveLogs = newSaveLogs.slice(-100);
       }
     });
     try {
@@ -107,7 +108,7 @@
     if (!selectedSaveId) return;
     rocketInitRunning = true;
     rocketInitDone = false;
-    initLogs = [];
+    rocketInitLogs = [];
     const unlisten = await listen<string>("installer-progress", (event) => {
       const msg = event.payload;
       if (msg.startsWith("DONE:")) {
@@ -120,8 +121,8 @@
         rocketInitRunning = false;
         unlisten();
       } else {
-        initLogs.push(msg);
-        if (initLogs.length > 200) initLogs = initLogs.slice(-100);
+        rocketInitLogs.push(msg);
+        if (rocketInitLogs.length > 200) rocketInitLogs = rocketInitLogs.slice(-100);
       }
     });
     try {
@@ -198,7 +199,7 @@
 
   async function loadPlugins() {
     if (!selectedSaveId) return;
-    const gen = loadGeneration;
+    const gen = ++loadGeneration;
     pluginsLoading = true;
     try {
       const [p, n] = await Promise.all([
@@ -233,6 +234,8 @@
   }
 
   async function onSaveChange() {
+    rocketInitDone = false;
+    rocketInitRunning = false;
     await loadCommandsDat();
     await checkRocketStatus();
     if (activeTab === "plugins") {
@@ -325,9 +328,9 @@
             存档初始化成功！
           </p>
         {/if}
-        {#if initRunning && initLogs.length > 0}
+        {#if initRunning && newSaveLogs.length > 0}
           <div class="mt-3 bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg p-3 max-h-32 overflow-y-auto">
-            {#each initLogs as log}
+            {#each newSaveLogs as log}
               <p class="text-xs text-[var(--text-secondary)] leading-5 font-mono">{log}</p>
             {/each}
           </div>
@@ -368,9 +371,9 @@
           </span>
         {/if}
       </div>
-      {#if rocketInitRunning && initLogs.length > 0}
+      {#if rocketInitRunning && rocketInitLogs.length > 0}
         <div class="mt-3 bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg p-3 max-h-32 overflow-y-auto">
-          {#each initLogs as log}
+          {#each rocketInitLogs as log}
             <p class="text-xs text-[var(--text-secondary)] leading-5 font-mono">{log}</p>
           {/each}
         </div>

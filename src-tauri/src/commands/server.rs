@@ -218,8 +218,10 @@ pub async fn stop_server(
     }
 
     // Timeout: force stop
-    let ls = log.lock().unwrap_or_else(|e| e.into_inner());
-    ls.log_operation("[Warning] 服务器未响应，执行强制停止");
+    {
+        let ls = log.lock().unwrap_or_else(|e| e.into_inner());
+        ls.log_operation("[Warning] 服务器未响应，执行强制停止");
+    }
     let mut pm = process.lock().unwrap_or_else(|e| e.into_inner());
     pm.force_stop()?;
     Ok("服务器已强制停止".to_string())

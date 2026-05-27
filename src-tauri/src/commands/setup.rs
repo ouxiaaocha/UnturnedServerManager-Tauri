@@ -181,6 +181,11 @@ pub fn init_server_save(
     emit(&app, &format!("[系统] 正在初始化存档 \"{}\"...", save_name));
     emit(&app, "[系统] 首次启动需要一些时间，请耐心等待...");
 
+    // Record whether save dir already exists before init (to avoid deleting existing data on failure)
+    let save_dir = Path::new(&server_root).join("Servers").join(&save_name);
+    let save_dir_lower = Path::new(&server_root).join("Servers").join(save_name.to_lowercase());
+    let existed_before = save_dir.exists() || save_dir_lower.exists();
+
     let log_clone = log.inner().clone();
     std::thread::spawn(move || {
         match do_init_save(&app, &exe_path, &server_root, &save_name) {
@@ -192,12 +197,11 @@ pub fn init_server_save(
             Err(e) => {
                 let ls = log_clone.lock().unwrap_or_else(|e| e.into_inner());
                 ls.log_app(&format!("[ERROR] 存档 \"{}\" 初始化失败: {}", save_name, e));
-                // Clean up partial save directory
-                let save_dir = Path::new(&server_root).join("Servers").join(&save_name);
-                let _ = fs::remove_dir_all(&save_dir);
-                // Also try lowercase
-                let save_dir_lower = Path::new(&server_root).join("Servers").join(save_name.to_lowercase());
-                let _ = fs::remove_dir_all(&save_dir_lower);
+                // Only clean up if save didn't exist before (partial new save)
+                if !existed_before {
+                    let _ = fs::remove_dir_all(&save_dir);
+                    let _ = fs::remove_dir_all(&save_dir_lower);
+                }
                 emit(&app, &format!("ERROR:{}", e));
             }
         }
