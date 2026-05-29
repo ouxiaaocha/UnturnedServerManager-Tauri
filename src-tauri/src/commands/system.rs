@@ -9,6 +9,5 @@ pub fn get_system_stats(
     monitor: State<'_, Arc<Mutex<SystemMonitor>>>,
 ) -> SystemStats {
     let mut m = monitor.lock().unwrap_or_else(|e| e.into_inner());
-    m.refresh();
-    m.get_stats()
+    m.stats()
 }

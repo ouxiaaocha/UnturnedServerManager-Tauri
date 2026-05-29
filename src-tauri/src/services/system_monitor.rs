@@ -1,11 +1,16 @@
-use sysinfo::{Networks, System};
 use crate::models::system_stats::SystemStats;
+use std::time::{Duration, Instant};
+use sysinfo::{Networks, System};
+
+const SAMPLE_INTERVAL: Duration = Duration::from_secs(1);
 
 pub struct SystemMonitor {
     system: System,
     networks: Networks,
     initial_bytes_received: u64,
     initial_bytes_transmitted: u64,
+    last_refresh: Option<Instant>,
+    cached_stats: Option<SystemStats>,
 }
 
 impl SystemMonitor {
@@ -22,16 +27,35 @@ impl SystemMonitor {
             networks,
             initial_bytes_received: initial_received,
             initial_bytes_transmitted: initial_transmitted,
+            last_refresh: None,
+            cached_stats: None,
         }
     }
 
-    pub fn refresh(&mut self) {
+    fn refresh(&mut self) {
         self.system.refresh_cpu_all();
         self.system.refresh_memory();
         self.networks.refresh(false);
+        self.last_refresh = Some(Instant::now());
+        self.cached_stats = Some(self.compute_stats());
     }
 
-    pub fn get_stats(&self) -> SystemStats {
+    pub fn stats(&mut self) -> SystemStats {
+        let should_refresh = self
+            .last_refresh
+            .map(|last| last.elapsed() >= SAMPLE_INTERVAL)
+            .unwrap_or(true);
+
+        if should_refresh {
+            self.refresh();
+        }
+
+        self.cached_stats
+            .clone()
+            .unwrap_or_else(|| self.compute_stats())
+    }
+
+    fn compute_stats(&self) -> SystemStats {
         let cpu_usage = self.system.global_cpu_usage();
         let total_memory = self.system.total_memory();
         let used_memory = self.system.used_memory();

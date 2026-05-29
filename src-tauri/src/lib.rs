@@ -60,6 +60,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::server::get_server_status,
             commands::server::get_server_output,
+            commands::server::get_server_snapshot,
             commands::server::start_server,
             commands::server::stop_server,
             commands::server::force_stop_server,

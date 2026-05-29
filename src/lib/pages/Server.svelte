@@ -14,6 +14,8 @@
   let firstLoadDone = false;
   let isStarting = false;
   let polling = false;
+  let pollTimer: ReturnType<typeof setTimeout> | undefined;
+  let pollToken = 0;
 
   let saves = $state<any[]>([]);
   let selectedSaveId = $state("");
@@ -40,13 +42,13 @@
     if (polling) return;
     polling = true;
     try {
-      const s: any = await invoke("get_server_status");
+      const s: any = await invoke("get_server_snapshot", { fromIndex: outputIndex });
       status = s.state;
       pid = s.pid ? String(s.pid) : "--";
       uptime = formatUptime(s.uptime_secs);
 
       if (!isStarting && s.output_count > outputIndex) {
-        const newLines: string[] = await invoke("get_server_output", { fromIndex: outputIndex });
+        const newLines = (s.output ?? []) as string[];
         for (const line of newLines) {
           logs.push({ text: line, level: classifyLine(line) });
         }
@@ -64,8 +66,10 @@
           }, 50);
         }
       }
-    } catch {}
-    polling = false;
+    } catch {
+    } finally {
+      polling = false;
+    }
   }
 
   async function startServer() {
@@ -130,11 +134,39 @@
     isNearBottom = scrollHeight - scrollTop - clientHeight < 80;
   }
 
+  function nextPollDelay() {
+    if (document.hidden) return 10000;
+    if (loading || status === "运行中") return 2000;
+    return 5000;
+  }
+
+  async function pollLoop(token = pollToken) {
+    await refreshStatus();
+    if (token === pollToken) {
+      pollTimer = setTimeout(() => pollLoop(token), nextPollDelay());
+    }
+  }
+
+  function restartPolling() {
+    pollToken += 1;
+    if (pollTimer) clearTimeout(pollTimer);
+    pollLoop(pollToken);
+  }
+
   $effect(() => {
     loadSaves();
-    refreshStatus();
-    const interval = setInterval(refreshStatus, 2000);
-    return () => clearInterval(interval);
+    restartPolling();
+    const onVisibilityChange = () => {
+      if (!document.hidden) {
+        restartPolling();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      pollToken += 1;
+      if (pollTimer) clearTimeout(pollTimer);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
   });
 </script>
 

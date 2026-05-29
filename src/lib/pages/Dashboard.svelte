@@ -26,6 +26,8 @@
   let lastPollTime = 0;
   let firstNetPoll = true;
   let polling = false;
+  let pollTimer: ReturnType<typeof setTimeout> | undefined;
+  let pollToken = 0;
 
   function formatRate(bytesPerSec: number): string {
     if (bytesPerSec < 0) return "0 B/s";
@@ -139,11 +141,39 @@
     }
   }
 
+  function nextPollDelay() {
+    if (document.hidden) return 10000;
+    if (loading || status === "运行中") return 2000;
+    return 5000;
+  }
+
+  async function pollLoop(token = pollToken) {
+    await pollAll();
+    if (token === pollToken) {
+      pollTimer = setTimeout(() => pollLoop(token), nextPollDelay());
+    }
+  }
+
+  function restartPolling() {
+    pollToken += 1;
+    if (pollTimer) clearTimeout(pollTimer);
+    pollLoop(pollToken);
+  }
+
   $effect(() => {
     loadSaves();
-    pollAll();
-    const interval = setInterval(pollAll, 2000);
-    return () => clearInterval(interval);
+    restartPolling();
+    const onVisibilityChange = () => {
+      if (!document.hidden) {
+        restartPolling();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      pollToken += 1;
+      if (pollTimer) clearTimeout(pollTimer);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
   });
 </script>
 

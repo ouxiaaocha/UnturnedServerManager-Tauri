@@ -39,17 +39,27 @@ pub struct PluginInfo {
 }
 
 fn validate_save_id(id: &str) -> Result<(), String> {
-    if id.contains('/') || id.contains('\\') || id.contains("..")
-        || id.contains(':') || id.contains('*') || id.contains('?')
-        || id.contains('"') || id.contains('<') || id.contains('>')
-        || id.contains('|') || id.is_empty()
+    if id.contains('/')
+        || id.contains('\\')
+        || id.contains("..")
+        || id.contains(':')
+        || id.contains('*')
+        || id.contains('?')
+        || id.contains('"')
+        || id.contains('<')
+        || id.contains('>')
+        || id.contains('|')
+        || id.is_empty()
     {
         return Err("存档 ID 包含非法字符".to_string());
     }
     Ok(())
 }
 
-fn resolve_save_dir(config: &ConfigService, save_id: &Option<String>) -> Result<(String, String), String> {
+fn resolve_save_dir(
+    config: &ConfigService,
+    save_id: &Option<String>,
+) -> Result<(String, String), String> {
     let servers_config = config.load_servers_config();
     let profile = servers_config.servers.first().ok_or("没有配置服务器")?;
     let server_id = save_id.clone().unwrap_or_else(|| profile.id.clone());
@@ -123,12 +133,24 @@ fn build_commands_dat_lines(existing_lines: &[String], info: &CommandsDatInfo) -
     new_values.insert("Name", render_value_command("Name", info.name.as_deref()));
     new_values.insert("Map", render_value_command("Map", info.map.as_deref()));
     new_values.insert("Port", info.port.map(|v| format!("Port {}", v)));
-    new_values.insert("MaxPlayers", info.max_players.map(|v| format!("MaxPlayers {}", v)));
-    new_values.insert("Password", render_value_command("Password", info.password.as_deref()));
-    new_values.insert("Owner", render_value_command("Owner", info.owner.as_deref()));
+    new_values.insert(
+        "MaxPlayers",
+        info.max_players.map(|v| format!("MaxPlayers {}", v)),
+    );
+    new_values.insert(
+        "Password",
+        render_value_command("Password", info.password.as_deref()),
+    );
+    new_values.insert(
+        "Owner",
+        render_value_command("Owner", info.owner.as_deref()),
+    );
     new_values.insert("Cheats", render_flag_command("Cheats", info.cheats));
     new_values.insert("PvE", render_flag_command("PvE", info.pve));
-    new_values.insert("Perspective", render_value_command("Perspective", info.perspective.as_deref()));
+    new_values.insert(
+        "Perspective",
+        render_value_command("Perspective", info.perspective.as_deref()),
+    );
     new_values.insert("GSLT", render_value_command("GSLT", info.gslt.as_deref()));
 
     let managed_set: std::collections::HashSet<&str> = MANAGED_COMMANDS.iter().copied().collect();
@@ -143,7 +165,7 @@ fn build_commands_dat_lines(existing_lines: &[String], info: &CommandsDatInfo) -
             continue;
         }
 
-        let cmd = trimmed.splitn(2, ' ').next().unwrap_or("");
+        let cmd = trimmed.split(' ').next().unwrap_or("");
         if managed_set.contains(cmd) {
             written_set.insert(cmd);
             if let Some(Some(new_val)) = new_values.get(cmd) {
@@ -198,8 +220,16 @@ fn detect_commands_dat_path(server_root: &str, server_id: &str) -> PathBuf {
 
 /// Known Commands.dat commands that we manage structurally.
 const MANAGED_COMMANDS: &[&str] = &[
-    "Name", "Map", "Port", "MaxPlayers", "Password", "Owner",
-    "Cheats", "PvE", "Perspective", "GSLT",
+    "Name",
+    "Map",
+    "Port",
+    "MaxPlayers",
+    "Password",
+    "Owner",
+    "Cheats",
+    "PvE",
+    "Perspective",
+    "GSLT",
 ];
 
 #[tauri::command]
@@ -297,7 +327,8 @@ pub fn read_commands_dat(
         });
     }
 
-    let content = fs::read_to_string(&path).map_err(|e| format!("读取 Commands.dat 失败: {}", e))?;
+    let content =
+        fs::read_to_string(&path).map_err(|e| format!("读取 Commands.dat 失败: {}", e))?;
     Ok(parse_commands_dat(&content))
 }
 
@@ -320,7 +351,10 @@ pub fn save_commands_dat(
         (sr, sid, rp, rpw)
     };
 
-    let dir = Path::new(&server_root).join("Servers").join(&server_id).join("Server");
+    let dir = Path::new(&server_root)
+        .join("Servers")
+        .join(&server_id)
+        .join("Server");
     if !dir.exists() {
         fs::create_dir_all(&dir).map_err(|e| format!("创建目录失败: {}", e))?;
     }
@@ -339,15 +373,18 @@ pub fn save_commands_dat(
     };
 
     let content = build_commands_dat_lines(&existing_lines, &info).join("\n");
-    crate::services::config_service::atomic_write(&path, &content)
-        .map_err(|e| {
-            let ls = log.lock().unwrap_or_else(|e| e.into_inner());
-            ls.log_app(&format!("[ERROR] 保存 Commands.dat 失败 ({}): {}", server_id, e));
-            format!("保存 Commands.dat 失败: {}", e)
-        })?;
+    crate::services::config_service::atomic_write(&path, &content).map_err(|e| {
+        let ls = log.lock().unwrap_or_else(|e| e.into_inner());
+        ls.log_app(&format!(
+            "[ERROR] 保存 Commands.dat 失败 ({}): {}",
+            server_id, e
+        ));
+        format!("保存 Commands.dat 失败: {}", e)
+    })?;
 
     // Sync Rocket.config.xml with RCON settings
-    let _ = ConfigService::update_rocket_config(&server_root, &server_id, rcon_port, &rcon_password);
+    let _ =
+        ConfigService::update_rocket_config(&server_root, &server_id, rcon_port, &rcon_password);
 
     let ls = log.lock().unwrap_or_else(|e| e.into_inner());
     ls.log_operation(&format!("保存存档配置: {}", server_id));
@@ -382,9 +419,19 @@ pub fn list_plugins(
     if let Ok(entries) = fs::read_dir(&plugins_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.extension().map(|e| e.to_string_lossy().to_lowercase()) == Some("dll".to_string()) {
-                let file_name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
-                let name = path.file_stem().unwrap_or_default().to_string_lossy().to_string();
+            if path.extension().map(|e| e.to_string_lossy().to_lowercase())
+                == Some("dll".to_string())
+            {
+                let file_name = path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string();
+                let name = path
+                    .file_stem()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string();
                 plugins.push(PluginInfo {
                     name,
                     file_name,
@@ -434,9 +481,7 @@ pub fn open_plugin_config_dir(
 }
 
 #[tauri::command]
-pub fn load_plugin_notes(
-    config: State<'_, Arc<Mutex<ConfigService>>>,
-) -> HashMap<String, String> {
+pub fn load_plugin_notes(config: State<'_, Arc<Mutex<ConfigService>>>) -> HashMap<String, String> {
     let cfg = config.lock().unwrap_or_else(|e| e.into_inner());
     cfg.load_plugin_notes()
 }
@@ -474,11 +519,14 @@ pub fn read_rocket_rcon_config(
         .join("Rocket.config.xml");
 
     if !path.exists() {
-        return Ok(RocketRconInfo { port: 27115, password: String::new() });
+        return Ok(RocketRconInfo {
+            port: 27115,
+            password: String::new(),
+        });
     }
 
-    let content = fs::read_to_string(&path)
-        .map_err(|e| format!("读取 Rocket.config.xml 失败: {}", e))?;
+    let content =
+        fs::read_to_string(&path).map_err(|e| format!("读取 Rocket.config.xml 失败: {}", e))?;
 
     let mut port: u16 = 27115;
     let mut password = String::new();
@@ -518,12 +566,16 @@ pub fn save_rocket_rcon_config(
         resolve_save_dir(&cfg, &save_id)?
     };
 
-    ConfigService::update_rocket_config(&server_root, &server_id, port, &password)
-        .map_err(|e| {
+    ConfigService::update_rocket_config(&server_root, &server_id, port, &password).map_err(
+        |e| {
             let ls = log.lock().unwrap_or_else(|e| e.into_inner());
-            ls.log_app(&format!("[ERROR] 保存 RCON 配置失败 ({}): {}", server_id, e));
+            ls.log_app(&format!(
+                "[ERROR] 保存 RCON 配置失败 ({}): {}",
+                server_id, e
+            ));
             e
-        })?;
+        },
+    )?;
 
     let ls = log.lock().unwrap_or_else(|e| e.into_inner());
     ls.log_operation(&format!("保存 RCON 配置: 存档 {}", server_id));

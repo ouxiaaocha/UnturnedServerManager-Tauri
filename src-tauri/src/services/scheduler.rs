@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use chrono::{Local, Datelike, Timelike};
+use chrono::{Datelike, Local, Timelike};
 
 use crate::commands::schedule::ScheduleTask;
 use crate::services::config_service::ConfigService;
@@ -18,7 +18,8 @@ pub fn start_scheduler(
     std::thread::spawn(move || {
         let mut last_check_minute: i64 = -1;
         let mut last_cleanup_day: i32 = -1;
-        let mut announced: std::collections::HashMap<String, Vec<u32>> = std::collections::HashMap::new();
+        let mut announced: std::collections::HashMap<String, Vec<u32>> =
+            std::collections::HashMap::new();
 
         loop {
             std::thread::sleep(Duration::from_secs(10));
@@ -70,7 +71,8 @@ pub fn start_scheduler(
                     continue;
                 }
 
-                let minutes_until = minutes_until_restart(task, current_hour, current_minute, weekday);
+                let minutes_until =
+                    minutes_until_restart(task, current_hour, current_minute, weekday);
 
                 if let Some(mins) = minutes_until {
                     // Check if announcement needed
@@ -109,7 +111,12 @@ fn load_tasks(config: &Arc<Mutex<ConfigService>>) -> Vec<ScheduleTask> {
     }
 }
 
-fn minutes_until_restart(task: &ScheduleTask, current_hour: u32, current_minute: u32, weekday: u8) -> Option<u32> {
+fn minutes_until_restart(
+    task: &ScheduleTask,
+    current_hour: u32,
+    current_minute: u32,
+    weekday: u8,
+) -> Option<u32> {
     let current_total = current_hour * 60 + current_minute;
 
     match task.task_type.as_str() {
@@ -141,7 +148,7 @@ fn minutes_until_restart(task: &ScheduleTask, current_hour: u32, current_minute:
                     return None;
                 }
                 let mins_into_cycle = current_total % interval_mins;
-                let mins_remaining = interval_mins - mins_into_cycle;
+                let mins_remaining = (interval_mins - mins_into_cycle) % interval_mins;
                 if mins_remaining <= 30 {
                     return Some(mins_remaining);
                 }
@@ -166,6 +173,30 @@ fn parse_time(time_str: &str) -> Option<u32> {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn interval_task(hours: u32) -> ScheduleTask {
+        ScheduleTask {
+            id: "interval".to_string(),
+            enabled: true,
+            task_type: "interval".to_string(),
+            time: None,
+            interval_hours: Some(hours),
+            weekday: None,
+            announce_minutes: vec![30, 10, 5, 1],
+        }
+    }
+
+    #[test]
+    fn interval_restart_returns_zero_at_cycle_boundary() {
+        let task = interval_task(6);
+
+        assert_eq!(minutes_until_restart(&task, 6, 0, 0), Some(0));
+    }
+}
+
 fn send_announce(
     rcon: &Arc<Mutex<RconClient>>,
     config: &Arc<Mutex<ConfigService>>,
@@ -178,7 +209,10 @@ fn send_announce(
     let rcon_config = {
         let cfg = config.lock().unwrap_or_else(|e| e.into_inner());
         let servers = cfg.load_servers_config();
-        servers.servers.first().map(|p| (p.rcon.host.clone(), p.rcon.port, p.rcon.password.clone()))
+        servers
+            .servers
+            .first()
+            .map(|p| (p.rcon.host.clone(), p.rcon.port, p.rcon.password.clone()))
     };
 
     let mut client = rcon.lock().unwrap_or_else(|e| e.into_inner());
@@ -213,7 +247,10 @@ fn execute_restart(
     let rcon_config = {
         let cfg = config.lock().unwrap_or_else(|e| e.into_inner());
         let servers = cfg.load_servers_config();
-        servers.servers.first().map(|p| (p.rcon.host.clone(), p.rcon.port, p.rcon.password.clone()))
+        servers
+            .servers
+            .first()
+            .map(|p| (p.rcon.host.clone(), p.rcon.port, p.rcon.password.clone()))
     };
 
     // Shutdown via RCON

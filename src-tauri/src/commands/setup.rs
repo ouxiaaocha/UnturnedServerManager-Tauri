@@ -32,8 +32,14 @@ pub fn detect_rocket_module(server_root: String) -> Result<bool, String> {
     if server_root.is_empty() {
         return Err("服务端目录为空".to_string());
     }
-    let rocket_dir = Path::new(&server_root).join("Modules").join("Rocket.Unturned");
-    Ok(rocket_dir.exists() && rocket_dir.read_dir().map(|mut d| d.next().is_some()).unwrap_or(false))
+    let rocket_dir = Path::new(&server_root)
+        .join("Modules")
+        .join("Rocket.Unturned");
+    Ok(rocket_dir.exists()
+        && rocket_dir
+            .read_dir()
+            .map(|mut d| d.next().is_some())
+            .unwrap_or(false))
 }
 
 /// Copy Rocket.Unturned from Extras to Modules (background thread).
@@ -43,11 +49,19 @@ pub fn install_rocket_module(
     log: State<'_, Arc<Mutex<LogService>>>,
     server_root: String,
 ) -> Result<(), String> {
-    let src = Path::new(&server_root).join("Extras").join("Rocket.Unturned");
+    let src = Path::new(&server_root)
+        .join("Extras")
+        .join("Rocket.Unturned");
     if !src.exists() {
         let ls = log.lock().unwrap_or_else(|e| e.into_inner());
-        ls.log_app(&format!("[ERROR] 安装 Rocket 失败: 未找到 Extras/Rocket.Unturned 目录 ({})", src.display()));
-        return Err(format!("未找到 Extras/Rocket.Unturned 目录 ({})", src.display()));
+        ls.log_app(&format!(
+            "[ERROR] 安装 Rocket 失败: 未找到 Extras/Rocket.Unturned 目录 ({})",
+            src.display()
+        ));
+        return Err(format!(
+            "未找到 Extras/Rocket.Unturned 目录 ({})",
+            src.display()
+        ));
     }
 
     {
@@ -58,20 +72,31 @@ pub fn install_rocket_module(
     emit(&app, "[系统] 正在安装 Rocket.Unturned 模块...");
 
     let log_clone = log.inner().clone();
+    let dst_existed_before = Path::new(&server_root)
+        .join("Modules")
+        .join("Rocket.Unturned")
+        .exists();
     std::thread::spawn(move || {
-        let dst = Path::new(&server_root).join("Modules").join("Rocket.Unturned");
+        let dst = Path::new(&server_root)
+            .join("Modules")
+            .join("Rocket.Unturned");
         match copy_dir_recursive(&src, &dst) {
             Ok(count) => {
                 let ls = log_clone.lock().unwrap_or_else(|e| e.into_inner());
-                ls.log_app(&format!("[系统] Rocket.Unturned 安装成功，已复制 {} 个文件", count));
+                ls.log_app(&format!(
+                    "[系统] Rocket.Unturned 安装成功，已复制 {} 个文件",
+                    count
+                ));
                 emit(&app, &format!("[系统] 已复制 {} 个文件", count));
                 emit(&app, "DONE:已安装");
             }
             Err(e) => {
                 let ls = log_clone.lock().unwrap_or_else(|e| e.into_inner());
                 ls.log_app(&format!("[ERROR] Rocket.Unturned 安装失败: {}", e));
-                // Clean up partial copy
-                let _ = fs::remove_dir_all(&dst);
+                // Only remove directories created by this attempt.
+                if !dst_existed_before {
+                    let _ = fs::remove_dir_all(&dst);
+                }
                 emit(&app, &format!("ERROR:安装失败: {}", e));
             }
         }
@@ -90,8 +115,14 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<usize, String> {
         if src_path.is_dir() {
             count += copy_dir_recursive(&src_path, &dst_path)?;
         } else {
-            fs::copy(&src_path, &dst_path)
-                .map_err(|e| format!("复制 {} -> {}: {}", src_path.display(), dst_path.display(), e))?;
+            fs::copy(&src_path, &dst_path).map_err(|e| {
+                format!(
+                    "复制 {} -> {}: {}",
+                    src_path.display(),
+                    dst_path.display(),
+                    e
+                )
+            })?;
             count += 1;
         }
     }
@@ -155,12 +186,19 @@ pub fn init_server_save(
         ls.log_app("[ERROR] 初始化存档失败: 存档名称不能为空");
         return Err("存档名称不能为空".to_string());
     }
-    if save_name.chars().any(|c| c >= '\u{4e00}' && c <= '\u{9fff}') {
+    if save_name
+        .chars()
+        .any(|c| ('\u{4e00}'..='\u{9fff}').contains(&c))
+    {
         let ls = log.lock().unwrap_or_else(|e| e.into_inner());
         ls.log_app("[ERROR] 初始化存档失败: 存档名称不能包含中文字符");
         return Err("存档名称不能包含中文字符".to_string());
     }
-    if save_name.contains('/') || save_name.contains('\\') || save_name.contains("..") || save_name.contains(':') {
+    if save_name.contains('/')
+        || save_name.contains('\\')
+        || save_name.contains("..")
+        || save_name.contains(':')
+    {
         let ls = log.lock().unwrap_or_else(|e| e.into_inner());
         ls.log_app("[ERROR] 初始化存档失败: 存档名称包含非法字符");
         return Err("存档名称包含非法字符".to_string());
@@ -169,7 +207,10 @@ pub fn init_server_save(
     let exe_path = Path::new(&server_root).join("Unturned.exe");
     if !exe_path.exists() {
         let ls = log.lock().unwrap_or_else(|e| e.into_inner());
-        ls.log_app(&format!("[ERROR] 初始化存档失败: 找不到 Unturned.exe ({})", exe_path.display()));
+        ls.log_app(&format!(
+            "[ERROR] 初始化存档失败: 找不到 Unturned.exe ({})",
+            exe_path.display()
+        ));
         return Err(format!("找不到 Unturned.exe ({})", exe_path.display()));
     }
 
@@ -183,7 +224,9 @@ pub fn init_server_save(
 
     // Record whether save dir already exists before init (to avoid deleting existing data on failure)
     let save_dir = Path::new(&server_root).join("Servers").join(&save_name);
-    let save_dir_lower = Path::new(&server_root).join("Servers").join(save_name.to_lowercase());
+    let save_dir_lower = Path::new(&server_root)
+        .join("Servers")
+        .join(save_name.to_lowercase());
     let existed_before = save_dir.exists() || save_dir_lower.exists();
 
     let log_clone = log.inner().clone();
@@ -218,7 +261,8 @@ fn do_init_save(
 ) -> Result<(), String> {
     let mut cmd = Command::new(exe_path);
     cmd.args([
-        "-batchmode", "-nographics",
+        "-batchmode",
+        "-nographics",
         &format!("+LanServer/{}", save_name),
     ])
     .current_dir(server_root)
@@ -229,23 +273,42 @@ fn do_init_save(
     #[cfg(windows)]
     cmd.creation_flags(0x08000000);
 
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| format!("启动服务端失败: {}", e))?;
+    let mut child = cmd.spawn().map_err(|e| format!("启动服务端失败: {}", e))?;
 
     let mut loaded = false;
     let mut output_count = 0;
+
+    let stderr_handle = child.stderr.take().map(|stderr| {
+        let app_clone = app.clone();
+        std::thread::spawn(move || {
+            for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+                let t = line.trim().to_string();
+                if !t.is_empty()
+                    && !is_shader_noise(&t)
+                    && (t.contains("Error") || t.contains("Exception"))
+                {
+                    emit(&app_clone, &format!("[错误] {}", t));
+                }
+            }
+        })
+    });
 
     // Read stdout line by line
     if let Some(stdout) = child.stdout.take() {
         let reader = BufReader::new(stdout);
         for line in reader.lines().map_while(Result::ok) {
             let trimmed = line.trim().to_string();
-            if trimmed.is_empty() || is_shader_noise(&trimmed) { continue; }
+            if trimmed.is_empty() || is_shader_noise(&trimmed) {
+                continue;
+            }
 
             output_count += 1;
             // Only emit every few lines to avoid flooding
-            if output_count % 5 == 0 || trimmed.contains("Loading level") || trimmed.contains("Error") || trimmed.contains("Server Code") {
+            if output_count % 5 == 0
+                || trimmed.contains("Loading level")
+                || trimmed.contains("Error")
+                || trimmed.contains("Server Code")
+            {
                 emit(app, &trimmed);
             }
 
@@ -265,19 +328,16 @@ fn do_init_save(
         }
     }
 
-    // Also drain stderr
-    if let Some(stderr) = child.stderr.take() {
-        for line in BufReader::new(stderr).lines().map_while(Result::ok) {
-            let t = line.trim().to_string();
-            if !t.is_empty() && !is_shader_noise(&t) && (t.contains("Error") || t.contains("Exception")) {
-                emit(app, &format!("[错误] {}", t));
-            }
-        }
-    }
-
     if !loaded {
         let _ = child.kill();
         let _ = child.wait();
+    }
+
+    if let Some(handle) = stderr_handle {
+        let _ = handle.join();
+    }
+
+    if !loaded {
         return Err("服务端未能加载到 100%".to_string());
     }
 
@@ -288,7 +348,9 @@ fn do_init_save(
         Ok(())
     } else {
         // Try lowercase (SteamCMD sometimes creates lowercase)
-        let lower_dir = Path::new(server_root).join("Servers").join(save_name.to_lowercase());
+        let lower_dir = Path::new(server_root)
+            .join("Servers")
+            .join(save_name.to_lowercase());
         if lower_dir.exists() {
             emit(app, &format!("[系统] 存档 \"{}\" 初始化成功", save_name));
             Ok(())

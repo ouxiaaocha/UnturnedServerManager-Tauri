@@ -24,7 +24,7 @@ fn validate_date(date: &str) -> Result<(), String> {
     let y: u32 = parts[0].parse().map_err(|_| "年份无效")?;
     let m: u32 = parts[1].parse().map_err(|_| "月份无效")?;
     let d: u32 = parts[2].parse().map_err(|_| "日期无效")?;
-    if y < 2000 || y > 2100 || m < 1 || m > 12 || d < 1 || d > 31 {
+    if !(2000..=2100).contains(&y) || !(1..=12).contains(&m) || !(1..=31).contains(&d) {
         return Err("日期范围无效".to_string());
     }
     Ok(())
@@ -54,8 +54,7 @@ pub fn read_log_file(
         return Ok(vec![format!("暂无 {} 的日志记录", date)]);
     }
 
-    let content = fs::read_to_string(&file_path)
-        .map_err(|e| format!("读取失败: {}", e))?;
+    let content = fs::read_to_string(&file_path).map_err(|e| format!("读取失败: {}", e))?;
 
     let lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
     Ok(lines)

@@ -3,10 +3,10 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use tauri::{Emitter, State};
 
-use crate::services::process::ProcessManager;
-use crate::services::rcon_client::RconClient;
 use crate::services::config_service::ConfigService;
 use crate::services::log_service::LogService;
+use crate::services::process::ProcessManager;
+use crate::services::rcon_client::RconClient;
 
 /// Holds the currently active RCON settings for this session.
 /// When starting with a non-default save, the RCON settings from that save
@@ -44,10 +44,17 @@ pub struct ServerStatus {
     pub output_count: usize,
 }
 
+#[derive(Serialize)]
+pub struct ServerSnapshot {
+    pub state: String,
+    pub pid: Option<u32>,
+    pub uptime_secs: u64,
+    pub output_count: usize,
+    pub output: Vec<String>,
+}
+
 #[tauri::command]
-pub fn get_server_status(
-    process: State<'_, Arc<Mutex<ProcessManager>>>,
-) -> ServerStatus {
+pub fn get_server_status(process: State<'_, Arc<Mutex<ProcessManager>>>) -> ServerStatus {
     let mut pm = process.lock().unwrap_or_else(|e| e.into_inner());
     pm.is_running();
     ServerStatus {
@@ -65,6 +72,23 @@ pub fn get_server_output(
 ) -> Vec<String> {
     let pm = process.lock().unwrap_or_else(|e| e.into_inner());
     pm.get_new_output(from_index)
+}
+
+#[tauri::command]
+pub fn get_server_snapshot(
+    process: State<'_, Arc<Mutex<ProcessManager>>>,
+    from_index: usize,
+) -> ServerSnapshot {
+    let mut pm = process.lock().unwrap_or_else(|e| e.into_inner());
+    pm.is_running();
+    let output_count = pm.output_count();
+    ServerSnapshot {
+        state: pm.state().to_string(),
+        pid: pm.pid(),
+        uptime_secs: pm.uptime_secs(),
+        output_count,
+        output: pm.get_new_output(from_index),
+    }
 }
 
 #[tauri::command]
@@ -89,16 +113,26 @@ pub fn start_server(
     let actual_id = save_id.unwrap_or_else(|| server_id.clone());
 
     // Validate save_id for path safety
-    if actual_id.contains('/') || actual_id.contains('\\') || actual_id.contains("..")
-        || actual_id.contains(':') || actual_id.contains('*') || actual_id.contains('?')
-        || actual_id.contains('"') || actual_id.contains('<') || actual_id.contains('>')
+    if actual_id.contains('/')
+        || actual_id.contains('\\')
+        || actual_id.contains("..")
+        || actual_id.contains(':')
+        || actual_id.contains('*')
+        || actual_id.contains('?')
+        || actual_id.contains('"')
+        || actual_id.contains('<')
+        || actual_id.contains('>')
         || actual_id.contains('|')
     {
         return Err("存档 ID 包含非法字符".to_string());
     }
 
     let mode = launch_mode.unwrap_or_else(|| "internet".to_string());
-    let entry_prefix = if mode == "lan" { "+LanServer" } else { "+InternetServer" };
+    let entry_prefix = if mode == "lan" {
+        "+LanServer"
+    } else {
+        "+InternetServer"
+    };
     profile.server_entry = format!("{}/{}", entry_prefix, actual_id);
 
     // If using a different save, read RCON settings from that save's Rocket.config.xml
@@ -154,9 +188,16 @@ pub fn start_server(
         })?;
     }
 
-    let mode_str = if mode == "lan" { "局域网" } else { "互联网" };
+    let mode_str = if mode == "lan" {
+        "局域网"
+    } else {
+        "互联网"
+    };
     let ls = log.lock().unwrap_or_else(|e| e.into_inner());
-    ls.log_operation(&format!("启动服务器: {} (存档: {}, 模式: {})", server_id, actual_id, mode_str));
+    ls.log_operation(&format!(
+        "启动服务器: {} (存档: {}, 模式: {})",
+        server_id, actual_id, mode_str
+    ));
 
     let _ = app.emit("server-started", &actual_id);
 
@@ -183,7 +224,10 @@ pub async fn stop_server(
             let profile = {
                 let cfg = config.lock().unwrap_or_else(|e| e.into_inner());
                 let servers = cfg.load_servers_config();
-                servers.servers.first().map(|p| (p.rcon.host.clone(), p.rcon.port, p.rcon.password.clone()))
+                servers
+                    .servers
+                    .first()
+                    .map(|p| (p.rcon.host.clone(), p.rcon.port, p.rcon.password.clone()))
             };
             if let Some((host, port, password)) = profile {
                 let _ = rcon_client.connect(&host, port, &password);
@@ -228,15 +272,14 @@ pub async fn stop_server(
 }
 
 #[tauri::command]
-pub fn force_stop_server(
-    process: State<'_, Arc<Mutex<ProcessManager>>>,
-) -> Result<String, String> {
+pub fn force_stop_server(process: State<'_, Arc<Mutex<ProcessManager>>>) -> Result<String, String> {
     let mut pm = process.lock().unwrap_or_else(|e| e.into_inner());
     pm.force_stop()?;
     Ok("服务器已强制停止".to_string())
 }
 
 #[tauri::command(async)]
+#[allow(clippy::too_many_arguments)]
 pub async fn restart_server(
     app: tauri::AppHandle,
     process: State<'_, Arc<Mutex<ProcessManager>>>,

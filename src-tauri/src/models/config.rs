@@ -53,13 +53,7 @@ pub struct ServerProfile {
     pub rcon: RconConfig,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ServersConfig {
     pub servers: Vec<ServerProfile>,
-}
-
-impl Default for ServersConfig {
-    fn default() -> Self {
-        Self { servers: vec![] }
-    }
 }
