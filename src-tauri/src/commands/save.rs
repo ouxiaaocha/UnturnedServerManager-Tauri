@@ -577,6 +577,18 @@ pub fn save_rocket_rcon_config(
         },
     )?;
 
+    {
+        let cfg = config.lock().unwrap_or_else(|e| e.into_inner());
+        let mut servers_config = cfg.load_servers_config();
+        if let Some(profile) = servers_config.servers.first_mut() {
+            if profile.id == server_id {
+                profile.rcon.port = port;
+                profile.rcon.password = password.clone();
+                cfg.save_servers_config(&servers_config)?;
+            }
+        }
+    }
+
     let ls = log.lock().unwrap_or_else(|e| e.into_inner());
     ls.log_operation(&format!("保存 RCON 配置: 存档 {}", server_id));
 

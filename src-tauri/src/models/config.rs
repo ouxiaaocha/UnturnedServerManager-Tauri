@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct AppSettings {
     pub language: String,
     pub theme: String,
@@ -8,6 +9,8 @@ pub struct AppSettings {
     pub log_retention_days: u32,
     #[serde(rename = "autoStartLastServer")]
     pub auto_start_last_server: bool,
+    #[serde(rename = "autoUpdateHosting")]
+    pub auto_update_hosting: bool,
 }
 
 impl Default for AppSettings {
@@ -17,6 +20,7 @@ impl Default for AppSettings {
             theme: "Dark".to_string(),
             log_retention_days: 30,
             auto_start_last_server: false,
+            auto_update_hosting: false,
         }
     }
 }

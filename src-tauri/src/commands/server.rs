@@ -1,8 +1,10 @@
 use serde::Serialize;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 use tauri::{Emitter, State};
 
+use crate::commands::update::run_update_blocking;
 use crate::services::config_service::ConfigService;
 use crate::services::log_service::LogService;
 use crate::services::process::ProcessManager;
@@ -34,6 +36,63 @@ impl ActiveRcon {
             }
         }
     }
+}
+
+#[derive(Default)]
+pub struct AutoUpdateState {
+    enabled_running_seen: bool,
+    expected_stop: bool,
+    stopped_since: Option<Instant>,
+    update_in_progress: bool,
+    last_save_id: Option<String>,
+    last_launch_mode: Option<String>,
+}
+
+impl AutoUpdateState {
+    fn record_start(&mut self, save_id: String, launch_mode: String) {
+        self.enabled_running_seen = true;
+        self.expected_stop = false;
+        self.stopped_since = None;
+        self.update_in_progress = false;
+        self.last_save_id = Some(save_id);
+        self.last_launch_mode = Some(launch_mode);
+    }
+
+    fn mark_expected_stop(&mut self) {
+        self.expected_stop = true;
+        self.stopped_since = None;
+    }
+}
+
+fn decode_xml_attr(value: &str) -> String {
+    value
+        .replace("&amp;", "&")
+        .replace("&quot;", "\"")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&apos;", "'")
+}
+
+fn read_rocket_rcon_settings(path: &Path) -> Option<(u16, String)> {
+    let content = std::fs::read_to_string(path).ok()?;
+    let mut port = None;
+    let mut password = None;
+
+    if let Some(start) = content.find("Port=\"") {
+        let after = start + 6;
+        if let Some(end) = content[after..].find('"') {
+            port = content[after..after + end].parse::<u16>().ok();
+        }
+    }
+
+    if let Some(start) = content.find("Password=\"") {
+        let after = start + 10;
+        if let Some(end) = content[after..].find('"') {
+            password = Some(decode_xml_attr(&content[after..after + end]));
+        }
+    }
+
+    Some((port?, password?))
 }
 
 #[derive(Serialize)]
@@ -92,12 +151,37 @@ pub fn get_server_snapshot(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub fn start_server(
     app: tauri::AppHandle,
     process: State<'_, Arc<Mutex<ProcessManager>>>,
     config: State<'_, Arc<Mutex<ConfigService>>>,
     log: State<'_, Arc<Mutex<LogService>>>,
     active_rcon: State<'_, Arc<Mutex<ActiveRcon>>>,
+    auto_update: State<'_, Arc<Mutex<AutoUpdateState>>>,
+    save_id: Option<String>,
+    launch_mode: Option<String>,
+) -> Result<String, String> {
+    start_server_inner(
+        app,
+        process.inner(),
+        config.inner(),
+        log.inner(),
+        active_rcon.inner(),
+        auto_update.inner(),
+        save_id,
+        launch_mode,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn start_server_inner(
+    app: tauri::AppHandle,
+    process: &Arc<Mutex<ProcessManager>>,
+    config: &Arc<Mutex<ConfigService>>,
+    log: &Arc<Mutex<LogService>>,
+    active_rcon: &Arc<Mutex<ActiveRcon>>,
+    auto_update: &Arc<Mutex<AutoUpdateState>>,
     save_id: Option<String>,
     launch_mode: Option<String>,
 ) -> Result<String, String> {
@@ -135,39 +219,23 @@ pub fn start_server(
     };
     profile.server_entry = format!("{}/{}", entry_prefix, actual_id);
 
-    // If using a different save, read RCON settings from that save's Rocket.config.xml
-    // Store them in ActiveRcon (session-only) so rcon_connect uses them,
-    // WITHOUT overwriting servers.json
-    if actual_id != server_id {
-        let rocket_config_path = Path::new(&profile.server_root)
-            .join("Servers")
-            .join(&actual_id)
-            .join("Rocket")
-            .join("Rocket.config.xml");
+    // Always prefer the selected save's Rocket.config.xml for the active RCON
+    // session. The default profile in servers.json can lag behind per-save
+    // Rocket settings, especially after editing RCON from the save page.
+    let rocket_config_path = Path::new(&profile.server_root)
+        .join("Servers")
+        .join(&actual_id)
+        .join("Rocket")
+        .join("Rocket.config.xml");
+    if let Some((port, password)) = read_rocket_rcon_settings(&rocket_config_path) {
+        profile.rcon.port = port;
+        profile.rcon.password = password;
+    }
 
-        if rocket_config_path.exists() {
-            if let Ok(content) = std::fs::read_to_string(&rocket_config_path) {
-                if let Some(start) = content.find("Port=\"") {
-                    let after = start + 6;
-                    if let Some(end) = content[after..].find('"') {
-                        if let Ok(port) = content[after..after + end].parse::<u16>() {
-                            profile.rcon.port = port;
-                        }
-                    }
-                }
-                if let Some(start) = content.find("Password=\"") {
-                    let after = start + 10;
-                    if let Some(end) = content[after..].find('"') {
-                        let pwd = content[after..after + end]
-                            .replace("&amp;", "&")
-                            .replace("&quot;", "\"")
-                            .replace("&lt;", "<")
-                            .replace("&gt;", ">")
-                            .replace("&apos;", "'");
-                        profile.rcon.password = pwd;
-                    }
-                }
-            }
+    {
+        let cfg = config.lock().unwrap_or_else(|e| e.into_inner());
+        if cfg.load_app_settings().auto_update_hosting {
+            let _ = ConfigService::update_auto_update_config(&profile.server_root, &actual_id, true);
         }
     }
 
@@ -201,6 +269,11 @@ pub fn start_server(
 
     let _ = app.emit("server-started", &actual_id);
 
+    {
+        let mut state = auto_update.lock().unwrap_or_else(|e| e.into_inner());
+        state.record_start(actual_id, mode);
+    }
+
     Ok("服务器已启动".to_string())
 }
 
@@ -208,9 +281,15 @@ pub fn start_server(
 pub async fn stop_server(
     process: State<'_, Arc<Mutex<ProcessManager>>>,
     rcon: State<'_, Arc<Mutex<RconClient>>>,
-    config: State<'_, Arc<Mutex<ConfigService>>>,
+    active_rcon: State<'_, Arc<Mutex<ActiveRcon>>>,
+    auto_update: State<'_, Arc<Mutex<AutoUpdateState>>>,
     log: State<'_, Arc<Mutex<LogService>>>,
 ) -> Result<String, String> {
+    {
+        let mut state = auto_update.lock().unwrap_or_else(|e| e.into_inner());
+        state.mark_expected_stop();
+    }
+
     // Log the operation (lock acquired and released immediately)
     {
         let ls = log.lock().unwrap_or_else(|e| e.into_inner());
@@ -221,17 +300,8 @@ pub async fn stop_server(
     let should_send_shutdown = {
         let mut rcon_client = rcon.lock().unwrap_or_else(|e| e.into_inner());
         if !rcon_client.is_connected() {
-            let profile = {
-                let cfg = config.lock().unwrap_or_else(|e| e.into_inner());
-                let servers = cfg.load_servers_config();
-                servers
-                    .servers
-                    .first()
-                    .map(|p| (p.rcon.host.clone(), p.rcon.port, p.rcon.password.clone()))
-            };
-            if let Some((host, port, password)) = profile {
-                let _ = rcon_client.connect(&host, port, &password);
-            }
+            let ar = active_rcon.lock().unwrap_or_else(|e| e.into_inner());
+            let _ = rcon_client.connect(&ar.host, ar.port, &ar.password);
         }
 
         if rcon_client.is_connected() {
@@ -271,8 +341,162 @@ pub async fn stop_server(
     Ok("服务器已强制停止".to_string())
 }
 
+pub fn start_auto_update_monitor(
+    app: tauri::AppHandle,
+    process: Arc<Mutex<ProcessManager>>,
+    config: Arc<Mutex<ConfigService>>,
+    log: Arc<Mutex<LogService>>,
+    active_rcon: Arc<Mutex<ActiveRcon>>,
+    auto_update: Arc<Mutex<AutoUpdateState>>,
+) {
+    std::thread::spawn(move || loop {
+        std::thread::sleep(Duration::from_secs(5));
+
+        let enabled = {
+            let cfg = config.lock().unwrap_or_else(|e| e.into_inner());
+            cfg.load_app_settings().auto_update_hosting
+        };
+
+        if !enabled {
+            let mut state = auto_update.lock().unwrap_or_else(|e| e.into_inner());
+            state.update_in_progress = false;
+            state.stopped_since = None;
+            continue;
+        }
+
+        let running = {
+            let mut pm = process.lock().unwrap_or_else(|e| e.into_inner());
+            pm.is_running()
+        };
+
+        let session = {
+            let mut state = auto_update.lock().unwrap_or_else(|e| e.into_inner());
+
+            if running {
+                state.enabled_running_seen = true;
+                state.stopped_since = None;
+                continue;
+            }
+
+            if state.update_in_progress || !state.enabled_running_seen {
+                continue;
+            }
+
+            if state.expected_stop {
+                state.expected_stop = false;
+                state.enabled_running_seen = false;
+                state.stopped_since = None;
+                continue;
+            }
+
+            let stopped_since = state.stopped_since.get_or_insert_with(Instant::now);
+            if stopped_since.elapsed() < Duration::from_secs(10) {
+                continue;
+            }
+
+            let save_id = state.last_save_id.clone();
+            let launch_mode = state.last_launch_mode.clone();
+            state.update_in_progress = true;
+            state.enabled_running_seen = false;
+            state.stopped_since = None;
+            (save_id, launch_mode)
+        };
+
+        let (save_id, launch_mode) = session;
+        let app_for_update = app.clone();
+        let _ = app_for_update.emit(
+            "update-output",
+            "[系统] 检测到服务器进程已退出，自动更新托管开始执行 SteamCMD 更新...",
+        );
+        {
+            let ls = log.lock().unwrap_or_else(|e| e.into_inner());
+            ls.log_operation("[自动更新托管] 检测到服务器退出，开始更新");
+        }
+
+        let update_result = run_update_blocking(
+            &app_for_update,
+            &config,
+            &log,
+            "[自动更新托管] 开始更新服务端",
+        );
+
+        match update_result {
+            Ok(_) => {
+                let _ = app_for_update.emit(
+                    "update-output",
+                    "[系统] 自动更新完成，正在重新启动服务器...",
+                );
+                if let Err(e) = start_server_inner(
+                    app_for_update.clone(),
+                    &process,
+                    &config,
+                    &log,
+                    &active_rcon,
+                    &auto_update,
+                    save_id,
+                    launch_mode,
+                ) {
+                    let ls = log.lock().unwrap_or_else(|e| e.into_inner());
+                    ls.log_operation(&format!("[ERROR] 自动更新后启动服务器失败: {}", e));
+                    let _ = app_for_update.emit(
+                        "update-output",
+                        &format!("[ERROR] 自动更新后启动服务器失败: {}", e),
+                    );
+                    let mut state = auto_update.lock().unwrap_or_else(|e| e.into_inner());
+                    state.update_in_progress = false;
+                }
+            }
+            Err(e) => {
+                let ls = log.lock().unwrap_or_else(|e| e.into_inner());
+                ls.log_operation(&format!("[ERROR] 自动更新托管失败: {}", e));
+                let _ = app_for_update.emit(
+                    "update-output",
+                    &format!("[ERROR] 自动更新托管失败: {}", e),
+                );
+                let mut state = auto_update.lock().unwrap_or_else(|e| e.into_inner());
+                state.update_in_progress = false;
+            }
+        }
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn read_rocket_rcon_settings_decodes_xml_password() {
+        let mut path = std::env::temp_dir();
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        path.push(format!("rocket-rcon-{}.xml", unique));
+
+        std::fs::write(
+            &path,
+            r#"<RocketSettings><RCON Enabled="true" Port="27200" Password="a&amp;b&quot;c&apos;d" /></RocketSettings>"#,
+        )
+        .unwrap();
+
+        let settings = read_rocket_rcon_settings(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+
+        assert_eq!(settings.0, 27200);
+        assert_eq!(settings.1, "a&b\"c'd");
+    }
+}
+
 #[tauri::command]
-pub fn force_stop_server(process: State<'_, Arc<Mutex<ProcessManager>>>) -> Result<String, String> {
+pub fn force_stop_server(
+    process: State<'_, Arc<Mutex<ProcessManager>>>,
+    auto_update: State<'_, Arc<Mutex<AutoUpdateState>>>,
+) -> Result<String, String> {
+    {
+        let mut state = auto_update.lock().unwrap_or_else(|e| e.into_inner());
+        state.mark_expected_stop();
+    }
     let mut pm = process.lock().unwrap_or_else(|e| e.into_inner());
     pm.force_stop()?;
     Ok("服务器已强制停止".to_string())
@@ -287,9 +511,15 @@ pub async fn restart_server(
     config: State<'_, Arc<Mutex<ConfigService>>>,
     log: State<'_, Arc<Mutex<LogService>>>,
     active_rcon: State<'_, Arc<Mutex<ActiveRcon>>>,
+    auto_update: State<'_, Arc<Mutex<AutoUpdateState>>>,
     save_id: Option<String>,
     launch_mode: Option<String>,
 ) -> Result<String, String> {
+    {
+        let mut state = auto_update.lock().unwrap_or_else(|e| e.into_inner());
+        state.mark_expected_stop();
+    }
+
     // Log the operation
     {
         let ls = log.lock().unwrap_or_else(|e| e.into_inner());
@@ -342,5 +572,14 @@ pub async fn restart_server(
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
     // Reuse start_server logic with the same save_id/launch_mode
-    start_server(app, process, config, log, active_rcon, save_id, launch_mode)
+    start_server_inner(
+        app,
+        process.inner(),
+        config.inner(),
+        log.inner(),
+        active_rcon.inner(),
+        auto_update.inner(),
+        save_id,
+        launch_mode,
+    )
 }

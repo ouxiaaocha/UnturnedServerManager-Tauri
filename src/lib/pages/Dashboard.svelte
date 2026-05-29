@@ -10,6 +10,9 @@
   let saves = $state<any[]>([]);
   let selectedSaveId = $state("");
   let launchMode = $state("internet");
+  let autoUpdateHosting = $state(false);
+  let autoUpdateSaving = $state(false);
+  let autoUpdateMessage = $state("");
 
   let cpuUsage = $state(0);
   let memUsed = $state(0);
@@ -49,6 +52,30 @@
         selectedSaveId = saves[0].id;
       }
     } catch {}
+  }
+
+  async function loadAppSettings() {
+    try {
+      const settings: any = await invoke("get_app_settings");
+      autoUpdateHosting = !!settings.autoUpdateHosting;
+    } catch {}
+  }
+
+  async function toggleAutoUpdateHosting() {
+    const nextEnabled = !autoUpdateHosting;
+    autoUpdateSaving = true;
+    autoUpdateMessage = "";
+    try {
+      const settings: any = await invoke("set_auto_update_hosting", {
+        enabled: nextEnabled,
+        saveId: selectedSaveId || null,
+      });
+      autoUpdateHosting = !!settings.autoUpdateHosting;
+      autoUpdateMessage = autoUpdateHosting ? "托管已开启" : "托管已关闭";
+    } catch (e: any) {
+      autoUpdateMessage = `设置失败: ${e}`;
+    }
+    autoUpdateSaving = false;
   }
 
   async function refreshStatus() {
@@ -162,6 +189,7 @@
 
   $effect(() => {
     loadSaves();
+    loadAppSettings();
     restartPolling();
     const onVisibilityChange = () => {
       if (!document.hidden) {
@@ -338,6 +366,23 @@
             onclick={() => launchMode = 'lan'}
           >局域网</button>
         </div>
+      </div>
+      <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <span class="text-xs text-[var(--text-muted)]">自动更新托管:</span>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={autoUpdateHosting}
+          class="relative h-7 w-12 rounded-full border transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed {autoUpdateHosting ? 'bg-[var(--success)] border-[var(--success)]' : 'bg-[var(--bg-primary)] border-[var(--border)]'}"
+          onclick={toggleAutoUpdateHosting}
+          disabled={autoUpdateSaving}
+          title="自动更新托管"
+        >
+          <span class="absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all {autoUpdateHosting ? 'left-6' : 'left-0.5'}"></span>
+        </button>
+        {#if autoUpdateMessage}
+          <span class="text-xs {autoUpdateMessage.includes('失败') ? 'text-[var(--danger)]' : 'text-[var(--success)]'}">{autoUpdateMessage}</span>
+        {/if}
       </div>
     </div>
 

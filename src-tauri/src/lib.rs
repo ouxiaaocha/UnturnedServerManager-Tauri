@@ -5,13 +5,13 @@ mod models;
 mod services;
 mod commands;
 
-use services::process::ProcessManager;
+use services::process::{start_output_cache_maintenance, ProcessManager};
 use services::rcon_client::RconClient;
 use services::config_service::ConfigService;
 use services::log_service::LogService;
 use services::scheduler;
 use services::system_monitor::SystemMonitor;
-use commands::server::ActiveRcon;
+use commands::server::{ActiveRcon, AutoUpdateState};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -35,6 +35,7 @@ pub fn run() {
     let system_arc = Arc::new(Mutex::new(SystemMonitor::new()));
     let active_rcon = ActiveRcon::from_config(&config_arc.lock().unwrap());
     let active_rcon_arc = Arc::new(Mutex::new(active_rcon));
+    let auto_update_arc = Arc::new(Mutex::new(AutoUpdateState::default()));
 
     // 启动后台调度器
     scheduler::start_scheduler(
@@ -43,6 +44,13 @@ pub fn run() {
         Arc::clone(&rcon_arc),
         Arc::clone(&log_arc),
     );
+    start_output_cache_maintenance(Arc::clone(&process_arc), Arc::clone(&log_arc));
+
+    let monitor_process = Arc::clone(&process_arc);
+    let monitor_config = Arc::clone(&config_arc);
+    let monitor_log = Arc::clone(&log_arc);
+    let monitor_active_rcon = Arc::clone(&active_rcon_arc);
+    let monitor_auto_update = Arc::clone(&auto_update_arc);
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -51,12 +59,24 @@ pub fn run() {
                 let _ = window.set_focus();
             }
         }))
+        .setup(move |app| {
+            commands::server::start_auto_update_monitor(
+                app.handle().clone(),
+                Arc::clone(&monitor_process),
+                Arc::clone(&monitor_config),
+                Arc::clone(&monitor_log),
+                Arc::clone(&monitor_active_rcon),
+                Arc::clone(&monitor_auto_update),
+            );
+            Ok(())
+        })
         .manage(process_arc)
         .manage(rcon_arc)
         .manage(config_arc)
         .manage(log_arc)
         .manage(system_arc)
         .manage(active_rcon_arc)
+        .manage(auto_update_arc)
         .invoke_handler(tauri::generate_handler![
             commands::server::get_server_status,
             commands::server::get_server_output,
@@ -71,6 +91,8 @@ pub fn run() {
             commands::rcon::rcon_poll,
             commands::rcon::rcon_status,
             commands::config::get_config,
+            commands::config::get_app_settings,
+            commands::config::set_auto_update_hosting,
             commands::config::save_config,
             commands::config::is_first_run,
             commands::config::save_wizard_config,

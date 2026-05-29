@@ -9,11 +9,22 @@ use std::os::windows::process::CommandExt;
 use crate::services::config_service::ConfigService;
 use crate::services::log_service::LogService;
 
+const UPDATE_OUTPUT_RETAIN_LINES: usize = 1000;
+
 #[tauri::command(async)]
 pub async fn run_update(
     app: tauri::AppHandle,
     config: State<'_, Arc<Mutex<ConfigService>>>,
     log: State<'_, Arc<Mutex<LogService>>>,
+) -> Result<Vec<String>, String> {
+    run_update_blocking(&app, &config, &log, "开始更新服务端")
+}
+
+pub fn run_update_blocking(
+    app: &tauri::AppHandle,
+    config: &Arc<Mutex<ConfigService>>,
+    log: &Arc<Mutex<LogService>>,
+    operation: &str,
 ) -> Result<Vec<String>, String> {
     let (steam_cmd_path, server_root) = {
         let cfg = config.lock().unwrap_or_else(|e| e.into_inner());
@@ -24,7 +35,7 @@ pub async fn run_update(
 
     {
         let ls = log.lock().unwrap_or_else(|e| e.into_inner());
-        ls.log_operation("开始更新服务端");
+        ls.log_operation(operation);
     }
 
     let _ = app.emit("update-output", "[系统] 正在启动 SteamCMD...");
@@ -70,6 +81,9 @@ pub async fn run_update(
         let reader = BufReader::new(stdout);
         for line in reader.lines().map_while(Result::ok) {
             let _ = app_clone.emit("update-output", &line);
+            if output_lines.len() >= UPDATE_OUTPUT_RETAIN_LINES {
+                output_lines.drain(0..100);
+            }
             output_lines.push(line);
         }
     }

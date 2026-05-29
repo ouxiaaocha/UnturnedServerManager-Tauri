@@ -261,10 +261,21 @@
       <h1 class="text-2xl font-bold text-[var(--text-primary)]">存档管理</h1>
       <p class="text-sm text-[var(--text-muted)] mt-1">管理服务器存档配置与插件</p>
     </div>
-    {#if message}
-      <div class="px-4 py-2 rounded-lg bg-[var(--success-glow)] text-[var(--success)] text-sm">{message}</div>
-    {/if}
   </div>
+
+  {#if message}
+    <div class="fixed bottom-5 right-5 z-50 flex max-w-[calc(100vw-2rem)] items-center gap-3 rounded-lg border border-[var(--border-accent)] bg-[var(--bg-card)] px-4 py-3 text-sm text-[var(--success)] shadow-[var(--shadow-lg)]">
+      <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--success-glow)]">
+        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+        </svg>
+      </div>
+      <div>
+        <p class="font-medium">{message}</p>
+        <p class="text-xs text-[var(--text-muted)]">Commands.dat 与 RCON 配置已同步</p>
+      </div>
+    </div>
+  {/if}
 
   <!-- Save Selector -->
   <div class="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-4 mb-5">
@@ -502,23 +513,6 @@
           </span>
         </div>
 
-        <div class="mt-6 flex justify-end">
-          <button
-            class="px-6 py-2.5 bg-gradient-to-r from-[var(--accent)] to-blue-600 hover:from-blue-500 hover:to-[var(--accent)] text-[var(--text-primary)] text-sm font-medium rounded-lg transition-all cursor-pointer flex items-center gap-2 shadow-lg"
-            onclick={saveCommandsDat}
-            disabled={saving}
-          >
-            {#if saving}
-              <div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-              保存中...
-            {:else}
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-              </svg>
-              保存配置
-            {/if}
-          </button>
-        </div>
       {/if}
     </div>
 
@@ -573,6 +567,40 @@
           每个存档有独立的 RCON 配置，修改后点击下方「保存配置」同步保存。
         </div>
       {/if}
+    </div>
+
+    <div class="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div>
+        <p class="text-xs text-[var(--text-muted)]">保存会同时同步 Commands.dat 与当前存档的 RCON 配置。</p>
+        {#if message}
+          <p class="mt-1 flex items-center gap-1 text-xs font-medium text-[var(--success)]">
+            <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+            </svg>
+            {message}
+          </p>
+        {/if}
+      </div>
+      <button
+        class="px-6 py-2.5 bg-gradient-to-r from-[var(--accent)] to-blue-600 hover:from-blue-500 hover:to-[var(--accent)] text-[var(--text-primary)] text-sm font-medium rounded-lg transition-all cursor-pointer flex items-center justify-center gap-2 shadow-lg disabled:opacity-40 disabled:cursor-not-allowed"
+        onclick={saveCommandsDat}
+        disabled={saving || loading || !selectedSaveId}
+      >
+        {#if saving}
+          <div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+          保存中...
+        {:else if message}
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+          </svg>
+          已保存
+        {:else}
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+          </svg>
+          保存配置
+        {/if}
+      </button>
     </div>
 
   {:else}

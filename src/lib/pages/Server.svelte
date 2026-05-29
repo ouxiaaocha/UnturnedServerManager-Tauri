@@ -20,6 +20,9 @@
   let saves = $state<any[]>([]);
   let selectedSaveId = $state("");
   let launchMode = $state("internet");
+  let autoUpdateHosting = $state(false);
+  let autoUpdateSaving = $state(false);
+  let autoUpdateMessage = $state("");
 
   async function loadSaves() {
     try {
@@ -28,6 +31,32 @@
         selectedSaveId = saves[0].id;
       }
     } catch {}
+  }
+
+  async function loadAppSettings() {
+    try {
+      const settings: any = await invoke("get_app_settings");
+      autoUpdateHosting = !!settings.autoUpdateHosting;
+    } catch {}
+  }
+
+  async function toggleAutoUpdateHosting() {
+    const nextEnabled = !autoUpdateHosting;
+    autoUpdateSaving = true;
+    autoUpdateMessage = "";
+    try {
+      const settings: any = await invoke("set_auto_update_hosting", {
+        enabled: nextEnabled,
+        saveId: selectedSaveId || null,
+      });
+      autoUpdateHosting = !!settings.autoUpdateHosting;
+      autoUpdateMessage = autoUpdateHosting ? "托管已开启" : "托管已关闭";
+      logs.push({ text: `[系统] 自动更新托管${autoUpdateHosting ? '已开启' : '已关闭'}`, level: "system" });
+    } catch (e: any) {
+      autoUpdateMessage = `设置失败: ${e}`;
+      logs.push({ text: `[错误] ${e}`, level: "error" });
+    }
+    autoUpdateSaving = false;
   }
 
   function classifyLine(line: string): string {
@@ -155,6 +184,7 @@
 
   $effect(() => {
     loadSaves();
+    loadAppSettings();
     restartPolling();
     const onVisibilityChange = () => {
       if (!document.hidden) {
@@ -264,6 +294,23 @@
             onclick={() => launchMode = 'lan'}
           >局域网</button>
         </div>
+        <div class="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-1.5">
+          <span class="text-xs text-[var(--text-muted)]">自动更新托管</span>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={autoUpdateHosting}
+            class="relative h-6 w-11 rounded-full border transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed {autoUpdateHosting ? 'bg-[var(--success)] border-[var(--success)]' : 'bg-[var(--bg-elevated)] border-[var(--border)]'}"
+            onclick={toggleAutoUpdateHosting}
+            disabled={autoUpdateSaving}
+            title="自动更新托管"
+          >
+            <span class="absolute top-0.5 h-[18px] w-[18px] rounded-full bg-white transition-all {autoUpdateHosting ? 'left-[21px]' : 'left-0.5'}"></span>
+          </button>
+        </div>
+        {#if autoUpdateMessage}
+          <span class="text-xs {autoUpdateMessage.includes('失败') ? 'text-[var(--danger)]' : 'text-[var(--success)]'}">{autoUpdateMessage}</span>
+        {/if}
       </div>
 
       <div class="flex flex-wrap gap-4 sm:gap-6 text-sm">

@@ -5,6 +5,11 @@
   let updating = $state(false);
   let output: string[] = $state([]);
   let unlisten: (() => void) | undefined = undefined;
+  const outputLimit = 1000;
+
+  function appendOutput(line: string) {
+    output = [...output.slice(-(outputLimit - 1)), line];
+  }
 
   async function startUpdate() {
     updating = true;
@@ -12,13 +17,13 @@
 
     // Listen for real-time progress events
     unlisten = await listen<string>("update-output", (event) => {
-      output = [...output, event.payload];
+      appendOutput(event.payload);
     });
 
     try {
       await invoke("run_update");
     } catch (e: any) {
-      output = [...output, `[错误] ${e}`];
+      appendOutput(`[错误] ${e}`);
     }
 
     if (unlisten) {

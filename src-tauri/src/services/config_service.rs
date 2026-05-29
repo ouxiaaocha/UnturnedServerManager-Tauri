@@ -205,6 +205,18 @@ impl ConfigService {
         settings
     }
 
+    pub fn save_app_settings(&self, settings: &AppSettings) -> Result<(), String> {
+        let path = self.config_dir().join("appsettings.json");
+        let content =
+            serde_json::to_string_pretty(settings).map_err(|e| format!("序列化失败: {}", e))?;
+        atomic_write(&path, &content)?;
+        *self
+            .app_settings_cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(settings.clone());
+        Ok(())
+    }
+
     pub fn is_first_run(&self) -> bool {
         let path = self.config_dir().join("servers.json");
         if !path.exists() {
@@ -290,6 +302,76 @@ impl ConfigService {
         atomic_write(&path, &new_content)
     }
 
+    pub fn update_auto_update_config(
+        server_root: &str,
+        server_id: &str,
+        enabled: bool,
+    ) -> Result<(), String> {
+        if server_id.contains('/')
+            || server_id.contains('\\')
+            || server_id.contains("..")
+            || server_id.contains(':')
+            || server_id.contains('*')
+            || server_id.contains('?')
+            || server_id.contains('"')
+            || server_id.contains('<')
+            || server_id.contains('>')
+            || server_id.contains('|')
+        {
+            return Err("服务器 ID 包含非法字符".to_string());
+        }
+
+        let path = Path::new(server_root)
+            .join("Servers")
+            .join(server_id)
+            .join("Config.json");
+
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(|e| format!("创建目录失败: {}", e))?;
+        }
+
+        let mut root = if path.exists() {
+            let content = fs::read_to_string(&path).map_err(|e| format!("读取失败: {}", e))?;
+            serde_json::from_str::<serde_json::Value>(&content)
+                .unwrap_or_else(|_| serde_json::json!({}))
+        } else {
+            serde_json::json!({})
+        };
+
+        if !root.is_object() {
+            root = serde_json::json!({});
+        }
+
+        let root_object = root.as_object_mut().ok_or("Config.json 格式无效")?;
+        let server_value = root_object
+            .entry("Server".to_string())
+            .or_insert_with(|| serde_json::json!({}));
+        if !server_value.is_object() {
+            *server_value = serde_json::json!({});
+        }
+        let server_object = server_value.as_object_mut().ok_or("Server 配置格式无效")?;
+
+        server_object.insert(
+            "Enable_Update_Shutdown".to_string(),
+            serde_json::Value::Bool(enabled),
+        );
+
+        if enabled {
+            server_object
+                .entry("Update_Steam_Beta_Name".to_string())
+                .or_insert_with(|| serde_json::Value::String("public".to_string()));
+            server_object
+                .entry("Update_Shutdown_Warnings".to_string())
+                .or_insert_with(|| {
+                    serde_json::json!(["30:00", "10:00", "5:00", "1:00"])
+                });
+        }
+
+        let content =
+            serde_json::to_string_pretty(&root).map_err(|e| format!("序列化失败: {}", e))?;
+        atomic_write(&path, &content)
+    }
+
     pub fn load_plugin_notes(&self) -> HashMap<String, String> {
         let path = self.config_dir().join("plugin_notes.json");
         if path.exists() {
@@ -320,5 +402,38 @@ mod tests {
         assert_ne!(first, second);
         assert_eq!(decode_password(&first), "same-secret");
         assert_eq!(decode_password(&second), "same-secret");
+    }
+
+    #[test]
+    fn update_auto_update_config_preserves_existing_server_settings() {
+        let mut root = std::env::temp_dir();
+        root.push(format!(
+            "usm-auto-update-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let config_dir = root.join("Servers").join("Server");
+        fs::create_dir_all(&config_dir).unwrap();
+        let path = config_dir.join("Config.json");
+        fs::write(
+            &path,
+            r#"{"Server":{"Name":"KeepMe","Update_Steam_Beta_Name":"preview"}}"#,
+        )
+        .unwrap();
+
+        ConfigService::update_auto_update_config(root.to_str().unwrap(), "Server", true).unwrap();
+
+        let content = fs::read_to_string(&path).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&content).unwrap();
+        let server = value.get("Server").unwrap();
+
+        assert_eq!(server.get("Name").unwrap(), "KeepMe");
+        assert_eq!(server.get("Update_Steam_Beta_Name").unwrap(), "preview");
+        assert_eq!(server.get("Enable_Update_Shutdown").unwrap(), true);
+        assert!(server.get("Update_Shutdown_Warnings").unwrap().is_array());
+
+        let _ = fs::remove_dir_all(root);
     }
 }

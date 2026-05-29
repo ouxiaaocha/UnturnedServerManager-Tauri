@@ -12,12 +12,88 @@ use chrono::Local;
 
 use crate::models::config::ServerProfile;
 use crate::models::state::ServerState;
+use crate::services::log_service::LogService;
+
+const OUTPUT_RETAIN_LINES: usize = 1000;
+const OUTPUT_TRIM_BATCH: usize = 100;
+const MAINTENANCE_RETAIN_LINES: usize = 500;
+const MAINTENANCE_INTERVAL_SECS: u64 = 6 * 60 * 60;
+
+struct OutputBuffer {
+    lines: Vec<String>,
+    start_index: usize,
+}
+
+impl OutputBuffer {
+    fn new() -> Self {
+        Self {
+            lines: Vec::new(),
+            start_index: 0,
+        }
+    }
+
+    fn push(&mut self, line: String) {
+        if self.lines.len() >= OUTPUT_RETAIN_LINES {
+            let remove_count = OUTPUT_TRIM_BATCH.min(self.lines.len());
+            self.lines.drain(0..remove_count);
+            self.start_index += remove_count;
+        }
+        self.lines.push(line);
+    }
+
+    fn reset_with(&mut self, line: String) {
+        self.lines.clear();
+        self.lines.shrink_to_fit();
+        self.start_index = 0;
+        self.lines.push(line);
+    }
+
+    fn compact(&mut self, retain_lines: usize) -> (usize, usize, usize) {
+        let before_len = self.lines.len();
+        let before_capacity = self.lines.capacity();
+        if before_len > retain_lines {
+            let remove_count = before_len - retain_lines;
+            self.lines.drain(0..remove_count);
+            self.start_index += remove_count;
+        }
+        if self.lines.capacity() > self.lines.len().saturating_mul(2).max(retain_lines) {
+            self.lines.shrink_to_fit();
+        }
+        (before_len, self.lines.len(), before_capacity)
+    }
+
+    fn total_count(&self) -> usize {
+        self.start_index + self.lines.len()
+    }
+
+    fn new_lines(&self, from_index: usize) -> Vec<String> {
+        if self.lines.is_empty() {
+            return vec![];
+        }
+
+        if from_index <= self.start_index {
+            return self.lines.clone();
+        }
+
+        let offset = from_index - self.start_index;
+        if offset < self.lines.len() {
+            self.lines[offset..].to_vec()
+        } else {
+            vec![]
+        }
+    }
+}
+
+fn push_output_line(output_buffer: &Arc<Mutex<OutputBuffer>>, line: String) {
+    let mut buffer = output_buffer.lock().unwrap_or_else(|e| e.into_inner());
+    buffer.push(line);
+}
 
 pub struct ProcessManager {
     child: Option<Child>,
     state: ServerState,
     start_time: Option<Instant>,
-    output_lines: Arc<Mutex<Vec<String>>>,
+    output_buffer: Arc<Mutex<OutputBuffer>>,
     logs_dir: PathBuf,
 }
 
@@ -28,7 +104,7 @@ impl ProcessManager {
             child: None,
             state: ServerState::Stopped,
             start_time: None,
-            output_lines: Arc::new(Mutex::new(Vec::new())),
+            output_buffer: Arc::new(Mutex::new(OutputBuffer::new())),
             logs_dir,
         }
     }
@@ -60,9 +136,8 @@ impl ProcessManager {
         self.state = ServerState::Starting;
 
         {
-            let mut lines = self.output_lines.lock().unwrap_or_else(|e| e.into_inner());
-            lines.clear();
-            lines.push("[系统] 正在启动服务器...".to_string());
+            let mut buffer = self.output_buffer.lock().unwrap_or_else(|e| e.into_inner());
+            buffer.reset_with("[系统] 正在启动服务器...".to_string());
         }
 
         let mut cmd = Command::new(&exe_path);
@@ -92,43 +167,31 @@ impl ProcessManager {
         let child_ref = self.child.as_mut().unwrap();
 
         if let Some(stdout) = child_ref.stdout.take() {
-            let lines_clone = Arc::clone(&self.output_lines);
+            let output_buffer = Arc::clone(&self.output_buffer);
             let game_log_dir = self.logs_dir.join("game");
             std::thread::spawn(move || {
                 let reader = BufReader::new(stdout);
                 for line in reader.lines().map_while(Result::ok) {
-                    {
-                        let mut lines = lines_clone.lock().unwrap_or_else(|e| e.into_inner());
-                        if lines.len() > 1000 {
-                            lines.drain(0..100);
-                        }
-                        lines.push(line.clone());
-                    }
+                    push_output_line(&output_buffer, line.clone());
                     let _ = append_game_log(&game_log_dir, &line);
                 }
             });
         }
 
         if let Some(stderr) = child_ref.stderr.take() {
-            let lines_clone = Arc::clone(&self.output_lines);
+            let output_buffer = Arc::clone(&self.output_buffer);
             let game_log_dir = self.logs_dir.join("game");
             std::thread::spawn(move || {
                 let reader = BufReader::new(stderr);
                 for line in reader.lines().map_while(Result::ok) {
                     let formatted = format!("[ERROR] {}", line);
-                    {
-                        let mut lines = lines_clone.lock().unwrap_or_else(|e| e.into_inner());
-                        lines.push(formatted.clone());
-                    }
+                    push_output_line(&output_buffer, formatted.clone());
                     let _ = append_game_log(&game_log_dir, &formatted);
                 }
             });
         }
 
-        {
-            let mut lines = self.output_lines.lock().unwrap_or_else(|e| e.into_inner());
-            lines.push("[系统] 服务器已启动".to_string());
-        }
+        push_output_line(&self.output_buffer, "[系统] 服务器已启动".to_string());
 
         Ok(())
     }
@@ -137,9 +200,7 @@ impl ProcessManager {
         if let Some(child) = &mut self.child {
             match child.try_wait() {
                 Ok(Some(_)) => {
-                    let mut lines = self.output_lines.lock().unwrap_or_else(|e| e.into_inner());
-                    lines.push("[系统] 服务器进程已退出".to_string());
-                    drop(lines);
+                    push_output_line(&self.output_buffer, "[系统] 服务器进程已退出".to_string());
                     self.state = ServerState::Stopped;
                     self.child = None;
                     self.start_time = None;
@@ -158,8 +219,7 @@ impl ProcessManager {
             self.state = ServerState::Stopping;
             child.kill().map_err(|e| format!("强制停止失败: {}", e))?;
             let _ = child.wait();
-            let mut lines = self.output_lines.lock().unwrap_or_else(|e| e.into_inner());
-            lines.push("[系统] 服务器已强制停止".to_string());
+            push_output_line(&self.output_buffer, "[系统] 服务器已强制停止".to_string());
         }
         self.state = ServerState::Stopped;
         self.start_time = None;
@@ -167,17 +227,45 @@ impl ProcessManager {
     }
 
     pub fn get_new_output(&self, from_index: usize) -> Vec<String> {
-        let lines = self.output_lines.lock().unwrap_or_else(|e| e.into_inner());
-        if from_index < lines.len() {
-            lines[from_index..].to_vec()
-        } else {
-            vec![]
-        }
+        let buffer = self.output_buffer.lock().unwrap_or_else(|e| e.into_inner());
+        buffer.new_lines(from_index)
     }
 
     pub fn output_count(&self) -> usize {
-        self.output_lines.lock().unwrap_or_else(|e| e.into_inner()).len()
+        self.output_buffer
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .total_count()
     }
+
+    pub fn compact_output_cache(&mut self, retain_lines: usize) -> (usize, usize, usize) {
+        let mut buffer = self.output_buffer.lock().unwrap_or_else(|e| e.into_inner());
+        buffer.compact(retain_lines)
+    }
+}
+
+pub fn start_output_cache_maintenance(
+    process: Arc<Mutex<ProcessManager>>,
+    log: Arc<Mutex<LogService>>,
+) {
+    std::thread::spawn(move || loop {
+        std::thread::sleep(std::time::Duration::from_secs(MAINTENANCE_INTERVAL_SECS));
+
+        let (before, after, before_capacity, state, pid) = {
+            let mut pm = process.lock().unwrap_or_else(|e| e.into_inner());
+            let state = pm.state().to_string();
+            let pid = pm.pid();
+            let (before, after, before_capacity) =
+                pm.compact_output_cache(MAINTENANCE_RETAIN_LINES);
+            (before, after, before_capacity, state, pid)
+        };
+
+        let ls = log.lock().unwrap_or_else(|e| e.into_inner());
+        ls.log_app(&format!(
+            "[维护] 输出缓存检查: 状态={}, PID={:?}, 行数 {}->{}, 原容量={}",
+            state, pid, before, after, before_capacity
+        ));
+    });
 }
 
 fn append_game_log(game_log_dir: &Path, line: &str) -> std::io::Result<()> {
@@ -188,4 +276,34 @@ fn append_game_log(game_log_dir: &Path, line: &str) -> std::io::Result<()> {
     let file_path = game_log_dir.join(format!("{}.log", date));
     let mut file = OpenOptions::new().create(true).append(true).open(file_path)?;
     writeln!(file, "[{}] {}", time, line)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn output_buffer_uses_monotonic_total_count_after_trimming() {
+        let mut buffer = OutputBuffer::new();
+        for i in 0..=OUTPUT_RETAIN_LINES {
+            buffer.push(format!("line {}", i));
+        }
+
+        assert!(buffer.start_index > 0);
+        assert_eq!(buffer.total_count(), OUTPUT_RETAIN_LINES + 1);
+        assert_eq!(buffer.lines.len(), OUTPUT_RETAIN_LINES + 1 - OUTPUT_TRIM_BATCH);
+    }
+
+    #[test]
+    fn output_buffer_returns_retained_lines_when_requested_index_was_pruned() {
+        let mut buffer = OutputBuffer::new();
+        for i in 0..=OUTPUT_RETAIN_LINES {
+            buffer.push(format!("line {}", i));
+        }
+
+        let lines = buffer.new_lines(0);
+
+        assert_eq!(lines.first().unwrap(), "line 100");
+        assert_eq!(lines.last().unwrap(), "line 1000");
+    }
 }

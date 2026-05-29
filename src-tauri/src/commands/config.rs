@@ -3,7 +3,7 @@ use std::path::Path;
 use serde::Serialize;
 use tauri::State;
 
-use crate::models::config::{ServersConfig, ServerProfile, RconConfig};
+use crate::models::config::{AppSettings, ServersConfig, ServerProfile, RconConfig};
 use crate::services::config_service::ConfigService;
 
 fn contains_chinese(s: &str) -> bool {
@@ -80,6 +80,34 @@ pub fn auto_detect_paths() -> DetectResult {
 pub fn get_config(config: State<'_, Arc<Mutex<ConfigService>>>) -> ServersConfig {
     let cfg = config.lock().unwrap_or_else(|e| e.into_inner());
     cfg.load_servers_config()
+}
+
+#[tauri::command]
+pub fn get_app_settings(config: State<'_, Arc<Mutex<ConfigService>>>) -> AppSettings {
+    let cfg = config.lock().unwrap_or_else(|e| e.into_inner());
+    cfg.load_app_settings()
+}
+
+#[tauri::command]
+pub fn set_auto_update_hosting(
+    config: State<'_, Arc<Mutex<ConfigService>>>,
+    enabled: bool,
+    save_id: Option<String>,
+) -> Result<AppSettings, String> {
+    let cfg = config.lock().unwrap_or_else(|e| e.into_inner());
+    let mut settings = cfg.load_app_settings();
+
+    if let Some(profile) = cfg.load_servers_config().servers.first() {
+        let actual_id = save_id
+            .filter(|id| !id.trim().is_empty())
+            .unwrap_or_else(|| profile.id.clone());
+        ConfigService::update_auto_update_config(&profile.server_root, &actual_id, enabled)?;
+    }
+
+    settings.auto_update_hosting = enabled;
+    cfg.save_app_settings(&settings)?;
+
+    Ok(settings)
 }
 
 #[tauri::command]
