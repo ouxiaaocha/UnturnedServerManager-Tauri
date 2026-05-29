@@ -1,4 +1,4 @@
-<script lang="ts">
+﻿<script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
   import { rconLogs, addRconLog } from "$lib/stores.svelte";
@@ -108,7 +108,7 @@
 
 <div class="flex flex-col h-full gap-5">
   <div>
-    <h1 class="text-2xl font-bold text-white">RCON 控制台</h1>
+    <h1 class="text-2xl font-bold text-[var(--text-primary)]">RCON 控制台</h1>
     <p class="text-sm text-[var(--text-muted)] mt-1">远程控制台管理</p>
   </div>
 
@@ -124,7 +124,7 @@
 
       <div class="flex gap-3 ml-auto">
         <button
-          class="px-5 py-2.5 bg-gradient-to-r from-[var(--accent)] to-cyan-600 hover:from-cyan-500 hover:to-[var(--accent)] text-white text-sm font-medium rounded-lg transition-all duration-[var(--transition-normal)] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2"
+          class="px-5 py-2.5 bg-gradient-to-r from-[var(--accent)] to-cyan-600 hover:from-cyan-500 hover:to-[var(--accent)] text-[var(--text-primary)] text-sm font-medium rounded-lg transition-all duration-[var(--transition-normal)] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2"
           onclick={connect}
           disabled={connected || connecting}
         >
@@ -155,12 +155,12 @@
 
   <!-- Response Area -->
   <div class="flex-1 bg-[var(--bg-card)] border border-[var(--border)] rounded-xl flex flex-col min-h-0">
-    <div class="flex items-center justify-between px-5 py-3 border-b border-[var(--border)] flex-shrink-0">
+    <div class="flex flex-wrap items-center justify-between gap-3 px-5 py-3 border-b border-[var(--border)] flex-shrink-0">
       <div class="flex items-center gap-2">
         <svg class="w-4 h-4 text-[var(--accent-light)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
         </svg>
-        <span class="text-sm font-medium text-white">响应输出</span>
+        <span class="text-sm font-medium text-[var(--text-primary)]">响应输出</span>
       </div>
       <div class="flex items-center gap-2">
         <div class="relative">
@@ -171,11 +171,11 @@
             type="text"
             bind:value={logSearch}
             placeholder="搜索日志..."
-            class="w-44 bg-[var(--bg-primary)] border border-[var(--border)] rounded-md pl-8 pr-2 py-1 text-xs text-white placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors"
+            class="w-full sm:w-44 bg-[var(--bg-primary)] border border-[var(--border)] rounded-md pl-8 pr-2 py-1 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors"
           />
         </div>
         <button
-          class="text-xs text-[var(--text-muted)] hover:text-white transition-colors duration-[var(--transition-fast)] px-2 py-1 rounded hover:bg-[var(--bg-card-hover)] cursor-pointer"
+          class="text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors duration-[var(--transition-fast)] px-2 py-1 rounded hover:bg-[var(--bg-card-hover)] cursor-pointer"
           onclick={() => { rconLogs.splice(0, rconLogs.length); }}
         >
           清空
@@ -200,7 +200,7 @@
             </div>
           {/if}
           {#each filtered as r}
-            <p class="py-0.5 {r.type === 'error' ? 'text-[var(--danger)]' : r.type === 'command' ? 'text-white font-medium' : r.type === 'system' ? 'text-[var(--accent-light)]' : r.type === 'info' ? 'text-[var(--success)]' : 'text-[var(--text-secondary)]'}">
+            <p class="py-0.5 {r.type === 'error' ? 'text-[var(--danger)]' : r.type === 'command' ? 'text-[var(--text-primary)] font-medium' : r.type === 'system' ? 'text-[var(--accent-light)]' : r.type === 'info' ? 'text-[var(--success)]' : 'text-[var(--text-secondary)]'}">
               {@html highlightText(r.text, logSearch)}
             </p>
           {/each}
@@ -216,7 +216,7 @@
         type="text"
         bind:value={command}
         placeholder="输入 RCON 命令..."
-        class="w-full bg-[var(--bg-card)] border border-[var(--border)] rounded-lg px-4 py-3 text-sm text-white placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors duration-[var(--transition-normal)] font-mono"
+        class="w-full bg-[var(--bg-card)] border border-[var(--border)] rounded-lg px-4 py-3 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors duration-[var(--transition-normal)] font-mono"
         disabled={!connected}
         onkeydown={handleKeydown}
       />
@@ -227,7 +227,7 @@
       </div>
     </div>
     <button
-      class="px-6 py-3 bg-gradient-to-r from-[var(--accent)] to-cyan-600 hover:from-cyan-500 hover:to-[var(--accent)] text-white text-sm font-medium rounded-lg transition-all duration-[var(--transition-normal)] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2"
+      class="px-6 py-3 bg-gradient-to-r from-[var(--accent)] to-cyan-600 hover:from-cyan-500 hover:to-[var(--accent)] text-[var(--text-primary)] text-sm font-medium rounded-lg transition-all duration-[var(--transition-normal)] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2"
       onclick={send}
       disabled={!connected || !command.trim()}
     >
@@ -238,3 +238,5 @@
     </button>
   </div>
 </div>
+
+

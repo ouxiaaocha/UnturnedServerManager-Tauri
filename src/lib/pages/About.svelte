@@ -1,6 +1,6 @@
-<div class="flex flex-col gap-5 h-full overflow-y-auto">
+﻿<div class="flex flex-col gap-5 h-full overflow-y-auto">
   <div>
-    <h1 class="text-2xl font-bold text-white">关于</h1>
+    <h1 class="text-2xl font-bold text-[var(--text-primary)]">关于</h1>
     <p class="text-sm text-[var(--text-muted)] mt-1">应用信息与作者</p>
   </div>
 
@@ -8,11 +8,11 @@
     <!-- App Info Card -->
     <div class="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-8 w-full max-w-md text-center">
       <div class="w-16 h-16 rounded-2xl bg-gradient-to-br from-[var(--accent)] to-[var(--action)] flex items-center justify-center mx-auto mb-5">
-        <svg class="w-9 h-9 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg class="w-9 h-9 text-[var(--text-primary)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
         </svg>
       </div>
-      <h2 class="text-xl font-bold text-white mb-1">Unturned 服务器管理工具</h2>
+      <h2 class="text-xl font-bold text-[var(--text-primary)] mb-1">Unturned 服务器管理工具</h2>
       <p class="text-sm text-[var(--text-muted)] mb-4">一站式 Unturned 服务器管理客户端</p>
       <div class="inline-block bg-[var(--bg-elevated)] text-[var(--accent-light)] text-xs font-mono px-3 py-1 rounded-full">
         v1.0.1
@@ -24,10 +24,10 @@
       <h3 class="text-sm font-medium text-[var(--text-muted)] uppercase tracking-wider mb-5 text-center">开发者</h3>
       <div class="flex flex-col items-center gap-4">
         <div class="w-14 h-14 rounded-full bg-gradient-to-br from-[var(--accent)] to-cyan-600 flex items-center justify-center">
-          <span class="text-xl font-bold text-white">欧</span>
+          <span class="text-xl font-bold text-[var(--text-primary)]">欧</span>
         </div>
         <div class="text-center">
-          <p class="text-lg font-semibold text-white">欧小茶</p>
+          <p class="text-lg font-semibold text-[var(--text-primary)]">欧小茶</p>
           <p class="text-sm text-[var(--text-muted)] mt-1">独立开发者</p>
         </div>
       </div>
@@ -42,7 +42,7 @@
           </svg>
           <div class="flex-1 min-w-0">
             <p class="text-xs text-[var(--text-muted)]">邮箱</p>
-            <p class="text-sm text-white truncate">56896686@qq.com</p>
+            <p class="text-sm text-[var(--text-primary)] truncate">56896686@qq.com</p>
           </div>
         </a>
 
@@ -57,7 +57,7 @@
           </svg>
           <div class="flex-1 min-w-0">
             <p class="text-xs text-[var(--text-muted)]">GitHub</p>
-            <p class="text-sm text-white truncate">github.com/ouxiaaocha</p>
+            <p class="text-sm text-[var(--text-primary)] truncate">github.com/ouxiaaocha</p>
           </div>
           <svg class="w-3.5 h-3.5 text-[var(--text-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
@@ -67,3 +67,4 @@
     </div>
   </div>
 </div>
+

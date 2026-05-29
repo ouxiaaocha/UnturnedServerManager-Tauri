@@ -1,4 +1,4 @@
-<script lang="ts">
+﻿<script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import { formatBytes, formatUptime } from "$lib/utils";
 
@@ -148,9 +148,9 @@
 </script>
 
 <div class="h-full overflow-y-auto">
-  <div class="flex items-center justify-between mb-8">
+  <div class="flex flex-wrap items-center justify-between gap-3 mb-8">
     <div>
-      <h1 class="text-2xl font-bold text-white">仪表盘</h1>
+      <h1 class="text-2xl font-bold text-[var(--text-primary)]">仪表盘</h1>
       <p class="text-sm text-[var(--text-muted)] mt-1">服务器状态概览与系统监控</p>
     </div>
     <div class="flex items-center gap-2 px-4 py-2 rounded-lg bg-[var(--bg-card)] border border-[var(--border)]">
@@ -160,7 +160,7 @@
   </div>
 
   <!-- Server Status Cards -->
-  <div class="grid grid-cols-3 gap-5 mb-8">
+  <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3 md:gap-5 mb-8">
     <div class="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-5 hover:border-[var(--accent)] transition-all duration-[var(--transition-normal)] group">
       <div class="flex items-center gap-3 mb-4">
         <div class="w-10 h-10 rounded-lg bg-[var(--accent-subtle)] flex items-center justify-center">
@@ -184,7 +184,7 @@
         </div>
         <p class="text-xs text-[var(--text-muted)] uppercase tracking-wider">运行时间</p>
       </div>
-      <p class="text-2xl font-bold text-white">{uptime}</p>
+      <p class="text-2xl font-bold text-[var(--text-primary)]">{uptime}</p>
     </div>
 
     <div class="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-5 hover:border-[var(--warning)] transition-all duration-[var(--transition-normal)] group">
@@ -196,19 +196,19 @@
         </div>
         <p class="text-xs text-[var(--text-muted)] uppercase tracking-wider">进程 PID</p>
       </div>
-      <p class="text-2xl font-bold text-white font-mono">{pid}</p>
+      <p class="text-2xl font-bold text-[var(--text-primary)] font-mono">{pid}</p>
     </div>
   </div>
 
   <!-- System Monitoring Cards -->
   <div class="mb-8">
-    <h2 class="text-base font-semibold text-white mb-5 flex items-center gap-2">
+    <h2 class="text-base font-semibold text-[var(--text-primary)] mb-5 flex items-center gap-2">
       <svg class="w-5 h-5 text-[var(--accent-light)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
       </svg>
       系统监控
     </h2>
-    <div class="grid grid-cols-3 gap-5">
+    <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3 md:gap-5">
       <!-- CPU -->
       <div class="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-5 hover:border-[var(--accent)] transition-all duration-[var(--transition-normal)]">
         <div class="flex items-center gap-3 mb-4">
@@ -226,10 +226,10 @@
       </div>
 
       <!-- Memory -->
-      <div class="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-5 hover:border-purple-500 transition-all duration-[var(--transition-normal)]">
+      <div class="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-5 hover:border-[var(--action)] transition-all duration-[var(--transition-normal)]">
         <div class="flex items-center gap-3 mb-4">
-          <div class="w-10 h-10 rounded-lg bg-purple-500/10 flex items-center justify-center">
-            <svg class="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <div class="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center">
+            <svg class="w-5 h-5 text-[var(--action)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
             </svg>
           </div>
@@ -238,7 +238,7 @@
         <p class="text-2xl font-bold mb-1" style="color: {getStatusColor(memPercent)}">{memPercent.toFixed(1)}%</p>
         <p class="text-xs text-[var(--text-muted)] mb-3">{formatBytes(memUsed)} / {formatBytes(memTotal)}</p>
         <div class="w-full h-2 rounded-full bg-[var(--border)]">
-          <div class="h-full rounded-full bg-purple-500 transition-all duration-500" style="width: {Math.min(memPercent, 100)}%"></div>
+          <div class="h-full rounded-full bg-[var(--action)] transition-all duration-500" style="width: {Math.min(memPercent, 100)}%"></div>
         </div>
       </div>
 
@@ -276,7 +276,7 @@
 
   <!-- Quick Actions -->
   <div class="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-6">
-    <h2 class="text-base font-semibold text-white mb-5 flex items-center gap-2">
+    <h2 class="text-base font-semibold text-[var(--text-primary)] mb-5 flex items-center gap-2">
       <svg class="w-5 h-5 text-[var(--accent-light)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
       </svg>
@@ -284,36 +284,36 @@
     </h2>
 
     <!-- Save & Mode Selection -->
-    <div class="flex items-center gap-4 mb-5 pb-5 border-b border-[var(--border)]">
-      <div class="flex items-center gap-2">
-        <label class="text-xs text-[var(--text-muted)]">存档:</label>
+    <div class="flex flex-col gap-4 mb-5 pb-5 border-b border-[var(--border)] lg:flex-row lg:items-center">
+      <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <span class="text-xs text-[var(--text-muted)]">存档:</span>
         <select
           bind:value={selectedSaveId}
-          class="bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-[var(--accent)] transition-colors cursor-pointer"
+          class="bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-3 py-1.5 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)] transition-colors cursor-pointer"
         >
           {#each saves as save}
             <option value={save.id}>{save.id}{save.name ? ` - ${save.name}` : ''}</option>
           {/each}
         </select>
       </div>
-      <div class="flex items-center gap-2">
-        <label class="text-xs text-[var(--text-muted)]">模式:</label>
+      <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <span class="text-xs text-[var(--text-muted)]">模式:</span>
         <div class="flex rounded-lg overflow-hidden border border-[var(--border)]">
           <button
-            class="px-3 py-1.5 text-xs font-medium transition-all cursor-pointer {launchMode === 'internet' ? 'bg-[var(--accent)] text-white' : 'bg-[var(--bg-primary)] text-[var(--text-secondary)] hover:text-white'}"
+            class="px-3 py-1.5 text-xs font-medium transition-all cursor-pointer {launchMode === 'internet' ? 'bg-[var(--accent)] text-[var(--text-primary)]' : 'bg-[var(--bg-primary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}"
             onclick={() => launchMode = 'internet'}
           >互联网</button>
           <button
-            class="px-3 py-1.5 text-xs font-medium transition-all cursor-pointer {launchMode === 'lan' ? 'bg-[var(--accent)] text-white' : 'bg-[var(--bg-primary)] text-[var(--text-secondary)] hover:text-white'}"
+            class="px-3 py-1.5 text-xs font-medium transition-all cursor-pointer {launchMode === 'lan' ? 'bg-[var(--accent)] text-[var(--text-primary)]' : 'bg-[var(--bg-primary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}"
             onclick={() => launchMode = 'lan'}
           >局域网</button>
         </div>
       </div>
     </div>
 
-    <div class="flex gap-4">
+    <div class="flex flex-col gap-3 lg:flex-row">
       <button
-        class="flex-1 px-6 py-3 bg-gradient-to-r from-[var(--success)] to-emerald-600 hover:from-emerald-500 hover:to-[var(--success)] text-white text-sm font-medium rounded-lg transition-all duration-[var(--transition-normal)] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer flex items-center justify-center gap-2 shadow-lg shadow-[var(--success-glow)]"
+        class="flex-1 px-6 py-3 bg-gradient-to-r from-[var(--success)] to-emerald-600 hover:from-emerald-500 hover:to-[var(--success)] text-[var(--text-primary)] text-sm font-medium rounded-lg transition-all duration-[var(--transition-normal)] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer flex items-center justify-center gap-2 shadow-lg shadow-[var(--success-glow)]"
         onclick={startServer}
         disabled={status === '运行中' || loading !== ''}
       >
@@ -330,7 +330,7 @@
       </button>
 
       <button
-        class="flex-1 px-6 py-3 bg-gradient-to-r from-[var(--danger)] to-rose-600 hover:from-rose-500 hover:to-[var(--danger)] text-white text-sm font-medium rounded-lg transition-all duration-[var(--transition-normal)] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer flex items-center justify-center gap-2 shadow-lg shadow-[var(--danger-glow)]"
+        class="flex-1 px-6 py-3 bg-gradient-to-r from-[var(--danger)] to-rose-600 hover:from-rose-500 hover:to-[var(--danger)] text-[var(--text-primary)] text-sm font-medium rounded-lg transition-all duration-[var(--transition-normal)] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer flex items-center justify-center gap-2 shadow-lg shadow-[var(--danger-glow)]"
         onclick={stopServer}
         disabled={status !== '运行中' || loading !== ''}
       >
@@ -347,7 +347,7 @@
       </button>
 
       <button
-        class="flex-1 px-6 py-3 bg-gradient-to-r from-[var(--warning)] to-amber-600 hover:from-amber-500 hover:to-[var(--warning)] text-white text-sm font-medium rounded-lg transition-all duration-[var(--transition-normal)] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer flex items-center justify-center gap-2 shadow-lg shadow-[var(--warning-glow)]"
+        class="flex-1 px-6 py-3 bg-gradient-to-r from-[var(--warning)] to-amber-600 hover:from-amber-500 hover:to-[var(--warning)] text-[var(--text-primary)] text-sm font-medium rounded-lg transition-all duration-[var(--transition-normal)] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer flex items-center justify-center gap-2 shadow-lg shadow-[var(--warning-glow)]"
         onclick={restartServer}
         disabled={status !== '运行中' || loading !== ''}
       >
@@ -364,3 +364,5 @@
     </div>
   </div>
 </div>
+
+

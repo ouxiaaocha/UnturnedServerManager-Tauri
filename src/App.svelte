@@ -1,4 +1,4 @@
-<script lang="ts">
+﻿<script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import DashboardPage from "./lib/pages/Dashboard.svelte";
   import ServerPage from "./lib/pages/Server.svelte";
@@ -53,41 +53,42 @@
 {:else if showWizard}
   <WizardPage onComplete={onWizardComplete} />
 {:else}
-  <div class="flex h-screen bg-[var(--bg-primary)]">
+  <div class="flex h-screen flex-col bg-[var(--bg-primary)] md:flex-row">
     <!-- Sidebar Navigation -->
-    <nav class="w-[220px] bg-[var(--bg-secondary)] flex flex-col border-r border-[var(--border)] relative z-10">
+    <nav class="relative z-10 flex w-full shrink-0 flex-col border-b border-[var(--border)] bg-[var(--bg-secondary)]/95 shadow-[var(--shadow-sm)] backdrop-blur md:h-screen md:w-[232px] md:border-b-0 md:border-r">
       <!-- Logo Area -->
-      <div class="px-5 py-6 border-b border-[var(--border)]">
+      <div class="border-b border-[var(--border)] px-4 py-3 md:px-5 md:py-6">
         <div class="flex items-center gap-3">
-          <div class="w-9 h-9 rounded-lg bg-gradient-to-br from-[var(--accent)] to-[var(--action)] flex items-center justify-center">
-            <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-[var(--accent)] to-[var(--action)] shadow-[var(--shadow-glow)]">
+            <svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
             </svg>
           </div>
-          <div>
-            <h1 class="text-sm font-semibold text-white">Unturned</h1>
+          <div class="min-w-0">
+            <h1 class="text-sm font-semibold text-[var(--text-primary)]">Unturned</h1>
             <p class="text-[10px] text-[var(--text-muted)]">服务器管理工具</p>
           </div>
+          <p class="ml-auto hidden rounded-full bg-[var(--bg-elevated)] px-2.5 py-1 text-[10px] font-medium text-[var(--text-secondary)] sm:block md:hidden">v1.0.1</p>
         </div>
       </div>
 
       <!-- Navigation Items -->
-      <ul class="mt-3 flex-1 px-3 space-y-1">
+      <ul class="flex gap-2 overflow-x-auto px-3 py-3 md:mt-3 md:block md:flex-1 md:space-y-1 md:overflow-visible md:py-0">
         {#each navItems as item}
-          <li>
+          <li class="shrink-0 md:shrink">
             <button
-              class="w-full text-left px-3 py-2.5 rounded-lg transition-all duration-[var(--transition-normal)] flex items-center gap-3 cursor-pointer
+              class="flex w-full items-center gap-2 rounded-lg border px-3 py-2.5 text-left transition-all duration-[var(--transition-normal)] md:gap-3
                 {currentPage === item.id
-                  ? 'bg-[var(--accent-subtle)] text-[var(--accent-light)] border border-[var(--border-accent)]'
-                  : 'text-[var(--text-secondary)] hover:text-white hover:bg-[var(--bg-card)] border border-transparent'}"
+                  ? 'border-[var(--border-accent)] bg-[var(--accent-subtle)] text-[var(--accent-light)] shadow-[var(--shadow-sm)]'
+                  : 'border-transparent text-[var(--text-secondary)] hover:bg-[var(--bg-card-hover)] hover:text-[var(--text-primary)]'}"
               onclick={() => (currentPage = item.id)}
             >
-              <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg class="h-5 w-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d={item.icon} />
               </svg>
-              <span class="text-sm font-medium">{item.label}</span>
+              <span class="whitespace-nowrap text-sm font-medium">{item.label}</span>
               {#if currentPage === item.id}
-                <div class="ml-auto w-1.5 h-1.5 rounded-full bg-[var(--accent)]"></div>
+                <div class="ml-auto hidden h-1.5 w-1.5 rounded-full bg-[var(--accent)] md:block"></div>
               {/if}
             </button>
           </li>
@@ -95,20 +96,20 @@
       </ul>
 
       <!-- Version Info & About -->
-      <div class="px-3 pb-3 border-t border-[var(--border)] pt-3">
+      <div class="hidden border-t border-[var(--border)] px-3 pb-3 pt-3 md:block">
         <button
-          class="w-full text-left px-3 py-2.5 rounded-lg transition-all duration-[var(--transition-normal)] flex items-center gap-3 cursor-pointer
+          class="flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition-all duration-[var(--transition-normal)]
             {currentPage === 'about'
-              ? 'bg-[var(--accent-subtle)] text-[var(--accent-light)] border border-[var(--border-accent)]'
-              : 'text-[var(--text-secondary)] hover:text-white hover:bg-[var(--bg-card)] border border-transparent'}"
+              ? 'border-[var(--border-accent)] bg-[var(--accent-subtle)] text-[var(--accent-light)]'
+              : 'border-transparent text-[var(--text-secondary)] hover:bg-[var(--bg-card-hover)] hover:text-[var(--text-primary)]'}"
           onclick={() => (currentPage = 'about')}
         >
-          <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg class="h-5 w-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
           <span class="text-sm font-medium">关于</span>
           {#if currentPage === 'about'}
-            <div class="ml-auto w-1.5 h-1.5 rounded-full bg-[var(--accent)]"></div>
+            <div class="ml-auto h-1.5 w-1.5 rounded-full bg-[var(--accent)]"></div>
           {/if}
         </button>
         <p class="text-[10px] text-[var(--text-muted)] px-3 mt-2">v1.0.1</p>
@@ -116,8 +117,8 @@
     </nav>
 
     <!-- Main Content Area -->
-    <main class="flex-1 overflow-hidden p-6 flex flex-col min-h-0">
-      <div class="max-w-[1200px] mx-auto w-full flex-1 flex flex-col min-h-0">
+    <main class="flex min-h-0 flex-1 flex-col overflow-hidden p-4 sm:p-5 lg:p-6">
+      <div class="mx-auto flex min-h-0 w-full max-w-[1280px] flex-1 flex-col">
         {#if currentPage === "dashboard"}
           <DashboardPage />
         {:else if currentPage === "server"}
@@ -141,3 +142,4 @@
     </main>
   </div>
 {/if}
+

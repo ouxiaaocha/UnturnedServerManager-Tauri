@@ -1,4 +1,4 @@
-<script lang="ts">
+﻿<script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
   import { open } from "@tauri-apps/plugin-dialog";
@@ -316,15 +316,15 @@
   const stepLabels = ["欢迎", "SteamCMD", "服务端", "Rocket", "存档", "配置"];
 </script>
 
-<div class="flex items-center justify-center h-full bg-[var(--bg-primary)]">
-  <div class="w-[600px] bg-[var(--bg-card)] border border-[var(--border)] rounded-2xl p-8 shadow-2xl max-h-[90vh] overflow-y-auto">
+<div class="flex h-full items-center justify-center bg-[var(--bg-primary)] p-4">
+  <div class="w-full max-w-[680px] bg-[var(--bg-card)] border border-[var(--border)] rounded-2xl p-5 shadow-[var(--shadow-lg)] max-h-[92vh] overflow-y-auto sm:p-8">
     <!-- Step Indicator -->
-    <div class="flex items-center justify-center gap-3 mb-10">
+    <div class="mb-8 grid grid-cols-3 justify-items-center gap-4 sm:mb-10 sm:flex sm:items-start sm:justify-center sm:gap-3">
       {#each [0, 1, 2, 3, 4, 5] as i}
         <div class="flex items-center gap-3">
           <div class="flex flex-col items-center gap-1.5">
             <div class="w-8 h-8 rounded-full transition-all duration-[var(--transition-slow)] flex items-center justify-center text-xs font-semibold
-              {i === step ? 'bg-[var(--accent)] text-white shadow-lg shadow-[var(--accent-glow)]' : i < step ? 'bg-[var(--success)] text-white' : 'bg-[var(--bg-elevated)] text-[var(--text-muted)] border border-[var(--border)]'}">
+              {i === step ? 'bg-[var(--accent)] text-[var(--text-primary)] shadow-lg shadow-[var(--accent-glow)]' : i < step ? 'bg-[var(--success)] text-[var(--text-primary)]' : 'bg-[var(--bg-elevated)] text-[var(--text-muted)] border border-[var(--border)]'}">
               {#if i < step}
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
@@ -334,7 +334,7 @@
             <span class="text-[10px] {i === step ? 'text-[var(--accent-light)]' : 'text-[var(--text-muted)]'}">{stepLabels[i]}</span>
           </div>
           {#if i < 5}
-            <div class="w-12 h-0.5 {i < step ? 'bg-[var(--success)]' : 'bg-[var(--border)]'} transition-colors duration-[var(--transition-slow)] mb-5"></div>
+            <div class="hidden sm:block w-12 h-0.5 {i < step ? 'bg-[var(--success)]' : 'bg-[var(--border)]'} transition-colors duration-[var(--transition-slow)] mb-5"></div>
           {/if}
         </div>
       {/each}
@@ -344,11 +344,11 @@
     {#if step === 0}
       <div class="text-center py-4">
         <div class="w-16 h-16 mx-auto mb-5 rounded-2xl bg-gradient-to-br from-[var(--accent)] to-[var(--action)] flex items-center justify-center shadow-lg shadow-[var(--accent-glow)]">
-          <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg class="w-8 h-8 text-[var(--text-primary)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
           </svg>
         </div>
-        <h2 class="text-xl font-bold text-white mb-2">欢迎使用</h2>
+        <h2 class="text-xl font-bold text-[var(--text-primary)] mb-2">欢迎使用</h2>
         <p class="text-sm text-[var(--text-secondary)] mb-1">Unturned 服务器管理工具</p>
         <p class="text-xs text-[var(--text-muted)] mt-6 leading-6">
           首次运行需要配置 SteamCMD 和服务端路径。<br/>
@@ -359,11 +359,11 @@
     <!-- Step 1: SteamCMD -->
     {:else if step === 1}
       <div>
-        <h2 class="text-lg font-bold text-white mb-2">SteamCMD 路径</h2>
+        <h2 class="text-lg font-bold text-[var(--text-primary)] mb-2">SteamCMD 路径</h2>
         <p class="text-xs text-[var(--text-muted)] mb-5">请指定 steamcmd.exe 路径。如果没有安装，可使用自动下载功能。</p>
         <input type="text" bind:value={steamCmdPath}
           placeholder="C:\SteamCMD\steamcmd.exe" readonly
-          class="w-full bg-[var(--bg-primary)] border rounded-lg px-4 py-3 text-sm text-white placeholder:text-[var(--text-muted)] mb-2 focus:border-[var(--accent)] transition-colors duration-[var(--transition-normal)] {steamCmdPath ? 'border-[var(--success)]' : 'border-[var(--border)]'}" />
+          class="w-full bg-[var(--bg-primary)] border rounded-lg px-4 py-3 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] mb-2 focus:border-[var(--accent)] transition-colors duration-[var(--transition-normal)] {steamCmdPath ? 'border-[var(--success)]' : 'border-[var(--border)]'}" />
         {#if steamCmdPath}
           <p class="text-xs text-[var(--success)] mb-2 flex items-center gap-1">
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
@@ -372,14 +372,14 @@
         {:else}
           <p class="text-xs text-[var(--danger)] mb-2">{chineseWarning}</p>
         {/if}
-        <div class="flex gap-3 mb-4">
-          <button class="px-5 py-2.5 bg-gradient-to-r from-[var(--accent)] to-cyan-600 hover:from-cyan-500 hover:to-[var(--accent)] text-white text-sm font-medium rounded-lg transition-all cursor-pointer flex items-center gap-2"
+        <div class="flex flex-col gap-3 mb-4 sm:flex-row sm:flex-wrap">
+          <button class="px-5 py-2.5 bg-gradient-to-r from-[var(--accent)] to-cyan-600 hover:from-cyan-500 hover:to-[var(--accent)] text-[var(--text-primary)] text-sm font-medium rounded-lg transition-all cursor-pointer flex items-center gap-2"
             onclick={browseSteamCmd}>
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
             </svg>浏览文件夹
           </button>
-          <button class="px-5 py-2.5 bg-[var(--bg-elevated)] border border-[var(--border)] text-[var(--text-secondary)] text-sm rounded-lg transition-all hover:text-white hover:border-[var(--accent)] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2"
+          <button class="px-5 py-2.5 bg-[var(--bg-elevated)] border border-[var(--border)] text-[var(--text-secondary)] text-sm rounded-lg transition-all hover:text-[var(--text-primary)] hover:border-[var(--accent)] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2"
             onclick={autoDetect} disabled={detecting}>
             {#if detecting}
               <div class="w-4 h-4 border-2 border-[var(--accent)] border-t-transparent rounded-full animate-spin"></div>检测中...
@@ -389,7 +389,7 @@
               </svg>自动检测
             {/if}
           </button>
-          <button class="px-5 py-2.5 bg-gradient-to-r from-[var(--success)] to-emerald-600 hover:from-emerald-500 hover:to-[var(--success)] text-white text-sm font-medium rounded-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2"
+          <button class="px-5 py-2.5 bg-gradient-to-r from-[var(--success)] to-emerald-600 hover:from-emerald-500 hover:to-[var(--success)] text-[var(--text-primary)] text-sm font-medium rounded-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2"
             onclick={autoDownloadSteamcmd} disabled={downloadingS}>
             {#if downloadingS}
               <div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>下载中...
@@ -413,11 +413,11 @@
     <!-- Step 2: Server Root -->
     {:else if step === 2}
       <div>
-        <h2 class="text-lg font-bold text-white mb-2">服务端目录</h2>
+        <h2 class="text-lg font-bold text-[var(--text-primary)] mb-2">服务端目录</h2>
         <p class="text-xs text-[var(--text-muted)] mb-5">请指定 Unturned 服务端根目录（包含 Unturned.exe）。如果没有安装，可使用自动下载功能。</p>
         <input type="text" bind:value={serverRoot}
           placeholder="C:\SteamCMD\steamapps\common\U3DS" readonly
-          class="w-full bg-[var(--bg-primary)] border rounded-lg px-4 py-3 text-sm text-white placeholder:text-[var(--text-muted)] mb-2 focus:border-[var(--accent)] transition-colors duration-[var(--transition-normal)] {serverRoot ? 'border-[var(--success)]' : 'border-[var(--border)]'}" />
+          class="w-full bg-[var(--bg-primary)] border rounded-lg px-4 py-3 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] mb-2 focus:border-[var(--accent)] transition-colors duration-[var(--transition-normal)] {serverRoot ? 'border-[var(--success)]' : 'border-[var(--border)]'}" />
         {#if serverRoot}
           <p class="text-xs text-[var(--success)] mb-2 flex items-center gap-1">
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
@@ -426,14 +426,14 @@
         {:else}
           <p class="text-xs text-[var(--danger)] mb-2">{chineseWarning}</p>
         {/if}
-        <div class="flex gap-3 mb-4">
-          <button class="px-5 py-2.5 bg-gradient-to-r from-[var(--accent)] to-cyan-600 hover:from-cyan-500 hover:to-[var(--accent)] text-white text-sm font-medium rounded-lg transition-all cursor-pointer flex items-center gap-2"
+        <div class="flex flex-col gap-3 mb-4 sm:flex-row sm:flex-wrap">
+          <button class="px-5 py-2.5 bg-gradient-to-r from-[var(--accent)] to-cyan-600 hover:from-cyan-500 hover:to-[var(--accent)] text-[var(--text-primary)] text-sm font-medium rounded-lg transition-all cursor-pointer flex items-center gap-2"
             onclick={browseServerRoot}>
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
             </svg>浏览文件夹
           </button>
-          <button class="px-5 py-2.5 bg-[var(--bg-elevated)] border border-[var(--border)] text-[var(--text-secondary)] text-sm rounded-lg transition-all hover:text-white hover:border-[var(--accent)] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2"
+          <button class="px-5 py-2.5 bg-[var(--bg-elevated)] border border-[var(--border)] text-[var(--text-secondary)] text-sm rounded-lg transition-all hover:text-[var(--text-primary)] hover:border-[var(--accent)] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2"
             onclick={autoDetect} disabled={detecting}>
             {#if detecting}
               <div class="w-4 h-4 border-2 border-[var(--accent)] border-t-transparent rounded-full animate-spin"></div>检测中...
@@ -443,7 +443,7 @@
               </svg>自动检测
             {/if}
           </button>
-          <button class="px-5 py-2.5 bg-gradient-to-r from-[var(--success)] to-emerald-600 hover:from-emerald-500 hover:to-[var(--success)] text-white text-sm font-medium rounded-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2"
+          <button class="px-5 py-2.5 bg-gradient-to-r from-[var(--success)] to-emerald-600 hover:from-emerald-500 hover:to-[var(--success)] text-[var(--text-primary)] text-sm font-medium rounded-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2"
             onclick={autoDownloadServer} disabled={downloadingS || !steamCmdPath.trim()}>
             {#if downloadingS}
               <div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>下载中...
@@ -470,28 +470,28 @@
     <!-- Step 5: Server Config -->
     {:else if step === 5}
       <div>
-        <h2 class="text-lg font-bold text-white mb-5">服务器配置</h2>
+        <h2 class="text-lg font-bold text-[var(--text-primary)] mb-5">服务器配置</h2>
         <div class="space-y-4">
           <div>
-            <label class="block text-xs text-[var(--text-muted)] mb-2">服务器 ID（地图名）</label>
+            <span class="block text-xs text-[var(--text-muted)] mb-2">服务器 ID（地图名）</span>
             <input type="text" bind:value={serverId} placeholder="PEI"
-              class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-3 text-sm text-white placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors duration-[var(--transition-normal)]" />
+              class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-3 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors duration-[var(--transition-normal)]" />
             <p class="text-xs text-[var(--text-muted)] mt-1">可选地图: PEI, Washington, Yukon, Russia, Germany 等</p>
           </div>
-          <div class="grid grid-cols-2 gap-4">
+          <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
-              <label class="block text-xs text-[var(--text-muted)] mb-2">RCON 端口</label>
+              <span class="block text-xs text-[var(--text-muted)] mb-2">RCON 端口</span>
               <input type="number" bind:value={rconPort} min="1024" max="65535"
-                class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-3 text-sm text-white focus:outline-none focus:border-[var(--accent)] transition-colors duration-[var(--transition-normal)]" />
+                class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-3 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)] transition-colors duration-[var(--transition-normal)]" />
             </div>
             <div>
-              <label class="block text-xs text-[var(--text-muted)] mb-2">RCON 密码</label>
+              <span class="block text-xs text-[var(--text-muted)] mb-2">RCON 密码</span>
               <div class="relative">
                 <input type={showPassword ? "text" : "password"} bind:value={rconPassword} placeholder="密码"
-                  class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-3 pr-20 text-sm text-white placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors duration-[var(--transition-normal)]" />
+                  class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-3 pr-20 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors duration-[var(--transition-normal)]" />
                 <div class="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5">
                   <button type="button"
-                    class="p-1.5 rounded hover:bg-[var(--bg-card-hover)] text-[var(--text-muted)] hover:text-white transition-colors cursor-pointer"
+                    class="p-1.5 rounded hover:bg-[var(--bg-card-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors cursor-pointer"
                     onclick={() => showPassword = !showPassword}
                     title={showPassword ? "隐藏密码" : "显示密码"}>
                     {#if showPassword}
@@ -515,7 +515,7 @@
     <!-- Step 3: Rocket Module -->
     {:else if step === 3}
       <div>
-        <h2 class="text-lg font-bold text-white mb-2">Rocket 插件框架</h2>
+        <h2 class="text-lg font-bold text-[var(--text-primary)] mb-2">Rocket 插件框架</h2>
         <p class="text-xs text-[var(--text-muted)] mb-5">Rocket.Unturned 是服务器的插件框架，支持安装各种插件扩展功能。</p>
 
         <div class="bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg p-4 mb-4">
@@ -542,7 +542,7 @@
         {#if rocketInstalled === false}
           <div class="mb-4">
             <p class="text-xs text-[var(--text-secondary)] mb-3">Rocket.Unturned 随服务端自带，只需从 Extras 目录复制到 Modules 目录即可。</p>
-            <button class="px-5 py-2.5 bg-gradient-to-r from-[var(--success)] to-emerald-600 hover:from-emerald-500 hover:to-[var(--success)] text-white text-sm font-medium rounded-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2"
+            <button class="px-5 py-2.5 bg-gradient-to-r from-[var(--success)] to-emerald-600 hover:from-emerald-500 hover:to-[var(--success)] text-[var(--text-primary)] text-sm font-medium rounded-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2"
               onclick={installRocketModule} disabled={rocketInstalling}>
               {#if rocketInstalling}
                 <div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>安装中...
@@ -567,7 +567,7 @@
     <!-- Step 4: Save Initialization -->
     {:else if step === 4}
       <div>
-        <h2 class="text-lg font-bold text-white mb-2">存档管理</h2>
+        <h2 class="text-lg font-bold text-[var(--text-primary)] mb-2">存档管理</h2>
         <p class="text-xs text-[var(--text-muted)] mb-5">检测并管理服务器存档。存档用于保存游戏世界数据，RCON 需要存档中的 Rocket 配置才能正常工作。</p>
 
         {#if saveChecking}
@@ -589,15 +589,15 @@
           </div>
 
           <div class="mb-4">
-            <label class="block text-xs text-[var(--text-muted)] mb-2">存档名称</label>
+            <span class="block text-xs text-[var(--text-muted)] mb-2">存档名称</span>
             <input type="text" bind:value={saveName} placeholder="Server"
               disabled={saveInitRunning || saveInitDone}
-              class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-3 text-sm text-white placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors disabled:opacity-50" />
+              class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-3 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors disabled:opacity-50" />
             <p class="text-xs text-[var(--danger)] mt-1">⚠ 不能包含中文字符和特殊符号</p>
           </div>
 
-          <div class="flex gap-3 mb-4">
-            <button class="px-5 py-2.5 bg-gradient-to-r from-[var(--accent)] to-cyan-600 hover:from-cyan-500 hover:to-[var(--accent)] text-white text-sm font-medium rounded-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2"
+          <div class="flex flex-col gap-3 mb-4 sm:flex-row">
+            <button class="px-5 py-2.5 bg-gradient-to-r from-[var(--accent)] to-cyan-600 hover:from-cyan-500 hover:to-[var(--accent)] text-[var(--text-primary)] text-sm font-medium rounded-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2"
               onclick={startSaveInit} disabled={saveInitRunning || saveInitDone || !saveName.trim()}>
               {#if saveInitRunning}
                 <div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>初始化中...
@@ -623,9 +623,9 @@
 
           {#if existingSaves.length > 1}
             <div class="mb-4">
-              <label class="block text-xs text-[var(--text-muted)] mb-2">选择存档</label>
+              <span class="block text-xs text-[var(--text-muted)] mb-2">选择存档</span>
               <select bind:value={selectedSaveId} onchange={checkSelectedSaveRocket}
-                class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-3 text-sm text-white focus:outline-none focus:border-[var(--accent)] transition-colors cursor-pointer">
+                class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-3 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)] transition-colors cursor-pointer">
                 {#each existingSaves as save}
                   <option value={save.id}>{save.id}{save.name ? ` - ${save.name}` : ''}</option>
                 {/each}
@@ -652,7 +652,7 @@
                 <span class="text-sm text-[var(--warning)] font-medium">存档 "{selectedSaveId}" 缺少 Rocket 配置</span>
               </div>
               <p class="text-xs text-[var(--text-secondary)] mb-3">RCON 功能需要 Rocket 配置文件。需要运行一次服务端来自动生成。</p>
-              <button class="px-5 py-2.5 bg-gradient-to-r from-[var(--warning)] to-amber-600 hover:from-amber-500 hover:to-[var(--warning)] text-white text-sm font-medium rounded-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2"
+              <button class="px-5 py-2.5 bg-gradient-to-r from-[var(--warning)] to-amber-600 hover:from-amber-500 hover:to-[var(--warning)] text-[var(--text-primary)] text-sm font-medium rounded-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2"
                 onclick={startSaveInit} disabled={saveInitRunning || saveInitDone}>
                 {#if saveInitRunning}
                   <div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>初始化中...
@@ -691,7 +691,7 @@
         </svg>
         <p class="text-xs text-[var(--danger)] flex-1">{error}</p>
         {#if lastFailedAction}
-          <button class="px-3 py-1 text-xs bg-[var(--danger)] hover:bg-red-600 text-white rounded transition-colors cursor-pointer flex-shrink-0"
+          <button class="px-3 py-1 text-xs bg-[var(--danger)] hover:bg-red-600 text-[var(--text-primary)] rounded transition-colors cursor-pointer flex-shrink-0"
             onclick={retryLastAction}>
             重试
           </button>
@@ -700,16 +700,16 @@
     {/if}
 
     <!-- Navigation -->
-    <div class="flex justify-between mt-8">
+    <div class="flex flex-wrap justify-between gap-3 mt-8">
       <button
-        class="px-5 py-2.5 text-sm text-[var(--text-secondary)] hover:text-white transition-colors disabled:invisible cursor-pointer flex items-center gap-1"
+        class="px-5 py-2.5 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors disabled:invisible cursor-pointer flex items-center gap-1"
         onclick={prev} disabled={step === 0}>
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 17l-5-5m0 0l5-5m-5 5h12" />
         </svg>上一步
       </button>
       {#if step < 5}
-        <button class="px-6 py-2.5 bg-gradient-to-r from-[var(--accent)] to-cyan-600 hover:from-cyan-500 hover:to-[var(--accent)] text-white text-sm font-medium rounded-lg transition-all cursor-pointer flex items-center gap-2"
+        <button class="px-6 py-2.5 bg-gradient-to-r from-[var(--accent)] to-cyan-600 hover:from-cyan-500 hover:to-[var(--accent)] text-[var(--text-primary)] text-sm font-medium rounded-lg transition-all cursor-pointer flex items-center gap-2"
           onclick={next}>
           {step === 0 ? '开始配置' : '下一步'}
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -717,7 +717,7 @@
           </svg>
         </button>
       {:else}
-        <button class="px-6 py-2.5 bg-gradient-to-r from-[var(--success)] to-emerald-600 hover:from-emerald-500 hover:to-[var(--success)] text-white text-sm font-medium rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2 shadow-lg shadow-[var(--success-glow)]"
+        <button class="px-6 py-2.5 bg-gradient-to-r from-[var(--success)] to-emerald-600 hover:from-emerald-500 hover:to-[var(--success)] text-[var(--text-primary)] text-sm font-medium rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2 shadow-lg shadow-[var(--success-glow)]"
           onclick={finish} disabled={saving}>
           {#if saving}
             <div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>保存中...
@@ -731,3 +731,6 @@
     </div>
   </div>
 </div>
+
+
+

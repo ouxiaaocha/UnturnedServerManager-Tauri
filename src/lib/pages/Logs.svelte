@@ -1,4 +1,4 @@
-<script lang="ts">
+﻿<script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import { highlightText } from "$lib/utils";
 
@@ -48,7 +48,7 @@
 
 <div class="flex flex-col h-full gap-5">
   <div>
-    <h1 class="text-2xl font-bold text-white">日志中心</h1>
+    <h1 class="text-2xl font-bold text-[var(--text-primary)]">日志中心</h1>
     <p class="text-sm text-[var(--text-muted)] mt-1">查看系统、操作和游戏日志</p>
   </div>
 
@@ -59,7 +59,7 @@
         <button
           class="px-4 py-2 text-sm rounded-lg transition-all duration-[var(--transition-normal)] cursor-pointer flex items-center gap-2 {category === cat.id
             ? 'bg-[var(--accent-subtle)] text-[var(--accent-light)] border border-[var(--border-accent)]'
-            : 'bg-[var(--bg-card)] border border-[var(--border)] text-[var(--text-secondary)] hover:text-white hover:border-[var(--accent)]'}"
+            : 'bg-[var(--bg-card)] border border-[var(--border)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--accent)]'}"
           onclick={() => { category = cat.id; selectedDate = ""; loadDates(); }}
         >
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -73,7 +73,7 @@
     {#if dates.length > 0}
       <select
         bind:value={selectedDate}
-        class="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg px-4 py-2 text-sm text-white focus:outline-none focus:border-[var(--accent)] transition-colors duration-[var(--transition-normal)] cursor-pointer"
+        class="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg px-4 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)] transition-colors duration-[var(--transition-normal)] cursor-pointer"
       >
         {#each dates as d}
           <option value={d}>{d}</option>
@@ -82,7 +82,7 @@
     {/if}
 
     <button
-      class="px-3 py-2 text-xs text-[var(--text-muted)] hover:text-white bg-[var(--bg-card)] border border-[var(--border)] rounded-lg hover:border-[var(--accent)] transition-all duration-[var(--transition-normal)] cursor-pointer flex items-center gap-1"
+      class="px-3 py-2 text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] bg-[var(--bg-card)] border border-[var(--border)] rounded-lg hover:border-[var(--accent)] transition-all duration-[var(--transition-normal)] cursor-pointer flex items-center gap-1"
       onclick={loadLog}
     >
       <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -94,7 +94,7 @@
 
   <!-- Log Content -->
   <div class="flex-1 bg-[var(--bg-card)] border border-[var(--border)] rounded-xl flex flex-col min-h-0">
-    <div class="flex items-center justify-between px-5 py-3 border-b border-[var(--border)] flex-shrink-0">
+    <div class="flex flex-wrap items-center justify-between gap-3 px-5 py-3 border-b border-[var(--border)] flex-shrink-0">
       <span class="text-sm text-[var(--text-muted)]">
         {categories.find(c => c.id === category)?.label} — {selectedDate || '无'}
       </span>
@@ -107,7 +107,7 @@
             type="text"
             bind:value={logSearch}
             placeholder="搜索日志..."
-            class="w-44 bg-[var(--bg-primary)] border border-[var(--border)] rounded-md pl-8 pr-2 py-1 text-xs text-white placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors"
+            class="w-full sm:w-44 bg-[var(--bg-primary)] border border-[var(--border)] rounded-md pl-8 pr-2 py-1 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors"
           />
         </div>
         <span class="text-xs text-[var(--text-muted)] bg-[var(--bg-elevated)] px-2 py-1 rounded">{logLines.length} 行</span>
@@ -148,3 +148,5 @@
     </div>
   </div>
 </div>
+
+

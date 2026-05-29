@@ -1,4 +1,4 @@
-<script lang="ts">
+﻿<script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import { highlightText, formatUptime } from "$lib/utils";
 
@@ -140,9 +140,9 @@
 
 <div class="flex flex-col h-full gap-5">
   <!-- Header -->
-  <div class="flex items-center justify-between flex-shrink-0">
+  <div class="flex flex-wrap items-center justify-between gap-3 flex-shrink-0">
     <div>
-      <h1 class="text-2xl font-bold text-white">服务器控制</h1>
+      <h1 class="text-2xl font-bold text-[var(--text-primary)]">服务器控制</h1>
       <p class="text-sm text-[var(--text-muted)] mt-1">管理 Unturned 服务器实例</p>
     </div>
     <div class="flex items-center gap-3 px-4 py-2 rounded-lg bg-[var(--bg-card)] border border-[var(--border)]">
@@ -153,10 +153,10 @@
 
   <!-- Control Panel -->
   <div class="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-5 flex-shrink-0">
-    <div class="flex items-center justify-between flex-wrap gap-4">
-      <div class="flex gap-3 flex-wrap">
+    <div class="flex flex-wrap items-center justify-between gap-4">
+      <div class="flex flex-wrap gap-3">
         <button
-          class="px-5 py-2.5 bg-gradient-to-r from-[var(--success)] to-emerald-600 hover:from-emerald-500 hover:to-[var(--success)] text-white text-sm font-medium rounded-lg transition-all duration-[var(--transition-normal)] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2"
+          class="px-5 py-2.5 bg-gradient-to-r from-[var(--success)] to-emerald-600 hover:from-emerald-500 hover:to-[var(--success)] text-[var(--text-primary)] text-sm font-medium rounded-lg transition-all duration-[var(--transition-normal)] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2"
           onclick={startServer}
           disabled={status === '运行中' || loading !== ''}
         >
@@ -171,7 +171,7 @@
         </button>
 
         <button
-          class="px-5 py-2.5 bg-gradient-to-r from-[var(--danger)] to-rose-600 hover:from-rose-500 hover:to-[var(--danger)] text-white text-sm font-medium rounded-lg transition-all duration-[var(--transition-normal)] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2"
+          class="px-5 py-2.5 bg-gradient-to-r from-[var(--danger)] to-rose-600 hover:from-rose-500 hover:to-[var(--danger)] text-[var(--text-primary)] text-sm font-medium rounded-lg transition-all duration-[var(--transition-normal)] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2"
           onclick={stopServer}
           disabled={status !== '运行中' || loading !== ''}
         >
@@ -187,7 +187,7 @@
         </button>
 
         <button
-          class="px-5 py-2.5 bg-gradient-to-r from-[var(--warning)] to-amber-600 hover:from-amber-500 hover:to-[var(--warning)] text-white text-sm font-medium rounded-lg transition-all duration-[var(--transition-normal)] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2"
+          class="px-5 py-2.5 bg-gradient-to-r from-[var(--warning)] to-amber-600 hover:from-amber-500 hover:to-[var(--warning)] text-[var(--text-primary)] text-sm font-medium rounded-lg transition-all duration-[var(--transition-normal)] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2"
           onclick={restartServer}
           disabled={status !== '运行中' || loading !== ''}
         >
@@ -213,10 +213,10 @@
         </button>
       </div>
 
-      <div class="flex items-center gap-3">
+      <div class="flex flex-wrap items-center gap-3">
         <select
           bind:value={selectedSaveId}
-          class="bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-[var(--accent)] transition-colors cursor-pointer"
+          class="bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-3 py-1.5 text-xs text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)] transition-colors cursor-pointer"
         >
           {#each saves as save}
             <option value={save.id}>{save.id}{save.name ? ` - ${save.name}` : ''}</option>
@@ -224,24 +224,24 @@
         </select>
         <div class="flex rounded-lg overflow-hidden border border-[var(--border)]">
           <button
-            class="px-2 py-1 text-xs font-medium transition-all cursor-pointer {launchMode === 'internet' ? 'bg-[var(--accent)] text-white' : 'bg-[var(--bg-primary)] text-[var(--text-secondary)] hover:text-white'}"
+            class="px-2 py-1 text-xs font-medium transition-all cursor-pointer {launchMode === 'internet' ? 'bg-[var(--accent)] text-[var(--text-primary)]' : 'bg-[var(--bg-primary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}"
             onclick={() => launchMode = 'internet'}
           >互联网</button>
           <button
-            class="px-2 py-1 text-xs font-medium transition-all cursor-pointer {launchMode === 'lan' ? 'bg-[var(--accent)] text-white' : 'bg-[var(--bg-primary)] text-[var(--text-secondary)] hover:text-white'}"
+            class="px-2 py-1 text-xs font-medium transition-all cursor-pointer {launchMode === 'lan' ? 'bg-[var(--accent)] text-[var(--text-primary)]' : 'bg-[var(--bg-primary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}"
             onclick={() => launchMode = 'lan'}
           >局域网</button>
         </div>
       </div>
 
-      <div class="flex gap-6 text-sm">
+      <div class="flex flex-wrap gap-4 sm:gap-6 text-sm">
         <div class="flex items-center gap-2">
           <span class="text-[var(--text-muted)]">PID</span>
-          <span class="text-white font-mono font-semibold bg-[var(--bg-elevated)] px-2 py-1 rounded">{pid}</span>
+          <span class="text-[var(--text-primary)] font-mono font-semibold bg-[var(--bg-elevated)] px-2 py-1 rounded">{pid}</span>
         </div>
         <div class="flex items-center gap-2">
           <span class="text-[var(--text-muted)]">运行</span>
-          <span class="text-white font-semibold">{uptime}</span>
+          <span class="text-[var(--text-primary)] font-semibold">{uptime}</span>
         </div>
       </div>
     </div>
@@ -249,12 +249,12 @@
 
   <!-- Log Output -->
   <div class="flex-1 bg-[var(--bg-card)] border border-[var(--border)] rounded-xl flex flex-col min-h-0">
-    <div class="flex items-center justify-between px-5 py-3 border-b border-[var(--border)] flex-shrink-0">
+    <div class="flex flex-wrap items-center justify-between gap-3 px-5 py-3 border-b border-[var(--border)] flex-shrink-0">
       <div class="flex items-center gap-2">
         <svg class="w-4 h-4 text-[var(--accent-light)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
         </svg>
-        <span class="text-sm font-medium text-white">服务器输出</span>
+        <span class="text-sm font-medium text-[var(--text-primary)]">服务器输出</span>
       </div>
       <div class="flex items-center gap-2">
         <div class="relative">
@@ -265,11 +265,11 @@
             type="text"
             bind:value={logSearch}
             placeholder="搜索日志..."
-            class="w-44 bg-[var(--bg-primary)] border border-[var(--border)] rounded-md pl-8 pr-2 py-1 text-xs text-white placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors"
+            class="w-full sm:w-44 bg-[var(--bg-primary)] border border-[var(--border)] rounded-md pl-8 pr-2 py-1 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors"
           />
         </div>
         <button
-          class="text-xs text-[var(--text-muted)] hover:text-white transition-colors duration-[var(--transition-fast)] px-2 py-1 rounded hover:bg-[var(--bg-card-hover)] cursor-pointer"
+          class="text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors duration-[var(--transition-fast)] px-2 py-1 rounded hover:bg-[var(--bg-card-hover)] cursor-pointer"
           onclick={() => { logs = []; outputIndex = 0; }}
         >
           清空
@@ -303,3 +303,5 @@
     </div>
   </div>
 </div>
+
+

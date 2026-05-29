@@ -1,4 +1,4 @@
-<script lang="ts">
+﻿<script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
 
   interface ScheduleTask {
@@ -76,13 +76,13 @@
 </script>
 
 <div class="flex flex-col gap-5 h-full overflow-y-auto">
-  <div class="flex items-center justify-between flex-shrink-0">
+  <div class="flex flex-wrap items-center justify-between gap-3 flex-shrink-0">
     <div>
-      <h1 class="text-2xl font-bold text-white">定时任务</h1>
+      <h1 class="text-2xl font-bold text-[var(--text-primary)]">定时任务</h1>
       <p class="text-sm text-[var(--text-muted)] mt-1">配置自动重启计划</p>
     </div>
     <button
-      class="px-5 py-2.5 bg-gradient-to-r from-[var(--accent)] to-cyan-600 hover:from-cyan-500 hover:to-[var(--accent)] text-white text-sm font-medium rounded-lg transition-all duration-[var(--transition-normal)] cursor-pointer flex items-center gap-2"
+      class="px-5 py-2.5 bg-gradient-to-r from-[var(--accent)] to-cyan-600 hover:from-cyan-500 hover:to-[var(--accent)] text-[var(--text-primary)] text-sm font-medium rounded-lg transition-all duration-[var(--transition-normal)] cursor-pointer flex items-center gap-2"
       onclick={() => showAdd = !showAdd}
     >
       {#if showAdd}
@@ -104,9 +104,9 @@
     <div class="bg-[var(--bg-card)] border border-[var(--accent)] rounded-xl p-6 flex-shrink-0">
       <div class="flex gap-5 items-end flex-wrap">
         <div>
-          <label class="block text-xs text-[var(--text-muted)] mb-2 uppercase tracking-wider">类型</label>
+          <span class="block text-xs text-[var(--text-muted)] mb-2 uppercase tracking-wider">类型</span>
           <select bind:value={newType}
-            class="bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm text-white focus:border-[var(--accent)] transition-colors duration-[var(--transition-normal)] cursor-pointer">
+            class="bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm text-[var(--text-primary)] focus:border-[var(--accent)] transition-colors duration-[var(--transition-normal)] cursor-pointer">
             <option value="daily">每日定时</option>
             <option value="interval">固定间隔</option>
             <option value="weekly">每周定时</option>
@@ -115,25 +115,25 @@
 
         {#if newType === "daily" || newType === "weekly"}
           <div>
-            <label class="block text-xs text-[var(--text-muted)] mb-2 uppercase tracking-wider">时间</label>
+            <span class="block text-xs text-[var(--text-muted)] mb-2 uppercase tracking-wider">时间</span>
             <input type="time" bind:value={newTime}
-              class="bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm text-white focus:border-[var(--accent)] transition-colors duration-[var(--transition-normal)]" />
+              class="bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm text-[var(--text-primary)] focus:border-[var(--accent)] transition-colors duration-[var(--transition-normal)]" />
           </div>
         {/if}
 
         {#if newType === "interval"}
           <div>
-            <label class="block text-xs text-[var(--text-muted)] mb-2 uppercase tracking-wider">间隔（小时）</label>
+            <span class="block text-xs text-[var(--text-muted)] mb-2 uppercase tracking-wider">间隔（小时）</span>
             <input type="number" bind:value={newInterval} min="1" max="24"
-              class="w-[120px] bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm text-white focus:border-[var(--accent)] transition-colors duration-[var(--transition-normal)]" />
+              class="w-full sm:w-[120px] bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm text-[var(--text-primary)] focus:border-[var(--accent)] transition-colors duration-[var(--transition-normal)]" />
           </div>
         {/if}
 
         {#if newType === "weekly"}
           <div>
-            <label class="block text-xs text-[var(--text-muted)] mb-2 uppercase tracking-wider">星期</label>
+            <span class="block text-xs text-[var(--text-muted)] mb-2 uppercase tracking-wider">星期</span>
             <select bind:value={newWeekday}
-              class="bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm text-white focus:border-[var(--accent)] transition-colors duration-[var(--transition-normal)] cursor-pointer">
+              class="bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm text-[var(--text-primary)] focus:border-[var(--accent)] transition-colors duration-[var(--transition-normal)] cursor-pointer">
               {#each weekdays as day, i}
                 <option value={i}>{day}</option>
               {/each}
@@ -142,7 +142,7 @@
         {/if}
 
         <button
-          class="px-5 py-2.5 bg-gradient-to-r from-[var(--success)] to-emerald-600 hover:from-emerald-500 hover:to-[var(--success)] text-white text-sm font-medium rounded-lg transition-all duration-[var(--transition-normal)] cursor-pointer flex items-center gap-2"
+          class="px-5 py-2.5 bg-gradient-to-r from-[var(--success)] to-emerald-600 hover:from-emerald-500 hover:to-[var(--success)] text-[var(--text-primary)] text-sm font-medium rounded-lg transition-all duration-[var(--transition-normal)] cursor-pointer flex items-center gap-2"
           onclick={addTask}
         >
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -173,20 +173,20 @@
     {:else}
       <div class="space-y-3">
         {#each tasks as task}
-          <div class="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-4 flex items-center justify-between hover:border-[var(--border-hover)] transition-all duration-[var(--transition-normal)]">
+          <div class="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-4 flex flex-wrap items-center justify-between gap-3 hover:border-[var(--border-hover)] transition-all duration-[var(--transition-normal)]">
             <div class="flex items-center gap-4">
               <button
                 class="w-5 h-5 rounded-md border-2 {task.enabled ? 'bg-[var(--accent)] border-[var(--accent)]' : 'border-[var(--border)]'} transition-all duration-[var(--transition-fast)] cursor-pointer flex items-center justify-center"
                 onclick={() => toggleTask(task.id)}
               >
                 {#if task.enabled}
-                  <svg class="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg class="w-3 h-3 text-[var(--text-primary)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
                   </svg>
                 {/if}
               </button>
               <div>
-                <span class="text-sm text-white {!task.enabled ? 'opacity-50' : ''}">{describeTask(task)}</span>
+                <span class="text-sm text-[var(--text-primary)] {!task.enabled ? 'opacity-50' : ''}">{describeTask(task)}</span>
                 <p class="text-xs text-[var(--text-muted)] mt-0.5">提前 {task.announce_minutes.join('、')} 分钟公告</p>
               </div>
             </div>
@@ -208,3 +208,6 @@
     </div>
   {/if}
 </div>
+
+
+

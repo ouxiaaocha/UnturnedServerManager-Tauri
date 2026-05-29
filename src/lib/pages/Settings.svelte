@@ -1,4 +1,4 @@
-<script lang="ts">
+﻿<script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
 
   let steamCmdPath = $state("");
@@ -72,7 +72,7 @@
 
 <div class="flex flex-col gap-5 h-full overflow-y-auto">
   <div>
-    <h1 class="text-2xl font-bold text-white">设置</h1>
+    <h1 class="text-2xl font-bold text-[var(--text-primary)]">设置</h1>
     <p class="text-sm text-[var(--text-muted)] mt-1">配置服务器连接参数</p>
   </div>
 
@@ -87,21 +87,21 @@
       </h2>
       <div class="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-5 space-y-4">
         <div>
-          <label class="block text-xs text-[var(--text-muted)] mb-2">SteamCMD 路径</label>
+          <span class="block text-xs text-[var(--text-muted)] mb-2">SteamCMD 路径</span>
           <input type="text" bind:value={steamCmdPath} placeholder="C:\SteamCMD\steamcmd.exe"
-            class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm text-white placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors duration-[var(--transition-normal)]" />
+            class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors duration-[var(--transition-normal)]" />
           <p class="text-xs text-[var(--danger)] mt-1">⚠ 目录不能包含中文字符，否则可能导致服务器无法启动</p>
         </div>
         <div>
-          <label class="block text-xs text-[var(--text-muted)] mb-2">服务端目录</label>
+          <span class="block text-xs text-[var(--text-muted)] mb-2">服务端目录</span>
           <input type="text" bind:value={serverRoot} placeholder="C:\SteamCMD\steamapps\common\U3DS"
-            class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm text-white placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors duration-[var(--transition-normal)]" />
+            class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors duration-[var(--transition-normal)]" />
           <p class="text-xs text-[var(--danger)] mt-1">⚠ 目录不能包含中文字符，否则可能导致服务器无法启动</p>
         </div>
         <div>
-          <label class="block text-xs text-[var(--text-muted)] mb-2">服务器 ID</label>
+          <span class="block text-xs text-[var(--text-muted)] mb-2">服务器 ID</span>
           <input type="text" bind:value={serverId} placeholder="PEI"
-            class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm text-white placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors duration-[var(--transition-normal)]" />
+            class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors duration-[var(--transition-normal)]" />
         </div>
       </div>
     </div>
@@ -110,7 +110,7 @@
   <!-- Save Button -->
   <div class="flex items-center gap-4">
     <button
-      class="px-8 py-3 bg-gradient-to-r from-[var(--accent)] to-cyan-600 hover:from-cyan-500 hover:to-[var(--accent)] text-white text-sm font-medium rounded-lg transition-all duration-[var(--transition-normal)] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2"
+      class="px-8 py-3 bg-gradient-to-r from-[var(--accent)] to-cyan-600 hover:from-cyan-500 hover:to-[var(--accent)] text-[var(--text-primary)] text-sm font-medium rounded-lg transition-all duration-[var(--transition-normal)] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2"
       onclick={save}
       disabled={saving}
     >
@@ -140,3 +140,5 @@
     {/if}
   </div>
 </div>
+
+

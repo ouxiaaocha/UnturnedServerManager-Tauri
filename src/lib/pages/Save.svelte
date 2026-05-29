@@ -1,4 +1,4 @@
-<script lang="ts">
+﻿<script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
   import { generatePassword } from "$lib/utils";
@@ -256,9 +256,9 @@
 </script>
 
 <div class="h-full overflow-y-auto">
-  <div class="flex items-center justify-between mb-6">
+  <div class="flex flex-wrap items-center justify-between gap-3 mb-6">
     <div>
-      <h1 class="text-2xl font-bold text-white">存档管理</h1>
+      <h1 class="text-2xl font-bold text-[var(--text-primary)]">存档管理</h1>
       <p class="text-sm text-[var(--text-muted)] mt-1">管理服务器存档配置与插件</p>
     </div>
     {#if message}
@@ -269,14 +269,14 @@
   <!-- Save Selector -->
   <div class="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-4 mb-5">
     <div class="flex items-center gap-4 flex-wrap">
-      <label class="text-sm text-[var(--text-secondary)]">选择存档:</label>
+      <span class="text-sm text-[var(--text-secondary)]">选择存档:</span>
       {#if saves.length === 0}
         <span class="text-sm text-[var(--text-muted)]">未找到存档</span>
       {:else}
         <select
           bind:value={selectedSaveId}
           onchange={onSaveChange}
-          class="bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2 text-sm text-white focus:outline-none focus:border-[var(--accent)] transition-colors cursor-pointer min-w-[200px]"
+          class="bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)] transition-colors cursor-pointer min-w-[200px]"
         >
           {#each saves as save}
             <option value={save.id}>{save.id}{save.name ? ` - ${save.name}` : ''}</option>
@@ -284,7 +284,7 @@
         </select>
       {/if}
       <button
-        class="px-4 py-2 bg-gradient-to-r from-[var(--accent)] to-cyan-600 hover:from-cyan-500 hover:to-[var(--accent)] text-white text-sm font-medium rounded-lg transition-all cursor-pointer flex items-center gap-2"
+        class="px-4 py-2 bg-gradient-to-r from-[var(--accent)] to-cyan-600 hover:from-cyan-500 hover:to-[var(--accent)] text-[var(--text-primary)] text-sm font-medium rounded-lg transition-all cursor-pointer flex items-center gap-2"
         onclick={() => showInitPanel = !showInitPanel}
       >
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -298,16 +298,16 @@
     {#if showInitPanel}
       <div class="mt-4 pt-4 border-t border-[var(--border)]">
         <p class="text-xs text-[var(--text-muted)] mb-3">创建新的服务器存档。服务端会自动启动并生成世界数据和配置文件。</p>
-        <div class="flex items-end gap-3">
+        <div class="flex flex-col items-stretch gap-3 sm:flex-row sm:items-end">
           <div class="flex-1">
-            <label class="block text-xs text-[var(--text-muted)] mb-1.5">存档名称</label>
+            <span class="block text-xs text-[var(--text-muted)] mb-1.5">存档名称</span>
             <input type="text" bind:value={newSaveName} placeholder="Server"
               disabled={initRunning || initDone}
-              class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2 text-sm text-white placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors disabled:opacity-50" />
+              class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors disabled:opacity-50" />
             <p class="text-[10px] text-[var(--danger)] mt-1">不能包含中文字符和特殊符号</p>
           </div>
           <button
-            class="px-5 py-2 bg-gradient-to-r from-[var(--success)] to-emerald-600 hover:from-emerald-500 hover:to-[var(--success)] text-white text-sm font-medium rounded-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2 flex-shrink-0"
+            class="px-5 py-2 bg-gradient-to-r from-[var(--success)] to-emerald-600 hover:from-emerald-500 hover:to-[var(--success)] text-[var(--text-primary)] text-sm font-medium rounded-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2 flex-shrink-0"
             onclick={initNewSave} disabled={initRunning || initDone || !newSaveName.trim()}
           >
             {#if initRunning}
@@ -351,7 +351,7 @@
       <p class="text-xs text-[var(--text-secondary)] mb-3">RCON 和插件功能需要 Rocket 配置文件。运行一次服务端来自动生成。</p>
       <div class="flex items-center gap-3">
         <button
-          class="px-5 py-2 bg-gradient-to-r from-[var(--warning)] to-amber-600 hover:from-amber-500 hover:to-[var(--warning)] text-white text-sm font-medium rounded-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2"
+          class="px-5 py-2 bg-gradient-to-r from-[var(--warning)] to-amber-600 hover:from-amber-500 hover:to-[var(--warning)] text-[var(--text-primary)] text-sm font-medium rounded-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2"
           onclick={initRocketForSave} disabled={rocketInitRunning || rocketInitDone}
         >
           {#if rocketInitRunning}
@@ -385,14 +385,14 @@
   <div class="flex gap-2 mb-5">
     <button
       class="px-4 py-2 rounded-lg text-sm font-medium transition-all cursor-pointer
-        {activeTab === 'save' ? 'bg-[var(--accent-subtle)] text-[var(--accent-light)] border border-[var(--border-accent)]' : 'text-[var(--text-secondary)] hover:text-white hover:bg-[var(--bg-card)] border border-transparent'}"
+        {activeTab === 'save' ? 'bg-[var(--accent-subtle)] text-[var(--accent-light)] border border-[var(--border-accent)]' : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-card)] border border-transparent'}"
       onclick={() => onTabChange('save')}
     >
       存档配置
     </button>
     <button
       class="px-4 py-2 rounded-lg text-sm font-medium transition-all cursor-pointer
-        {activeTab === 'plugins' ? 'bg-[var(--accent-subtle)] text-[var(--accent-light)] border border-[var(--border-accent)]' : 'text-[var(--text-secondary)] hover:text-white hover:bg-[var(--bg-card)] border border-transparent'}"
+        {activeTab === 'plugins' ? 'bg-[var(--accent-subtle)] text-[var(--accent-light)] border border-[var(--border-accent)]' : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-card)] border border-transparent'}"
       onclick={() => onTabChange('plugins')}
     >
       插件管理
@@ -402,7 +402,7 @@
   {#if activeTab === 'save'}
     <!-- Commands.dat Editor -->
     <div class="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-6">
-      <h2 class="text-base font-semibold text-white mb-5 flex items-center gap-2">
+      <h2 class="text-base font-semibold text-[var(--text-primary)] mb-5 flex items-center gap-2">
         <svg class="w-5 h-5 text-[var(--accent-light)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
         </svg>
@@ -414,54 +414,54 @@
           <div class="w-8 h-8 border-2 border-[var(--accent)] border-t-transparent rounded-full animate-spin"></div>
         </div>
       {:else}
-        <div class="grid grid-cols-2 gap-5">
+        <div class="grid grid-cols-1 gap-4 md:grid-cols-2 md:gap-5">
           <!-- Name -->
           <div>
-            <label class="block text-xs text-[var(--text-muted)] mb-2 uppercase tracking-wider">服务器名称</label>
+            <span class="block text-xs text-[var(--text-muted)] mb-2 uppercase tracking-wider">服务器名称</span>
             <input type="text" bind:value={cmdName} placeholder="My Unturned Server"
-              class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm text-white placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors" />
+              class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors" />
           </div>
 
           <!-- Map -->
           <div>
-            <label class="block text-xs text-[var(--text-muted)] mb-2 uppercase tracking-wider">地图</label>
+            <span class="block text-xs text-[var(--text-muted)] mb-2 uppercase tracking-wider">地图</span>
             <input type="text" bind:value={cmdMap} placeholder="PEI"
-              class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm text-white placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors" />
+              class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors" />
           </div>
 
           <!-- Port -->
           <div>
-            <label class="block text-xs text-[var(--text-muted)] mb-2 uppercase tracking-wider">端口</label>
+            <span class="block text-xs text-[var(--text-muted)] mb-2 uppercase tracking-wider">端口</span>
             <input type="number" bind:value={cmdPort} min="1024" max="65535"
-              class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm text-white focus:outline-none focus:border-[var(--accent)] transition-colors" />
+              class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)] transition-colors" />
           </div>
 
           <!-- MaxPlayers -->
           <div>
-            <label class="block text-xs text-[var(--text-muted)] mb-2 uppercase tracking-wider">最大玩家数</label>
+            <span class="block text-xs text-[var(--text-muted)] mb-2 uppercase tracking-wider">最大玩家数</span>
             <input type="number" bind:value={cmdMaxPlayers} min="1" max="200"
-              class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm text-white focus:outline-none focus:border-[var(--accent)] transition-colors" />
+              class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)] transition-colors" />
           </div>
 
           <!-- Password -->
           <div>
-            <label class="block text-xs text-[var(--text-muted)] mb-2 uppercase tracking-wider">服务器密码</label>
+            <span class="block text-xs text-[var(--text-muted)] mb-2 uppercase tracking-wider">服务器密码</span>
             <input type="text" bind:value={cmdPassword} placeholder="留空表示无密码"
-              class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm text-white placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors" />
+              class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors" />
           </div>
 
           <!-- Owner -->
           <div>
-            <label class="block text-xs text-[var(--text-muted)] mb-2 uppercase tracking-wider">管理员 SteamID64</label>
+            <span class="block text-xs text-[var(--text-muted)] mb-2 uppercase tracking-wider">管理员 SteamID64</span>
             <input type="text" bind:value={cmdOwner} placeholder="76561198000000000"
-              class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm text-white placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors" />
+              class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors" />
           </div>
 
           <!-- Perspective -->
           <div>
-            <label class="block text-xs text-[var(--text-muted)] mb-2 uppercase tracking-wider">视角</label>
+            <span class="block text-xs text-[var(--text-muted)] mb-2 uppercase tracking-wider">视角</span>
             <select bind:value={cmdPerspective}
-              class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm text-white focus:outline-none focus:border-[var(--accent)] transition-colors cursor-pointer">
+              class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)] transition-colors cursor-pointer">
               <option value="First">第一人称</option>
               <option value="Third">第三人称</option>
               <option value="Both">两者皆可</option>
@@ -470,39 +470,41 @@
           </div>
 
           <!-- GSLT -->
-          <div class="col-span-2">
-            <label class="block text-xs text-[var(--text-muted)] mb-2 uppercase tracking-wider">GSLT (Game Server Login Token)</label>
+          <div class="md:col-span-2">
+            <span class="block text-xs text-[var(--text-muted)] mb-2 uppercase tracking-wider">GSLT (Game Server Login Token)</span>
             <input type="text" bind:value={cmdGslt} placeholder="可选，用于在服务器浏览器中显示"
-              class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm text-white placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors" />
+              class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors" />
           </div>
         </div>
 
         <!-- Toggle switches -->
-        <div class="flex gap-8 mt-5 pt-5 border-t border-[var(--border)]">
-          <label class="flex items-center gap-3 cursor-pointer">
+        <div class="flex flex-wrap gap-4 sm:gap-8 mt-5 pt-5 border-t border-[var(--border)]">
+          <span class="flex items-center gap-3 cursor-pointer">
             <button
               class="w-10 h-6 rounded-full transition-colors cursor-pointer {cmdPve ? 'bg-[var(--success)]' : 'bg-[var(--border)]'}"
               onclick={() => cmdPve = !cmdPve}
+              aria-label="切换 PvE 模式"
             >
               <div class="w-4 h-4 rounded-full bg-white transform transition-transform {cmdPve ? 'translate-x-5' : 'translate-x-1'}"></div>
             </button>
             <span class="text-sm text-[var(--text-secondary)]">PvE 模式</span>
-          </label>
+          </span>
 
-          <label class="flex items-center gap-3 cursor-pointer">
+          <span class="flex items-center gap-3 cursor-pointer">
             <button
               class="w-10 h-6 rounded-full transition-colors cursor-pointer {cmdCheats ? 'bg-[var(--success)]' : 'bg-[var(--border)]'}"
               onclick={() => cmdCheats = !cmdCheats}
+              aria-label="切换作弊模式"
             >
               <div class="w-4 h-4 rounded-full bg-white transform transition-transform {cmdCheats ? 'translate-x-5' : 'translate-x-1'}"></div>
             </button>
             <span class="text-sm text-[var(--text-secondary)]">启用作弊</span>
-          </label>
+          </span>
         </div>
 
         <div class="mt-6 flex justify-end">
           <button
-            class="px-6 py-2.5 bg-gradient-to-r from-[var(--accent)] to-blue-600 hover:from-blue-500 hover:to-[var(--accent)] text-white text-sm font-medium rounded-lg transition-all cursor-pointer flex items-center gap-2 shadow-lg"
+            class="px-6 py-2.5 bg-gradient-to-r from-[var(--accent)] to-blue-600 hover:from-blue-500 hover:to-[var(--accent)] text-[var(--text-primary)] text-sm font-medium rounded-lg transition-all cursor-pointer flex items-center gap-2 shadow-lg"
             onclick={saveCommandsDat}
             disabled={saving}
           >
@@ -522,7 +524,7 @@
 
     <!-- RCON Config -->
     <div class="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-6 mt-5">
-      <h2 class="text-base font-semibold text-white mb-5 flex items-center gap-2">
+      <h2 class="text-base font-semibold text-[var(--text-primary)] mb-5 flex items-center gap-2">
         <svg class="w-5 h-5 text-[var(--accent-light)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
         </svg>
@@ -533,20 +535,20 @@
           <div class="w-8 h-8 border-2 border-[var(--accent)] border-t-transparent rounded-full animate-spin"></div>
         </div>
       {:else}
-        <div class="grid grid-cols-2 gap-5">
+        <div class="grid grid-cols-1 gap-4 md:grid-cols-2 md:gap-5">
           <div>
-            <label class="block text-xs text-[var(--text-muted)] mb-2 uppercase tracking-wider">RCON 端口</label>
+            <span class="block text-xs text-[var(--text-muted)] mb-2 uppercase tracking-wider">RCON 端口</span>
             <input type="number" bind:value={rconPort} min="1024" max="65535"
-              class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm text-white focus:outline-none focus:border-[var(--accent)] transition-colors" />
+              class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)] transition-colors" />
           </div>
           <div>
-            <label class="block text-xs text-[var(--text-muted)] mb-2 uppercase tracking-wider">RCON 密码</label>
+            <span class="block text-xs text-[var(--text-muted)] mb-2 uppercase tracking-wider">RCON 密码</span>
             <div class="relative">
               <input type={showRconPassword ? "text" : "password"} bind:value={rconPassword} placeholder="输入 RCON 密码"
-                class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2.5 pr-20 text-sm text-white placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors" />
+                class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2.5 pr-20 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors" />
               <div class="absolute right-2 top-1/2 -translate-y-1/2 flex gap-1">
                 <button type="button"
-                  class="p-1.5 text-[var(--text-muted)] hover:text-white transition-colors cursor-pointer"
+                  class="p-1.5 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors cursor-pointer"
                   onclick={() => showRconPassword = !showRconPassword}
                 >
                   {#if showRconPassword}
@@ -556,7 +558,7 @@
                   {/if}
                 </button>
                 <button type="button"
-                  class="p-1.5 text-[var(--text-muted)] hover:text-white transition-colors cursor-pointer"
+                  class="p-1.5 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors cursor-pointer"
                   onclick={() => rconPassword = generatePassword()}
                   title="生成随机密码"
                 >
@@ -576,15 +578,15 @@
   {:else}
     <!-- Plugins Tab -->
     <div class="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-6">
-      <div class="flex items-center justify-between mb-5">
-        <h2 class="text-base font-semibold text-white flex items-center gap-2">
+      <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
+        <h2 class="text-base font-semibold text-[var(--text-primary)] flex items-center gap-2">
           <svg class="w-5 h-5 text-[var(--accent-light)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
           </svg>
           已安装插件
         </h2>
         <button
-          class="px-4 py-2 bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg text-sm text-[var(--text-secondary)] hover:text-white hover:border-[var(--accent)] transition-all cursor-pointer flex items-center gap-2"
+          class="px-4 py-2 bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--accent)] transition-all cursor-pointer flex items-center gap-2"
           onclick={openPluginDir}
         >
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -617,18 +619,18 @@
                   </svg>
                 </div>
                 <div class="flex-1 min-w-0">
-                  <p class="text-sm font-medium text-white truncate">{plugin.name}</p>
+                  <p class="text-sm font-medium text-[var(--text-primary)] truncate">{plugin.name}</p>
                   <p class="text-xs text-[var(--text-muted)] truncate">{plugin.file_name}</p>
                 </div>
               </div>
               <div>
-                <label class="block text-xs text-[var(--text-muted)] mb-1">备注</label>
+                <span class="block text-xs text-[var(--text-muted)] mb-1">备注</span>
                 <input
                   type="text"
                   value={pluginNotes[plugin.name] || ""}
                   onblur={(e) => onPluginNoteBlur(plugin.name, (e.target as HTMLInputElement).value)}
                   placeholder="添加中文备注..."
-                  class="w-full bg-[var(--bg-card)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-white placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors"
+                  class="w-full bg-[var(--bg-card)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors"
                 />
               </div>
             </div>
@@ -638,3 +640,6 @@
     </div>
   {/if}
 </div>
+
+
+
