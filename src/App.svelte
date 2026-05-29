@@ -1,5 +1,7 @@
 ﻿<script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
+  import { getCurrentWindow } from "@tauri-apps/api/window";
+  import { onMount } from "svelte";
   import DashboardPage from "./lib/pages/Dashboard.svelte";
   import ServerPage from "./lib/pages/Server.svelte";
   import RconPage from "./lib/pages/Rcon.svelte";
@@ -14,6 +16,7 @@
   let currentPage = $state("dashboard");
   let showWizard = $state(false);
   let loaded = $state(false);
+  let isMaximized = $state(false);
 
   const navItems = [
     { id: "dashboard", label: "仪表盘", icon: "M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" },
@@ -40,22 +43,154 @@
     showWizard = false;
   }
 
-  $effect(() => { checkFirstRun(); });
+  function isTauriRuntime() {
+    return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+  }
+
+  function getAppWindow() {
+    return isTauriRuntime() ? getCurrentWindow() : null;
+  }
+
+  async function refreshMaximizedState() {
+    const appWindow = getAppWindow();
+    if (!appWindow) return;
+    try {
+      isMaximized = await appWindow.isMaximized();
+    } catch {
+      isMaximized = false;
+    }
+  }
+
+  async function minimizeWindow() {
+    try {
+      await getAppWindow()?.minimize();
+    } catch {
+      // Window commands are only available inside the Tauri runtime.
+    }
+  }
+
+  async function toggleWindowMaximize() {
+    try {
+      await getAppWindow()?.toggleMaximize();
+      await refreshMaximizedState();
+    } catch {
+      // Window commands are only available inside the Tauri runtime.
+    }
+  }
+
+  async function closeWindow() {
+    try {
+      await getAppWindow()?.close();
+    } catch {
+      // Window commands are only available inside the Tauri runtime.
+    }
+  }
+
+  async function startWindowDrag(event: MouseEvent) {
+    if (event.button !== 0 || event.detail > 1) return;
+    try {
+      await getAppWindow()?.startDragging();
+    } catch {
+      // Dragging is a no-op in a regular browser preview.
+    }
+  }
+
+  function onTitlebarDoubleClick(event: MouseEvent) {
+    if (event.button !== 0) return;
+    void toggleWindowMaximize();
+  }
+
+  onMount(() => {
+    void checkFirstRun();
+    void refreshMaximizedState();
+
+    const updateMaximizedState = () => void refreshMaximizedState();
+    window.addEventListener("resize", updateMaximizedState);
+
+    return () => {
+      window.removeEventListener("resize", updateMaximizedState);
+    };
+  });
 </script>
 
+<div class="flex h-screen flex-col bg-[var(--bg-primary)]">
+  <header class="relative z-30 flex h-11 shrink-0 select-none items-center border-b border-[var(--border)] bg-[var(--bg-secondary)]/92 shadow-[var(--shadow-sm)] backdrop-blur">
+    <div
+      class="flex min-w-0 flex-1 items-center gap-3 self-stretch px-3 sm:px-4"
+      role="presentation"
+      onpointerdown={startWindowDrag}
+      ondblclick={onTitlebarDoubleClick}
+    >
+      <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-gradient-to-br from-[var(--accent)] to-[var(--action)] shadow-[var(--shadow-glow)]">
+        <svg class="h-4 w-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
+        </svg>
+      </div>
+      <div class="min-w-0">
+        <p class="truncate text-xs font-semibold text-[var(--text-primary)] sm:text-sm">Unturned 服务器管理工具</p>
+        <p class="hidden text-[10px] text-[var(--text-muted)] sm:block">Windows Portable</p>
+      </div>
+    </div>
+
+    <div class="flex h-full shrink-0 items-stretch">
+      <button
+        type="button"
+        class="flex h-full w-11 items-center justify-center text-[var(--text-secondary)] transition-colors duration-[var(--transition-fast)] hover:bg-[var(--bg-card-hover)] hover:text-[var(--text-primary)]"
+        aria-label="最小化窗口"
+        title="最小化"
+        onclick={minimizeWindow}
+      >
+        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+          <path stroke-linecap="round" stroke-width="1.8" d="M6 18h12" />
+        </svg>
+      </button>
+      <button
+        type="button"
+        class="flex h-full w-11 items-center justify-center text-[var(--text-secondary)] transition-colors duration-[var(--transition-fast)] hover:bg-[var(--bg-card-hover)] hover:text-[var(--text-primary)]"
+        aria-label={isMaximized ? "还原窗口" : "最大化窗口"}
+        title={isMaximized ? "还原" : "最大化"}
+        onclick={toggleWindowMaximize}
+      >
+        {#if isMaximized}
+          <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+            <path stroke-linejoin="round" stroke-width="1.7" d="M9 9h9v9H9z" />
+            <path stroke-linejoin="round" stroke-width="1.7" d="M6 15V6h9" />
+          </svg>
+        {:else}
+          <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+            <path stroke-linejoin="round" stroke-width="1.7" d="M7 7h10v10H7z" />
+          </svg>
+        {/if}
+      </button>
+      <button
+        type="button"
+        class="flex h-full w-12 items-center justify-center text-[var(--text-secondary)] transition-colors duration-[var(--transition-fast)] hover:bg-[var(--danger-glow)] hover:text-[var(--danger)]"
+        aria-label="关闭窗口"
+        title="关闭"
+        onclick={closeWindow}
+      >
+        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.9" d="M6 6l12 12M18 6L6 18" />
+        </svg>
+      </button>
+    </div>
+  </header>
+
 {#if !loaded}
-  <div class="flex items-center justify-center h-screen bg-[var(--bg-primary)]">
+  <div class="flex min-h-0 flex-1 items-center justify-center bg-[var(--bg-primary)]">
     <div class="flex flex-col items-center gap-4">
       <div class="w-12 h-12 border-2 border-[var(--accent)] border-t-transparent rounded-full animate-spin"></div>
       <p class="text-[var(--text-secondary)] text-sm">加载中...</p>
     </div>
   </div>
 {:else if showWizard}
-  <WizardPage onComplete={onWizardComplete} />
+  <div class="min-h-0 flex-1 overflow-hidden">
+    <WizardPage onComplete={onWizardComplete} />
+  </div>
 {:else}
-  <div class="flex h-screen flex-col bg-[var(--bg-primary)] md:flex-row">
+  <div class="flex min-h-0 flex-1 flex-col md:flex-row">
     <!-- Sidebar Navigation -->
-    <nav class="relative z-10 flex w-full shrink-0 flex-col border-b border-[var(--border)] bg-[var(--bg-secondary)]/95 shadow-[var(--shadow-sm)] backdrop-blur md:h-screen md:w-[232px] md:border-b-0 md:border-r">
+    <nav class="relative z-10 flex w-full shrink-0 flex-col border-b border-[var(--border)] bg-[var(--bg-secondary)]/95 shadow-[var(--shadow-sm)] backdrop-blur md:h-full md:w-[232px] md:border-b-0 md:border-r">
       <!-- Logo Area -->
       <div class="border-b border-[var(--border)] px-4 py-3 md:px-5 md:py-6">
         <div class="flex items-center gap-3">
@@ -142,4 +277,5 @@
     </main>
   </div>
 {/if}
+</div>
 
