@@ -15,6 +15,10 @@
   let detecting = $state(false);
   let showPassword = $state(false);
 
+  // Per-save RCON config for step 5
+  let configSaveId = $state("");
+  let rconConfigMap = $state<Record<string, { port: number; password: string }>>({});
+
   // Auto-download state
   let downloadingS = $state(false);
   let downloadMsg = $state("");
@@ -281,14 +285,34 @@
         if (!serverRoot.trim()) { error = "请指定服务端目录"; return false; }
         return true;
       case 3:
-        if (!serverId.trim()) { error = "请输入服务器 ID"; return false; }
-        if (/[\/\\.]/.test(serverId)) { error = "服务器 ID 不能包含路径分隔符"; return false; }
-        if (/[一-鿿]/.test(serverId)) { error = "服务器 ID 不能包含中文字符"; return false; }
-        if (serverId.length > 64) { error = "服务器 ID 过长"; return false; }
-        if (!rconPassword.trim()) { error = "请输入 RCON 密码"; return false; }
-        if (rconPort < 1024 || rconPort > 65535) { error = "端口范围: 1024-65535"; return false; }
+        if (!serverId.trim()) { error = "请输入存档名称"; return false; }
+        if (/[\/\\.]/.test(serverId)) { error = "存档名称不能包含路径分隔符"; return false; }
+        if (/[一-鿿]/.test(serverId)) { error = "存档名称不能包含中文字符"; return false; }
+        if (serverId.length > 64) { error = "存档名称过长"; return false; }
+        return true;
+      case 5:
+        for (const [id, rcon] of Object.entries(rconConfigMap)) {
+          if (!rcon.password.trim()) { error = `存档 "${id}" 的 RCON 密码不能为空`; return false; }
+          if (rcon.port < 1024 || rcon.port > 65535) { error = `存档 "${id}" 的端口范围: 1024-65535`; return false; }
+        }
         return true;
       default: return true;
+    }
+  }
+
+  function initStep5Rcon() {
+    if (existingSaves.length > 0) {
+      configSaveId = selectedSaveId || existingSaves[0].id;
+      for (const save of existingSaves) {
+        if (!rconConfigMap[save.id]) {
+          rconConfigMap[save.id] = { port: 27115, password: generatePassword() };
+        }
+      }
+    } else {
+      configSaveId = serverId || "Server";
+      if (!rconConfigMap[configSaveId]) {
+        rconConfigMap[configSaveId] = { port: 27115, password: generatePassword() };
+      }
     }
   }
 
@@ -297,6 +321,7 @@
       step++;
       if (step === 3) checkRocketModule();
       if (step === 4) checkExistingSaves();
+      if (step === 5) initStep5Rcon();
     }
   }
   function prev() { error = ""; step--; }
@@ -305,7 +330,30 @@
     if (!validateStep()) return;
     saving = true;
     try {
-      await invoke("save_wizard_config", { steamCmdPath, serverRoot, serverId, rconPort, rconPassword });
+      // Save global config with the first save's RCON as default
+      const firstId = existingSaves.length > 0 ? existingSaves[0].id : serverId;
+      const firstRcon = rconConfigMap[firstId] || { port: 27115, password: "changeme" };
+      await invoke("save_wizard_config", {
+        steamCmdPath, serverRoot,
+        serverId: firstId,
+        rconPort: firstRcon.port,
+        rconPassword: firstRcon.password,
+      });
+
+      // Save RCON config for each additional save
+      for (const save of existingSaves) {
+        const rcon = rconConfigMap[save.id];
+        if (rcon && save.id !== firstId) {
+          try {
+            await invoke("save_rocket_rcon_config", {
+              saveId: save.id,
+              port: rcon.port,
+              password: rcon.password,
+            });
+          } catch { /* non-fatal */ }
+        }
+      }
+
       onComplete();
     } catch (e: any) {
       error = `保存失败: ${e}`;
@@ -313,7 +361,7 @@
     saving = false;
   }
 
-  const stepLabels = ["欢迎", "SteamCMD", "服务端", "Rocket", "存档", "配置"];
+  const stepLabels = ["欢迎", "SteamCMD", "服务端", "Rocket", "存档", "RCON"];
 </script>
 
 <div class="flex h-full items-center justify-center bg-[var(--bg-primary)] p-4">
@@ -470,25 +518,52 @@
     <!-- Step 5: Server Config -->
     {:else if step === 5}
       <div>
-        <h2 class="text-lg font-bold text-[var(--text-primary)] mb-5">服务器配置</h2>
-        <div class="space-y-4">
-          <div>
-            <span class="block text-xs text-[var(--text-muted)] mb-2">服务器 ID（地图名）</span>
-            <input type="text" bind:value={serverId} placeholder="PEI"
-              class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-3 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors duration-[var(--transition-normal)]" />
-            <p class="text-xs text-[var(--text-muted)] mt-1">可选地图: PEI, Washington, Yukon, Russia, Germany 等</p>
+        <h2 class="text-lg font-bold text-[var(--text-primary)] mb-2">RCON 配置</h2>
+        <p class="text-xs text-[var(--text-muted)] mb-5">为每个存档配置独立的 RCON 远程控制端口和密码。RCON 用于远程管理服务器。</p>
+
+        <!-- Save Selector (when multiple saves exist) -->
+        {#if existingSaves.length > 1}
+          <div class="mb-4">
+            <span class="block text-xs text-[var(--text-muted)] mb-2">选择存档</span>
+            <select bind:value={configSaveId}
+              class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-3 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)] transition-colors cursor-pointer">
+              {#each existingSaves as save}
+                <option value={save.id}>{save.id}{save.name ? ` - ${save.name}` : ''}</option>
+              {/each}
+            </select>
           </div>
+        {/if}
+
+        <!-- RCON Config for selected save -->
+        <div class="bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg p-4 space-y-4">
+          <p class="text-xs font-medium text-[var(--accent-light)] flex items-center gap-2">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1M5 19h14a2 2 0 002-2v-5a2 2 0 00-2-2H9a2 2 0 00-2 2v5a2 2 0 01-2 2z" />
+            </svg>
+            存档: {configSaveId}
+          </p>
           <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <span class="block text-xs text-[var(--text-muted)] mb-2">RCON 端口</span>
-              <input type="number" bind:value={rconPort} min="1024" max="65535"
-                class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-3 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)] transition-colors duration-[var(--transition-normal)]" />
+              <input type="number" value={rconConfigMap[configSaveId]?.port ?? 27115}
+                oninput={(e) => {
+                  const val = parseInt((e.target as HTMLInputElement).value) || 27115;
+                  if (rconConfigMap[configSaveId]) rconConfigMap[configSaveId].port = val;
+                }}
+                min="1024" max="65535"
+                class="w-full bg-[var(--bg-card)] border border-[var(--border)] rounded-lg px-4 py-3 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)] transition-colors duration-[var(--transition-normal)]" />
             </div>
             <div>
               <span class="block text-xs text-[var(--text-muted)] mb-2">RCON 密码</span>
               <div class="relative">
-                <input type={showPassword ? "text" : "password"} bind:value={rconPassword} placeholder="密码"
-                  class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-3 pr-20 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors duration-[var(--transition-normal)]" />
+                <input type={showPassword ? "text" : "password"}
+                  value={rconConfigMap[configSaveId]?.password ?? ""}
+                  oninput={(e) => {
+                    const val = (e.target as HTMLInputElement).value;
+                    if (rconConfigMap[configSaveId]) rconConfigMap[configSaveId].password = val;
+                  }}
+                  placeholder="密码"
+                  class="w-full bg-[var(--bg-card)] border border-[var(--border)] rounded-lg px-4 py-3 pr-20 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors duration-[var(--transition-normal)]" />
                 <div class="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5">
                   <button type="button"
                     class="p-1.5 rounded hover:bg-[var(--bg-card-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors cursor-pointer"
@@ -502,7 +577,9 @@
                   </button>
                   <button type="button"
                     class="p-1.5 rounded hover:bg-[var(--bg-card-hover)] text-[var(--text-muted)] hover:text-[var(--accent-light)] transition-colors cursor-pointer"
-                    onclick={() => rconPassword = generatePassword()} title="自动生成密码">
+                    onclick={() => {
+                      if (rconConfigMap[configSaveId]) rconConfigMap[configSaveId].password = generatePassword();
+                    }} title="自动生成密码">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
                   </button>
                 </div>
@@ -510,6 +587,15 @@
             </div>
           </div>
         </div>
+
+        {#if existingSaves.length > 1}
+          <p class="text-xs text-[var(--text-muted)] mt-3 flex items-center gap-1">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            切换下拉选项可为不同存档配置不同的 RCON 端口和密码
+          </p>
+        {/if}
       </div>
 
     <!-- Step 3: Rocket Module -->
