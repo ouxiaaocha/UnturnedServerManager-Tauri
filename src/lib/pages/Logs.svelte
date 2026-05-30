@@ -8,6 +8,7 @@
   let logLines: string[] = $state([]);
   let loading = $state(false);
   let logSearch = $state("");
+  let loadGeneration = 0;
 
   const categories = [
     { id: "app", label: "软件日志", icon: "M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" },
@@ -22,17 +23,22 @@
         selectedDate = dates[0];
       }
     } catch { dates = []; }
+    await loadLog();
   }
 
   async function loadLog() {
     if (!selectedDate) { logLines = []; return; }
+    const gen = ++loadGeneration;
     loading = true;
     try {
-      logLines = await invoke("read_log_file", { category, date: selectedDate }) as string[];
+      const lines = await invoke("read_log_file", { category, date: selectedDate }) as string[];
+      if (gen !== loadGeneration) return;
+      logLines = lines;
     } catch (e: any) {
+      if (gen !== loadGeneration) return;
       logLines = [`读取失败: ${e}`];
     }
-    loading = false;
+    if (gen === loadGeneration) loading = false;
   }
 
   function classifyLogLine(line: string): string {
@@ -42,8 +48,8 @@
     return "normal";
   }
 
-  $effect(() => { loadDates(); });
-  $effect(() => { category; selectedDate; loadLog(); });
+  $effect(() => { category; loadDates(); });
+  $effect(() => { selectedDate; loadLog(); });
 </script>
 
 <div class="flex flex-col h-full gap-5">

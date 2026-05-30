@@ -52,12 +52,15 @@
   let lastRawLines: string[] = [];
 
   async function loadSaves() {
+    const gen = ++loadGeneration;
     try {
       saves = await invoke("list_server_saves");
+      if (gen !== loadGeneration) return;
       if (saves.length > 0 && !selectedSaveId) {
         selectedSaveId = saves[0].id;
         await loadCommandsDat();
       }
+      if (gen !== loadGeneration) return;
       await checkRocketStatus();
     } catch {}
   }

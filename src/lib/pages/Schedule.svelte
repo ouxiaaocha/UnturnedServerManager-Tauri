@@ -30,7 +30,7 @@
 
   async function saveSchedules() {
     try {
-      await invoke("save_schedules", { tasks: { tasks } });
+      await invoke("save_schedules", { tasks });
       message = "已保存";
       setTimeout(() => message = "", 2000);
     } catch (e: any) {

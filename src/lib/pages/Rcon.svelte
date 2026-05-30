@@ -50,6 +50,7 @@
   }
 
   async function disconnect() {
+    clearTimeout(autoConnectTimer);
     await invoke("rcon_disconnect");
     connected = false;
     addRconLog("已断开连接", "system");
@@ -82,25 +83,48 @@
     if (e.key === "Enter") send();
   }
 
+  let pollTimer: ReturnType<typeof setTimeout> | undefined;
+  let statusTimer: ReturnType<typeof setTimeout> | undefined;
+  let autoConnectTimer: ReturnType<typeof setTimeout> | undefined;
+  let effectAlive = true;
+
+  function schedulePoll() {
+    pollTimer = setTimeout(async () => {
+      await pollResponses();
+      if (effectAlive) schedulePoll();
+    }, 2000);
+  }
+
+  function scheduleStatusCheck() {
+    statusTimer = setTimeout(async () => {
+      await checkStatus();
+      if (effectAlive) scheduleStatusCheck();
+    }, 10000);
+  }
+
   $effect(() => {
+    effectAlive = true;
     checkStatus();
-    const pollInterval = setInterval(pollResponses, 2000);
-    const statusInterval = setInterval(checkStatus, 10000);
+    schedulePoll();
+    scheduleStatusCheck();
 
     // Auto-connect when a server starts
     const unlisten = listen("server-started", () => {
       addRconLog("检测到服务器启动，5 秒后自动连接 RCON...", "system");
       scrollToBottom();
-      setTimeout(async () => {
-        if (!connected && !connecting) {
+      clearTimeout(autoConnectTimer);
+      autoConnectTimer = setTimeout(async () => {
+        if (effectAlive && !connected && !connecting) {
           await connect();
         }
       }, 5000);
     });
 
     return () => {
-      clearInterval(pollInterval);
-      clearInterval(statusInterval);
+      effectAlive = false;
+      clearTimeout(pollTimer);
+      clearTimeout(statusTimer);
+      clearTimeout(autoConnectTimer);
       unlisten.then(fn => fn());
     };
   });

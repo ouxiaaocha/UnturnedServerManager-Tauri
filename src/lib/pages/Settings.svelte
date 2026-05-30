@@ -28,6 +28,7 @@
   function validateServerId(id: string): string | null {
     if (!id.trim()) return "服务器 ID 不能为空";
     if (/[\/\\.]/.test(id)) return "服务器 ID 不能包含路径分隔符";
+    if (/[一-鿿]/.test(id)) return "服务器 ID 不能包含中文字符";
     if (id.length > 64) return "服务器 ID 过长";
     return null;
   }

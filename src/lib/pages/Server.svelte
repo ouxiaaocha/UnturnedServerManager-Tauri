@@ -1,6 +1,7 @@
 ﻿<script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import { highlightText, formatUptime } from "$lib/utils";
+  import { appState } from "$lib/stores.svelte";
 
   let status = $state("已停止");
   let pid = $state("--");
@@ -19,7 +20,6 @@
 
   let saves = $state<any[]>([]);
   let selectedSaveId = $state("");
-  let launchMode = $state("internet");
   let autoUpdateHosting = $state(false);
   let autoUpdateSaving = $state(false);
   let autoUpdateMessage = $state("");
@@ -107,7 +107,7 @@
     try {
       await invoke("start_server", {
         saveId: selectedSaveId || null,
-        launchMode: launchMode,
+        launchMode: appState.launchMode,
       });
       outputIndex = 0;
       logs = [];
@@ -136,7 +136,7 @@
     try {
       await invoke("restart_server", {
         saveId: selectedSaveId || null,
-        launchMode: launchMode,
+        launchMode: appState.launchMode,
       });
       outputIndex = 0;
       logs = [];
@@ -266,7 +266,7 @@
         <button
           class="px-5 py-2.5 bg-[var(--bg-elevated)] border border-[var(--border)] hover:border-[var(--danger)] text-[var(--text-secondary)] hover:text-[var(--danger)] text-sm rounded-lg transition-all duration-[var(--transition-normal)] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2"
           onclick={forceStop}
-          disabled={status === '已停止'}
+          disabled={status === '已停止' || loading !== ''}
         >
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
@@ -286,12 +286,12 @@
         </select>
         <div class="flex rounded-lg overflow-hidden border border-[var(--border)]">
           <button
-            class="px-2 py-1 text-xs font-medium transition-all cursor-pointer {launchMode === 'internet' ? 'bg-[var(--accent)] text-[var(--text-primary)]' : 'bg-[var(--bg-primary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}"
-            onclick={() => launchMode = 'internet'}
+            class="px-2 py-1 text-xs font-medium transition-all cursor-pointer {appState.launchMode === 'internet' ? 'bg-[var(--accent)] text-[var(--text-primary)]' : 'bg-[var(--bg-primary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}"
+            onclick={() => appState.launchMode = 'internet'}
           >互联网</button>
           <button
-            class="px-2 py-1 text-xs font-medium transition-all cursor-pointer {launchMode === 'lan' ? 'bg-[var(--accent)] text-[var(--text-primary)]' : 'bg-[var(--bg-primary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}"
-            onclick={() => launchMode = 'lan'}
+            class="px-2 py-1 text-xs font-medium transition-all cursor-pointer {appState.launchMode === 'lan' ? 'bg-[var(--accent)] text-[var(--text-primary)]' : 'bg-[var(--bg-primary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}"
+            onclick={() => appState.launchMode = 'lan'}
           >局域网</button>
         </div>
         <div class="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-1.5">

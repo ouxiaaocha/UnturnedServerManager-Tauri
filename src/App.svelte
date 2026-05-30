@@ -231,7 +231,7 @@
       </ul>
 
       <!-- Version Info & About -->
-      <div class="hidden border-t border-[var(--border)] px-3 pb-3 pt-3 md:block">
+      <div class="border-t border-[var(--border)] px-3 pb-3 pt-3">
         <button
           class="flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition-all duration-[var(--transition-normal)]
             {currentPage === 'about'
@@ -247,7 +247,7 @@
             <div class="ml-auto h-1.5 w-1.5 rounded-full bg-[var(--accent)]"></div>
           {/if}
         </button>
-        <p class="text-[10px] text-[var(--text-muted)] px-3 mt-2">v1.0.1</p>
+        <p class="hidden text-[10px] text-[var(--text-muted)] px-3 mt-2 md:block">v1.0.1</p>
       </div>
     </nav>
 

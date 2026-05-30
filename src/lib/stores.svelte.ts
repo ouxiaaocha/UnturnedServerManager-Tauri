@@ -6,3 +6,8 @@ export function addRconLog(text: string, type = "response") {
   rconLogs.push({ text: `[${time}] ${text}`, type });
   if (rconLogs.length > 500) rconLogs.splice(0, rconLogs.length - 500);
 }
+
+// Shared state across Dashboard and Server pages
+export const appState = $state({
+  launchMode: "internet",
+});

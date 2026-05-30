@@ -12,6 +12,14 @@
   }
 
   async function startUpdate() {
+    try {
+      const s: any = await invoke("get_server_status");
+      if (s.state === "运行中") {
+        appendOutput("[错误] 服务器正在运行中，请先停止服务器再更新");
+        return;
+      }
+    } catch {}
+
     updating = true;
     output = [];
 

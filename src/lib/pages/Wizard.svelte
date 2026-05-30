@@ -668,7 +668,13 @@
 
         {#if saveInitDone}
           <div class="bg-[var(--success-glow)] border border-[var(--success)]/30 rounded-lg p-3 mb-4">
-            <p class="text-sm text-[var(--success)]">存档初始化成功！点击"完成"保存配置。</p>
+            <div class="flex items-center justify-between gap-2">
+              <p class="text-sm text-[var(--success)]">存档初始化成功！点击"完成"保存配置。</p>
+              <button class="px-3 py-1 text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] rounded hover:bg-[var(--bg-card-hover)] transition-colors cursor-pointer flex-shrink-0"
+                onclick={() => { saveInitDone = false; }}>
+                重新初始化
+              </button>
+            </div>
           </div>
         {/if}
 

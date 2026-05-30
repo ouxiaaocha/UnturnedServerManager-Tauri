@@ -1,6 +1,7 @@
 ﻿<script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import { formatBytes, formatUptime } from "$lib/utils";
+  import { appState } from "$lib/stores.svelte";
 
   let status = $state("已停止");
   let uptime = $state("--");
@@ -9,7 +10,6 @@
 
   let saves = $state<any[]>([]);
   let selectedSaveId = $state("");
-  let launchMode = $state("internet");
   let autoUpdateHosting = $state(false);
   let autoUpdateSaving = $state(false);
   let autoUpdateMessage = $state("");
@@ -124,7 +124,7 @@
     try {
       await invoke("start_server", {
         saveId: selectedSaveId || null,
-        launchMode: launchMode,
+        launchMode: appState.launchMode,
       });
     } catch (e: any) {
       alert(e);
@@ -149,7 +149,7 @@
     try {
       await invoke("restart_server", {
         saveId: selectedSaveId || null,
-        launchMode: launchMode,
+        launchMode: appState.launchMode,
       });
     } catch (e: any) {
       alert(e);
@@ -358,12 +358,12 @@
         <span class="text-xs text-[var(--text-muted)]">模式:</span>
         <div class="flex rounded-lg overflow-hidden border border-[var(--border)]">
           <button
-            class="px-3 py-1.5 text-xs font-medium transition-all cursor-pointer {launchMode === 'internet' ? 'bg-[var(--accent)] text-[var(--text-primary)]' : 'bg-[var(--bg-primary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}"
-            onclick={() => launchMode = 'internet'}
+            class="px-3 py-1.5 text-xs font-medium transition-all cursor-pointer {appState.launchMode === 'internet' ? 'bg-[var(--accent)] text-[var(--text-primary)]' : 'bg-[var(--bg-primary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}"
+            onclick={() => appState.launchMode = 'internet'}
           >互联网</button>
           <button
-            class="px-3 py-1.5 text-xs font-medium transition-all cursor-pointer {launchMode === 'lan' ? 'bg-[var(--accent)] text-[var(--text-primary)]' : 'bg-[var(--bg-primary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}"
-            onclick={() => launchMode = 'lan'}
+            class="px-3 py-1.5 text-xs font-medium transition-all cursor-pointer {appState.launchMode === 'lan' ? 'bg-[var(--accent)] text-[var(--text-primary)]' : 'bg-[var(--bg-primary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}"
+            onclick={() => appState.launchMode = 'lan'}
           >局域网</button>
         </div>
       </div>
