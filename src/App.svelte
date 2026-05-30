@@ -203,7 +203,7 @@
             <h1 class="text-sm font-semibold text-[var(--text-primary)]">Unturned</h1>
             <p class="text-[10px] text-[var(--text-muted)]">服务器管理工具</p>
           </div>
-          <p class="ml-auto hidden rounded-full bg-[var(--bg-elevated)] px-2.5 py-1 text-[10px] font-medium text-[var(--text-secondary)] sm:block md:hidden">v1.0.1</p>
+          <p class="ml-auto hidden rounded-full bg-[var(--bg-elevated)] px-2.5 py-1 text-[10px] font-medium text-[var(--text-secondary)] sm:block md:hidden">v1.1.0</p>
         </div>
       </div>
 
@@ -247,7 +247,7 @@
             <div class="ml-auto h-1.5 w-1.5 rounded-full bg-[var(--accent)]"></div>
           {/if}
         </button>
-        <p class="hidden text-[10px] text-[var(--text-muted)] px-3 mt-2 md:block">v1.0.1</p>
+        <p class="hidden text-[10px] text-[var(--text-muted)] px-3 mt-2 md:block">v1.1.0</p>
       </div>
     </nav>
 
