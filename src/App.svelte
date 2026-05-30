@@ -191,22 +191,6 @@
   <div class="flex min-h-0 flex-1 flex-col md:flex-row">
     <!-- Sidebar Navigation -->
     <nav class="relative z-10 flex w-full shrink-0 flex-col border-b border-[var(--border)] bg-[var(--bg-secondary)]/95 shadow-[var(--shadow-sm)] backdrop-blur md:h-full md:w-[232px] md:border-b-0 md:border-r">
-      <!-- Logo Area -->
-      <div class="border-b border-[var(--border)] px-4 py-3 md:px-5 md:py-6">
-        <div class="flex items-center gap-3">
-          <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-[var(--accent)] to-[var(--action)] shadow-[var(--shadow-glow)]">
-            <svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
-            </svg>
-          </div>
-          <div class="min-w-0">
-            <h1 class="text-sm font-semibold text-[var(--text-primary)]">Unturned</h1>
-            <p class="text-[10px] text-[var(--text-muted)]">服务器管理工具</p>
-          </div>
-          <p class="ml-auto hidden rounded-full bg-[var(--bg-elevated)] px-2.5 py-1 text-[10px] font-medium text-[var(--text-secondary)] sm:block md:hidden">v1.1.0</p>
-        </div>
-      </div>
-
       <!-- Navigation Items -->
       <ul class="flex gap-2 overflow-x-auto px-3 py-3 md:mt-3 md:block md:flex-1 md:space-y-1 md:overflow-visible md:py-0">
         {#each navItems as item}
