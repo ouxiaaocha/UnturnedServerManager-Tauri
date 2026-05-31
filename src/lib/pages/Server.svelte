@@ -11,6 +11,12 @@
   let outputIndex = $state(0);
   let logContainer: HTMLDivElement | undefined = $state();
   let logSearch = $state("");
+  let normalizedLogSearch = $derived(logSearch.trim().toLowerCase());
+  let filteredLogs = $derived(
+    normalizedLogSearch
+      ? logs.filter((log) => log.text.toLowerCase().includes(normalizedLogSearch))
+      : logs
+  );
   let isNearBottom = false;
   let firstLoadDone = false;
   let isStarting = false;
@@ -78,21 +84,15 @@
 
       if (!isStarting && s.output_count > outputIndex) {
         const newLines = (s.output ?? []) as string[];
-        for (const line of newLines) {
-          logs.push({ text: line, level: classifyLine(line) });
-        }
-        if (logs.length > 500) logs = logs.slice(-500);
+        const appended = newLines.map((line) => ({ text: line, level: classifyLine(line) }));
+        logs = [...logs, ...appended].slice(-500);
         outputIndex = s.output_count;
         if (!firstLoadDone) {
           firstLoadDone = true;
           isNearBottom = true;
-          setTimeout(() => {
-            if (logContainer) logContainer.scrollTop = logContainer.scrollHeight;
-          }, 50);
+          scrollOutputToBottom();
         } else if (isNearBottom) {
-          setTimeout(() => {
-            if (logContainer) logContainer.scrollTop = logContainer.scrollHeight;
-          }, 50);
+          scrollOutputToBottom();
         }
       }
     } catch {
@@ -161,6 +161,12 @@
     if (!logContainer) return;
     const { scrollTop, scrollHeight, clientHeight } = logContainer;
     isNearBottom = scrollHeight - scrollTop - clientHeight < 80;
+  }
+
+  function scrollOutputToBottom() {
+    requestAnimationFrame(() => {
+      if (logContainer) logContainer.scrollTop = logContainer.scrollHeight;
+    });
   }
 
   function nextPollDelay() {
@@ -361,18 +367,17 @@
           <p class="italic">等待服务器启动...</p>
         </div>
       {:else}
-        {@const filtered = logSearch ? logs.filter(l => l.text.toLowerCase().includes(logSearch.toLowerCase())) : logs}
-        {#if logSearch && filtered.length === 0}
+        {#if logSearch && filteredLogs.length === 0}
           <div class="flex items-center justify-center h-full text-[var(--text-muted)]">
             <p class="italic">未找到匹配内容</p>
           </div>
         {:else}
           {#if logSearch}
             <div class="pb-2 mb-2 border-b border-[var(--border)] text-[var(--text-muted)]">
-              找到 {filtered.length} 条匹配
+              找到 {filteredLogs.length} 条匹配
             </div>
           {/if}
-          {#each filtered as log}
+          {#each filteredLogs as log}
             <p class="py-0.5 {log.level === 'error' ? 'text-[var(--danger)]' : log.level === 'warning' ? 'text-[var(--warning)]' : log.level === 'info' ? 'text-[var(--success)]' : log.level === 'system' ? 'text-[var(--accent-light)] font-medium' : 'text-[var(--text-secondary)]'}">
               {@html highlightText(log.text, logSearch)}
             </p>
@@ -382,5 +387,4 @@
     </div>
   </div>
 </div>
-
 

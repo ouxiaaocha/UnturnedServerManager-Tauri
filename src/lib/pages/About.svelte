@@ -7,7 +7,7 @@
   ];
 
   const buildInfo = [
-    { label: "版本", value: "v1.1.0" },
+    { label: "版本", value: "v2.0.0" },
     { label: "框架", value: "Tauri v2" },
     { label: "前端", value: "Svelte 5" },
     { label: "平台", value: "Windows Portable" },
@@ -38,7 +38,7 @@
           </div>
           <div class="flex shrink-0 items-center gap-2 rounded-lg border border-[var(--border-accent)] bg-white/70 px-3 py-2 text-xs font-medium text-[var(--accent-light)]">
             <span class="h-2 w-2 rounded-full bg-[var(--success)]"></span>
-            当前版本 v1.1.0
+            当前版本 v2.0.0
           </div>
         </div>
       </div>

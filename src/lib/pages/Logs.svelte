@@ -9,6 +9,13 @@
   let loading = $state(false);
   let logSearch = $state("");
   let loadGeneration = 0;
+  let dateGeneration = 0;
+  let normalizedSearch = $derived(logSearch.trim().toLowerCase());
+  let filteredLogLines = $derived(
+    normalizedSearch
+      ? logLines.filter((line) => line.toLowerCase().includes(normalizedSearch))
+      : logLines
+  );
 
   const categories = [
     { id: "app", label: "软件日志", icon: "M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" },
@@ -17,13 +24,25 @@
   ];
 
   async function loadDates() {
+    const gen = ++dateGeneration;
     try {
-      dates = await invoke("list_log_dates", { category }) as string[];
-      if (dates.length > 0 && !selectedDate) {
-        selectedDate = dates[0];
+      const nextDates = await invoke("list_log_dates", { category }) as string[];
+      if (gen !== dateGeneration) return;
+      const previousDate = selectedDate;
+      const nextDate = nextDates[0] ?? "";
+      dates = nextDates;
+      selectedDate = nextDate;
+      if (!selectedDate) {
+        logLines = [];
+      } else if (nextDate === previousDate) {
+        await loadLog();
       }
-    } catch { dates = []; }
-    await loadLog();
+    } catch {
+      if (gen !== dateGeneration) return;
+      dates = [];
+      selectedDate = "";
+      logLines = [];
+    }
   }
 
   async function loadLog() {
@@ -66,7 +85,7 @@
           class="px-4 py-2 text-sm rounded-lg transition-all duration-[var(--transition-normal)] cursor-pointer flex items-center gap-2 {category === cat.id
             ? 'bg-[var(--accent-subtle)] text-[var(--accent-light)] border border-[var(--border-accent)]'
             : 'bg-[var(--bg-card)] border border-[var(--border)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--accent)]'}"
-          onclick={() => { category = cat.id; selectedDate = ""; loadDates(); }}
+          onclick={() => { category = cat.id; }}
         >
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d={cat.icon} />
@@ -132,18 +151,17 @@
           <p class="italic">暂无日志</p>
         </div>
       {:else}
-        {@const filtered = logSearch ? logLines.filter(l => l.toLowerCase().includes(logSearch.toLowerCase())) : logLines}
-        {#if logSearch && filtered.length === 0}
+        {#if logSearch && filteredLogLines.length === 0}
           <div class="flex items-center justify-center h-full text-[var(--text-muted)]">
             <p class="italic">未找到匹配内容</p>
           </div>
         {:else}
           {#if logSearch}
             <div class="pb-2 mb-2 border-b border-[var(--border)] text-[var(--text-muted)]">
-              找到 {filtered.length} 条匹配
+              找到 {filteredLogLines.length} 条匹配
             </div>
           {/if}
-          {#each filtered as line}
+          {#each filteredLogLines as line}
             {@const level = classifyLogLine(line)}
             <p class="py-0.5 {level === 'error' ? 'text-[var(--danger)]' : level === 'warning' ? 'text-[var(--warning)]' : level === 'system' ? 'text-[var(--accent-light)]' : 'text-[var(--text-secondary)]'}">
               {@html highlightText(line, logSearch)}

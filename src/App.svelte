@@ -231,7 +231,7 @@
             <div class="ml-auto h-1.5 w-1.5 rounded-full bg-[var(--accent)]"></div>
           {/if}
         </button>
-        <p class="hidden text-[10px] text-[var(--text-muted)] px-3 mt-2 md:block">v1.1.0</p>
+        <p class="hidden text-[10px] text-[var(--text-muted)] px-3 mt-2 md:block">v2.0.0</p>
       </div>
     </nav>
 
@@ -262,4 +262,3 @@
   </div>
 {/if}
 </div>
-

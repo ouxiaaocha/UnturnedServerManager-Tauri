@@ -1,7 +1,7 @@
 ﻿<script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
-  import { rconLogs, addRconLog } from "$lib/stores.svelte";
+  import { rconLogs, addRconLog, addRconLogs } from "$lib/stores.svelte";
   import { highlightText } from "$lib/utils";
 
   let connected = $state(false);
@@ -9,6 +9,12 @@
   let connecting = $state(false);
   let logContainer: HTMLDivElement | undefined = $state();
   let logSearch = $state("");
+  let normalizedLogSearch = $derived(logSearch.trim().toLowerCase());
+  let filteredLogs = $derived(
+    normalizedLogSearch
+      ? rconLogs.filter((log) => log.text.toLowerCase().includes(normalizedLogSearch))
+      : rconLogs
+  );
 
   async function checkStatus() {
     try {
@@ -26,9 +32,7 @@
     try {
       const lines = await invoke("rcon_poll") as string[];
       if (lines.length > 0) {
-        for (const line of lines) {
-          addRconLog(line, "response");
-        }
+        addRconLogs(lines, "response");
         scrollToBottom();
       }
     } catch {}
@@ -212,18 +216,17 @@
           <p class="italic">连接 RCON 后可发送命令...</p>
         </div>
       {:else}
-        {@const filtered = logSearch ? rconLogs.filter(r => r.text.toLowerCase().includes(logSearch.toLowerCase())) : rconLogs}
-        {#if logSearch && filtered.length === 0}
+        {#if logSearch && filteredLogs.length === 0}
           <div class="flex items-center justify-center h-full text-[var(--text-muted)]">
             <p class="italic">未找到匹配内容</p>
           </div>
         {:else}
           {#if logSearch}
             <div class="pb-2 mb-2 border-b border-[var(--border)] text-[var(--text-muted)]">
-              找到 {filtered.length} 条匹配
+              找到 {filteredLogs.length} 条匹配
             </div>
           {/if}
-          {#each filtered as r}
+          {#each filteredLogs as r}
             <p class="py-0.5 {r.type === 'error' ? 'text-[var(--danger)]' : r.type === 'command' ? 'text-[var(--text-primary)] font-medium' : r.type === 'system' ? 'text-[var(--accent-light)]' : r.type === 'info' ? 'text-[var(--success)]' : 'text-[var(--text-secondary)]'}">
               {@html highlightText(r.text, logSearch)}
             </p>

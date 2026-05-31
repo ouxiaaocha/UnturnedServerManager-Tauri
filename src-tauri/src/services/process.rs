@@ -1,4 +1,4 @@
-use std::fs::{self, OpenOptions};
+use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, Write as IoWrite};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -171,9 +171,10 @@ impl ProcessManager {
             let game_log_dir = self.logs_dir.join("game");
             std::thread::spawn(move || {
                 let reader = BufReader::new(stdout);
+                let mut log_writer = GameLogWriter::new(game_log_dir);
                 for line in reader.lines().map_while(Result::ok) {
                     push_output_line(&output_buffer, line.clone());
-                    let _ = append_game_log(&game_log_dir, &line);
+                    let _ = log_writer.append(&line);
                 }
             });
         }
@@ -183,10 +184,11 @@ impl ProcessManager {
             let game_log_dir = self.logs_dir.join("game");
             std::thread::spawn(move || {
                 let reader = BufReader::new(stderr);
+                let mut log_writer = GameLogWriter::new(game_log_dir);
                 for line in reader.lines().map_while(Result::ok) {
                     let formatted = format!("[ERROR] {}", line);
                     push_output_line(&output_buffer, formatted.clone());
-                    let _ = append_game_log(&game_log_dir, &formatted);
+                    let _ = log_writer.append(&formatted);
                 }
             });
         }
@@ -268,14 +270,43 @@ pub fn start_output_cache_maintenance(
     });
 }
 
-fn append_game_log(game_log_dir: &Path, line: &str) -> std::io::Result<()> {
-    let now = Local::now();
-    let date = now.format("%Y-%m-%d").to_string();
-    let time = now.format("%H:%M:%S").to_string();
+struct GameLogWriter {
+    game_log_dir: PathBuf,
+    current_date: String,
+    file: Option<File>,
+}
 
-    let file_path = game_log_dir.join(format!("{}.log", date));
-    let mut file = OpenOptions::new().create(true).append(true).open(file_path)?;
-    writeln!(file, "[{}] {}", time, line)
+impl GameLogWriter {
+    fn new(game_log_dir: PathBuf) -> Self {
+        Self {
+            game_log_dir,
+            current_date: String::new(),
+            file: None,
+        }
+    }
+
+    fn append(&mut self, line: &str) -> std::io::Result<()> {
+        let now = Local::now();
+        let date = now.format("%Y-%m-%d").to_string();
+        let time = now.format("%H:%M:%S").to_string();
+
+        if self.file.is_none() || self.current_date != date {
+            let file_path = self.game_log_dir.join(format!("{}.log", date));
+            self.file = Some(
+                OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(file_path)?,
+            );
+            self.current_date = date;
+        }
+
+        if let Some(file) = self.file.as_mut() {
+            writeln!(file, "[{}] {}", time, line)?;
+            file.flush()?;
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]

@@ -2,9 +2,11 @@
 
 <div align="center">
 
+![Unturned Server Manager](docs/images/hero.png)
+
 **清新、轻量、便携的 Unturned 专用服务器管理工具**
 
-基于 **Tauri v2 + Svelte 5 + Rust** 构建，把服务端启动、RCON、存档、插件、更新和定时任务集中到一个现代化桌面面板里。
+基于 **Tauri v2 + Svelte 5 + Rust** 构建，把服务端启动、RCON、存档、创意工坊模组、插件、更新、日志和定时任务集中到一个现代化桌面面板里。
 
 ![Tauri](https://img.shields.io/badge/Tauri-v2-24C8DB?style=for-the-badge&logo=tauri&logoColor=white)
 ![Svelte](https://img.shields.io/badge/Svelte-5-FF3E00?style=for-the-badge&logo=svelte&logoColor=white)
@@ -15,7 +17,7 @@
 
 ## 界面预览
 
-### 主面板
+### 仪表盘
 
 <p align="center">
   <img src="docs/images/dashboard.png" width="90%" alt="仪表盘界面" />
@@ -33,40 +35,66 @@
     <td align="center">RCON 控制台</td>
   </tr>
   <tr>
-    <td width="50%"><img src="docs/images/save.png" alt="存档管理界面" /></td>
+    <td width="50%"><img src="docs/images/save.png" alt="存档配置界面" /></td>
+    <td width="50%"><img src="docs/images/workshop.png" alt="创意工坊模组配置界面" /></td>
+  </tr>
+  <tr>
+    <td align="center">存档配置</td>
+    <td align="center">创意工坊模组</td>
+  </tr>
+  <tr>
     <td width="50%"><img src="docs/images/schedule.png" alt="定时任务界面" /></td>
+    <td width="50%"><img src="docs/images/update.png" alt="服务端更新界面" /></td>
   </tr>
   <tr>
-    <td align="center">存档与插件</td>
     <td align="center">定时任务</td>
+    <td align="center">服务端更新</td>
   </tr>
   <tr>
+    <td width="50%"><img src="docs/images/logs.png" alt="日志中心界面" /></td>
     <td width="50%"><img src="docs/images/settings.png" alt="设置界面" /></td>
-    <td width="50%"><img src="docs/images/desktop-wizard.png" alt="首次引导界面" /></td>
   </tr>
   <tr>
+    <td align="center">日志中心</td>
     <td align="center">设置</td>
-    <td align="center">首次引导</td>
   </tr>
 </table>
 
-### 响应式预览
+### 首次引导
 
-<div align="center">
-  <img src="docs/images/mobile-wizard.png" width="280" alt="移动端响应式预览" />
-</div>
+<table>
+  <tr>
+    <td width="70%"><img src="docs/images/desktop-wizard.png" alt="桌面端首次引导" /></td>
+    <td width="30%"><img src="docs/images/mobile-wizard.png" alt="移动端首次引导" /></td>
+  </tr>
+  <tr>
+    <td align="center">桌面端引导</td>
+    <td align="center">窄屏响应式引导</td>
+  </tr>
+</table>
 
 ## 功能亮点
 
 | 模块 | 能力 |
 | --- | --- |
-| 仪表盘 | 查看服务器状态、PID、运行时间、CPU、内存、网络等运行信息 |
-| 服务器控制 | 一键启动、停止、重启、强制停止，支持控制台输出与日志搜索 |
-| RCON 控制台 | 连接 RCON、发送命令、查看响应输出 |
-| 存档管理 | 管理 `Commands.dat`、插件目录、插件备注与存档配置 |
-| 定时任务 | 创建每日、每周、间隔型自动重启任务 |
-| 更新中心 | 调用 SteamCMD 更新服务端并显示实时进度 |
-| 首次引导 | 自动检测/下载 SteamCMD，安装 Rocket 模块，初始化存档 |
+| 仪表盘 | 查看服务器状态、PID、运行时间、CPU、内存、网络流量，并可快速启动、停止、重启服务器 |
+| 服务器控制 | 一键启动、停止、重启、强制停止，支持实时输出、日志搜索、局域网/互联网模式切换 |
+| RCON 控制台 | 连接 Rocket RCON、发送命令、轮询响应，服务器启动后可自动连接 |
+| 存档配置 | 管理 `Commands.dat`、Rocket RCON、PvE、作弊、GSLT、地图、端口和最大玩家数 |
+| 创意工坊模组 | 维护 `WorkshopDownloadConfig.json`，管理模组 ID、备注、缓存下载、更新监控和关服提示 |
+| 插件管理 | 查看 Rocket 插件目录，保存插件备注，快速打开插件配置目录 |
+| 日志中心 | 查看软件日志、操作日志和游戏日志，支持日期切换、分类筛选和搜索 |
+| 服务端更新 | 调用 SteamCMD 更新 Unturned 服务端，并显示更新输出 |
+| 定时任务 | 创建每日、每周、间隔型自动重启任务，支持提前提醒 |
+| 首次引导 | 自动检测/下载 SteamCMD，安装 Rocket 模块，初始化存档和 RCON |
+
+## 最近更新
+
+- 新增创意工坊模组管理页，可编辑 `WorkshopDownloadConfig.json`。
+- 新增模组备注、插件备注、日志中心和自动更新托管相关界面。
+- 强化打开创意工坊链接的校验，避免任意 URL 被执行。
+- 优化高频日志/控制台输出路径，减少文件 I/O 和前端重复渲染。
+- 全量刷新 README 截图与头图，匹配当前界面。
 
 ## 技术栈
 
@@ -108,7 +136,7 @@ pnpm tauri build
 
 ```text
 src-tauri/target/release/unturned-server-manager.exe
-src-tauri/target/release/bundle/nsis/Unturned Server Manager_1.1.0_x64-setup.exe
+src-tauri/target/release/bundle/nsis/Unturned Server Manager_2.0.0_x64-setup.exe
 ```
 
 ## 便携版
@@ -122,31 +150,31 @@ src-tauri/target/release/unturned-server-manager.exe
 程序会在运行目录下自动创建运行数据：
 
 ```text
-config/      应用配置、服务器配置、定时任务
-logs/        应用日志
+config/      应用配置、服务器配置、定时任务、备注数据
+logs/        应用日志、操作日志、游戏日志
 data/        运行数据
 backups/     备份数据
 ```
 
 ## 公网安全
 
-打包后的桌面管理界面不会启动可被公网访问的 Web 服务，别人不能通过 `服务器IP:1420` 打开这个软件界面。开发模式和预览模式也已固定监听 `127.0.0.1:1420`，只允许本机访问。
+打包后的桌面管理界面不会启动可被公网访问的 Web 服务，别人不能通过 `服务器IP:1420` 打开这个软件界面。开发模式和预览模式固定监听 `127.0.0.1`，只允许本机访问。
 
-需要区分的是 Unturned 游戏端口和 Rocket RCON 端口：游戏端口通常需要按你的开服需求放行；RCON 是管理端口，不建议对公网开放。建议在 Windows 防火墙或云服务器安全组中只放行游戏端口，阻止 RCON 端口的公网入站访问，并使用强随机 RCON 密码。
+需要区分的是 Unturned 游戏端口和 Rocket RCON 端口：游戏端口通常需要按开服需求放行；RCON 是管理端口，不建议对公网开放。建议在 Windows 防火墙或云服务器安全组中只放行游戏端口，阻止 RCON 端口的公网入站访问，并使用强随机 RCON 密码。
 
 ## 项目结构
 
 ```text
 src/
-  App.svelte              主壳层与导航
+  App.svelte              主壳层、窗口栏与导航
   app.css                 全局主题与响应式样式
   lib/pages/
     Dashboard.svelte      仪表盘
     Server.svelte         服务器控制
     Rcon.svelte           RCON 控制台
-    Save.svelte           存档与插件
+    Save.svelte           存档、创意工坊模组与插件
     Schedule.svelte       定时任务
-    Update.svelte         更新中心
+    Update.svelte         服务端更新
     Logs.svelte           日志中心
     Settings.svelte       设置
     Wizard.svelte         首次引导
@@ -154,7 +182,7 @@ src/
 
 src-tauri/
   src/commands/           Tauri 命令
-  src/services/           后端服务
+  src/services/           配置、日志、进程、RCON、调度和系统监控服务
   src/models/             数据模型
   tauri.conf.json         Tauri 应用配置
 ```
