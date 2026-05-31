@@ -496,6 +496,36 @@ pub fn save_plugin_notes(
     Ok("插件备注已保存".to_string())
 }
 
+#[derive(Serialize, Deserialize, Clone)]
+pub struct WorkshopDownloadConfig {
+    pub file_ids: Vec<u64>,
+    pub ignore_children_file_ids: Vec<u64>,
+    pub query_cache_max_age_seconds: u32,
+    pub max_query_retries: u32,
+    pub use_cached_downloads: bool,
+    pub should_monitor_updates: bool,
+    pub shutdown_update_detected_timer: u32,
+    pub shutdown_update_detected_message: String,
+    pub shutdown_kick_message: String,
+}
+
+impl Default for WorkshopDownloadConfig {
+    fn default() -> Self {
+        Self {
+            file_ids: Vec::new(),
+            ignore_children_file_ids: Vec::new(),
+            query_cache_max_age_seconds: 600,
+            max_query_retries: 2,
+            use_cached_downloads: true,
+            should_monitor_updates: true,
+            shutdown_update_detected_timer: 600,
+            shutdown_update_detected_message: "Workshop file update detected, shutdown in: {0}"
+                .to_string(),
+            shutdown_kick_message: "Shutdown for Workshop file update.".to_string(),
+        }
+    }
+}
+
 #[derive(Serialize)]
 pub struct RocketRconInfo {
     pub port: u16,
@@ -595,6 +625,208 @@ pub fn save_rocket_rcon_config(
     Ok("RCON 配置已保存".to_string())
 }
 
+fn workshop_config_path(server_root: &str, server_id: &str) -> PathBuf {
+    Path::new(server_root)
+        .join("Servers")
+        .join(server_id)
+        .join("WorkshopDownloadConfig.json")
+}
+
+#[tauri::command]
+pub fn read_workshop_config(
+    config: State<'_, Arc<Mutex<ConfigService>>>,
+    save_id: Option<String>,
+) -> Result<WorkshopDownloadConfig, String> {
+    let (server_root, server_id) = {
+        let cfg = config.lock().unwrap_or_else(|e| e.into_inner());
+        resolve_save_dir(&cfg, &save_id)?
+    };
+
+    let path = workshop_config_path(&server_root, &server_id);
+
+    if !path.exists() {
+        return Ok(WorkshopDownloadConfig::default());
+    }
+
+    let content = fs::read_to_string(&path)
+        .map_err(|e| format!("读取 WorkshopDownloadConfig.json 失败: {}", e))?;
+
+    let raw: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| format!("解析 WorkshopDownloadConfig.json 失败: {}", e))?;
+
+    let config = WorkshopDownloadConfig {
+        file_ids: raw
+            .get("File_IDs")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| {
+                        v.as_u64()
+                            .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
+        ignore_children_file_ids: raw
+            .get("Ignore_Children_File_IDs")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| {
+                        v.as_u64()
+                            .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
+        query_cache_max_age_seconds: raw
+            .get("Query_Cache_Max_Age_Seconds")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(600) as u32,
+        max_query_retries: raw
+            .get("Max_Query_Retries")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(2) as u32,
+        use_cached_downloads: raw
+            .get("Use_Cached_Downloads")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true),
+        should_monitor_updates: raw
+            .get("Should_Monitor_Updates")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true),
+        shutdown_update_detected_timer: raw
+            .get("Shutdown_Update_Detected_Timer")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(600) as u32,
+        shutdown_update_detected_message: raw
+            .get("Shutdown_Update_Detected_Message")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Workshop file update detected, shutdown in: {0}")
+            .to_string(),
+        shutdown_kick_message: raw
+            .get("Shutdown_Kick_Message")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Shutdown for Workshop file update.")
+            .to_string(),
+    };
+
+    Ok(config)
+}
+
+#[tauri::command]
+pub fn save_workshop_config(
+    config: State<'_, Arc<Mutex<ConfigService>>>,
+    log: State<'_, Arc<Mutex<LogService>>>,
+    save_id: Option<String>,
+    workshop_config: WorkshopDownloadConfig,
+) -> Result<String, String> {
+    let (server_root, server_id) = {
+        let cfg = config.lock().unwrap_or_else(|e| e.into_inner());
+        resolve_save_dir(&cfg, &save_id)?
+    };
+
+    let path = workshop_config_path(&server_root, &server_id);
+
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("创建目录失败: {}", e))?;
+    }
+
+    let json_value = serde_json::json!({
+        "File_IDs": workshop_config.file_ids,
+        "Ignore_Children_File_IDs": workshop_config.ignore_children_file_ids,
+        "Query_Cache_Max_Age_Seconds": workshop_config.query_cache_max_age_seconds,
+        "Max_Query_Retries": workshop_config.max_query_retries,
+        "Use_Cached_Downloads": workshop_config.use_cached_downloads,
+        "Should_Monitor_Updates": workshop_config.should_monitor_updates,
+        "Shutdown_Update_Detected_Timer": workshop_config.shutdown_update_detected_timer,
+        "Shutdown_Update_Detected_Message": workshop_config.shutdown_update_detected_message,
+        "Shutdown_Kick_Message": workshop_config.shutdown_kick_message,
+    });
+
+    let content =
+        serde_json::to_string_pretty(&json_value).map_err(|e| format!("序列化失败: {}", e))?;
+
+    crate::services::config_service::atomic_write(&path, &content).map_err(|e| {
+        let ls = log.lock().unwrap_or_else(|e| e.into_inner());
+        ls.log_app(&format!(
+            "[ERROR] 保存 WorkshopDownloadConfig.json 失败 ({}): {}",
+            server_id, e
+        ));
+        format!("保存 WorkshopDownloadConfig.json 失败: {}", e)
+    })?;
+
+    let ls = log.lock().unwrap_or_else(|e| e.into_inner());
+    ls.log_operation(&format!("保存创意工坊配置: {}", server_id));
+
+    Ok("创意工坊配置已保存".to_string())
+}
+
+#[tauri::command]
+pub fn load_workshop_mod_notes(
+    config: State<'_, Arc<Mutex<ConfigService>>>,
+) -> HashMap<String, String> {
+    let cfg = config.lock().unwrap_or_else(|e| e.into_inner());
+    let path = cfg.config_dir().join("workshop_mod_notes.json");
+    if path.exists() {
+        let content = fs::read_to_string(&path).unwrap_or_default();
+        serde_json::from_str(&content).unwrap_or_default()
+    } else {
+        HashMap::new()
+    }
+}
+
+#[tauri::command]
+pub fn save_workshop_mod_notes(
+    config: State<'_, Arc<Mutex<ConfigService>>>,
+    notes: HashMap<String, String>,
+) -> Result<String, String> {
+    let cfg = config.lock().unwrap_or_else(|e| e.into_inner());
+    let path = cfg.config_dir().join("workshop_mod_notes.json");
+    let content = serde_json::to_string_pretty(&notes).map_err(|e| format!("序列化失败: {}", e))?;
+    crate::services::config_service::atomic_write(&path, &content)?;
+    Ok("模组备注已保存".to_string())
+}
+
+fn validate_workshop_url(url: &str) -> Result<(), String> {
+    const WORKSHOP_HOME: &str = "https://steamcommunity.com/app/304930/workshop/";
+    const MOD_PAGE_PREFIX: &str = "https://steamcommunity.com/sharedfiles/filedetails/?id=";
+
+    if url == WORKSHOP_HOME {
+        return Ok(());
+    }
+
+    if let Some(file_id) = url.strip_prefix(MOD_PAGE_PREFIX) {
+        if !file_id.is_empty() && file_id.bytes().all(|b| b.is_ascii_digit()) {
+            return Ok(());
+        }
+    }
+
+    Err("仅支持打开 Steam 创意工坊链接".to_string())
+}
+
+#[tauri::command]
+pub fn open_url(url: String) -> Result<String, String> {
+    validate_workshop_url(&url)?;
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        std::process::Command::new("explorer")
+            .arg(&url)
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW
+            .spawn()
+            .map_err(|e| format!("打开链接失败: {}", e))?;
+    }
+
+    #[cfg(not(windows))]
+    {
+        return Err("当前平台暂不支持打开链接".to_string());
+    }
+
+    Ok("已打开链接".to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -639,5 +871,24 @@ mod tests {
         assert!(!output.iter().any(|line| line == "Cheats"));
         assert!(!output.iter().any(|line| line == "Cheats false"));
         assert!(!output.iter().any(|line| line == "PvE true"));
+    }
+
+    #[test]
+    fn validate_workshop_url_allows_only_expected_steam_workshop_urls() {
+        assert!(validate_workshop_url("https://steamcommunity.com/app/304930/workshop/").is_ok());
+        assert!(validate_workshop_url(
+            "https://steamcommunity.com/sharedfiles/filedetails/?id=1234567890"
+        )
+        .is_ok());
+
+        assert!(validate_workshop_url(
+            "https://steamcommunity.com/sharedfiles/filedetails/?id=123&cmd=calc"
+        )
+        .is_err());
+        assert!(validate_workshop_url("https://example.com/").is_err());
+        assert!(
+            validate_workshop_url("https://steamcommunity.com/sharedfiles/filedetails/?id=")
+                .is_err()
+        );
     }
 }

@@ -32,6 +32,15 @@
   let plugins = $state<any[]>([]);
   let pluginNotes = $state<Record<string, string>>({});
 
+  // Workshop config
+  let workshopConfig = $state<any>(null);
+  let workshopLoading = $state(false);
+  let workshopSaving = $state(false);
+  let workshopModNotes = $state<Record<string, string>>({});
+  let newModId = $state("");
+  let newModNote = $state("");
+  let ignoreChildrenInput = $state("");
+
   // Save init state
   let showInitPanel = $state(false);
   let newSaveName = $state("Server");
@@ -216,6 +225,141 @@
     if (gen === loadGeneration) pluginsLoading = false;
   }
 
+  async function loadWorkshopConfig() {
+    if (!selectedSaveId) return;
+    const gen = ++loadGeneration;
+    workshopLoading = true;
+    try {
+      const [wc, mn] = await Promise.all([
+        invoke("read_workshop_config", { saveId: selectedSaveId }),
+        invoke("load_workshop_mod_notes"),
+      ]);
+      if (gen !== loadGeneration) return;
+      workshopConfig = wc;
+      workshopModNotes = mn as Record<string, string>;
+      ignoreChildrenInput = ((wc as any).ignore_children_file_ids ?? []).join(", ");
+    } catch (e: any) {
+      console.error("加载创意工坊配置失败:", e);
+      workshopConfig = {
+        file_ids: [],
+        ignore_children_file_ids: [],
+        query_cache_max_age_seconds: 600,
+        max_query_retries: 2,
+        use_cached_downloads: true,
+        should_monitor_updates: true,
+        shutdown_update_detected_timer: 600,
+        shutdown_update_detected_message: "Workshop file update detected, shutdown in: {0}",
+        shutdown_kick_message: "Shutdown for Workshop file update.",
+      };
+      ignoreChildrenInput = "";
+    }
+    if (gen === loadGeneration) workshopLoading = false;
+  }
+
+  function parseWorkshopIdList(value: string, label: string): number[] {
+    if (!value.trim()) return [];
+    const parts = value.split(/[,\s]+/).map((s: string) => s.trim()).filter(Boolean);
+    const invalid = parts.find((s: string) => !/^\d+$/.test(s));
+    if (invalid) {
+      throw new Error(`${label} 包含无效 ID: ${invalid}`);
+    }
+    return Array.from(new Set(parts.map((s: string) => Number.parseInt(s, 10))));
+  }
+
+  async function saveWorkshopConfig() {
+    if (!selectedSaveId || !workshopConfig) return;
+    workshopSaving = true;
+    try {
+      const normalizedConfig = {
+        ...workshopConfig,
+        ignore_children_file_ids: parseWorkshopIdList(ignoreChildrenInput, "忽略子项的模组 ID"),
+      };
+      await invoke("save_workshop_config", {
+        saveId: selectedSaveId,
+        workshopConfig: normalizedConfig,
+      });
+      await invoke("save_workshop_mod_notes", { notes: workshopModNotes });
+      workshopConfig = normalizedConfig;
+      ignoreChildrenInput = normalizedConfig.ignore_children_file_ids.join(", ");
+      message = "创意工坊配置已保存";
+      clearTimeout(msgTimer);
+      msgTimer = setTimeout(() => message = "", 3000);
+    } catch (e: any) {
+      alert(e);
+    }
+    workshopSaving = false;
+  }
+
+  function addWorkshopMod() {
+    if (!newModId.trim() && !newModNote.trim()) {
+      alert("请输入创意工坊 ID");
+      return;
+    }
+    if (!newModId.trim()) {
+      alert("请输入创意工坊 ID");
+      return;
+    }
+    const ids = newModId.split(/[,\s]+/).map((s: string) => s.trim()).filter((s: string) => s && /^\d+$/.test(s));
+    if (ids.length === 0) {
+      alert("请输入有效的创意工坊 ID（纯数字）");
+      return;
+    }
+
+    const currentIds: number[] = workshopConfig?.file_ids || [];
+    const existingNotes = { ...workshopModNotes };
+
+    for (const idStr of ids) {
+      const id = parseInt(idStr, 10);
+      if (!currentIds.includes(id)) {
+        currentIds.push(id);
+      }
+      if (newModNote.trim()) {
+        existingNotes[idStr] = newModNote.trim();
+      }
+    }
+
+    workshopConfig = { ...workshopConfig, file_ids: currentIds };
+    workshopModNotes = existingNotes;
+    newModId = "";
+    newModNote = "";
+  }
+
+  function removeWorkshopMod(modId: number) {
+    if (!workshopConfig) return;
+    workshopConfig = {
+      ...workshopConfig,
+      file_ids: workshopConfig.file_ids.filter((id: number) => id !== modId),
+    };
+  }
+
+  function onWorkshopModNoteChange(modId: string, note: string) {
+    workshopModNotes = { ...workshopModNotes, [modId]: note };
+  }
+
+  async function saveWorkshopModNotes() {
+    try {
+      await invoke("save_workshop_mod_notes", { notes: workshopModNotes });
+    } catch (e: any) {
+      alert(e);
+    }
+  }
+
+  async function openWorkshopUrl() {
+    try {
+      await invoke("open_url", { url: "https://steamcommunity.com/app/304930/workshop/" });
+    } catch (e: any) {
+      alert(e);
+    }
+  }
+
+  async function openModPage(modId: number) {
+    try {
+      await invoke("open_url", { url: `https://steamcommunity.com/sharedfiles/filedetails/?id=${modId}` });
+    } catch (e: any) {
+      alert(e);
+    }
+  }
+
   async function openPluginDir() {
     try {
       await invoke("open_plugin_config_dir", { saveId: selectedSaveId });
@@ -244,12 +388,18 @@
     if (activeTab === "plugins") {
       await loadPlugins();
     }
+    if (activeTab === "workshop") {
+      await loadWorkshopConfig();
+    }
   }
 
   async function onTabChange(tab: string) {
     activeTab = tab;
     if (tab === "plugins") {
       await loadPlugins();
+    }
+    if (tab === "workshop") {
+      await loadWorkshopConfig();
     }
   }
 
@@ -396,13 +546,20 @@
   {/if}
 
   <!-- Tabs -->
-  <div class="flex gap-2 mb-5">
+  <div class="flex gap-2 mb-5 flex-wrap">
     <button
       class="px-4 py-2 rounded-lg text-sm font-medium transition-all cursor-pointer
         {activeTab === 'save' ? 'bg-[var(--accent-subtle)] text-[var(--accent-light)] border border-[var(--border-accent)]' : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-card)] border border-transparent'}"
       onclick={() => onTabChange('save')}
     >
       存档配置
+    </button>
+    <button
+      class="px-4 py-2 rounded-lg text-sm font-medium transition-all cursor-pointer
+        {activeTab === 'workshop' ? 'bg-[var(--accent-subtle)] text-[var(--accent-light)] border border-[var(--border-accent)]' : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-card)] border border-transparent'}"
+      onclick={() => onTabChange('workshop')}
+    >
+      创意工坊模组
     </button>
     <button
       class="px-4 py-2 rounded-lg text-sm font-medium transition-all cursor-pointer
@@ -604,6 +761,199 @@
           保存配置
         {/if}
       </button>
+    </div>
+
+  {:else if activeTab === 'workshop'}
+    <!-- Workshop Tab -->
+    <div class="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-6">
+      <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
+        <h2 class="text-base font-semibold text-[var(--text-primary)] flex items-center gap-2">
+          <svg class="w-5 h-5 text-[var(--accent-light)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+          创意工坊模组配置
+        </h2>
+        <button
+          onclick={openWorkshopUrl}
+          class="px-4 py-2 bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--accent)] transition-all cursor-pointer flex items-center gap-2"
+        >
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+          </svg>
+          打开创意工坊
+        </button>
+      </div>
+
+      {#if workshopLoading}
+        <div class="flex items-center justify-center py-10">
+          <div class="w-8 h-8 border-2 border-[var(--accent)] border-t-transparent rounded-full animate-spin"></div>
+        </div>
+      {:else if workshopConfig}
+        <!-- Add Mod Section -->
+        <div class="bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg p-4 mb-5">
+          <h3 class="text-sm font-medium text-[var(--text-primary)] mb-3">添加模组</h3>
+          <div class="flex flex-col gap-3 sm:flex-row sm:items-end">
+            <div class="flex-1">
+              <span class="block text-xs text-[var(--text-muted)] mb-1.5">创意工坊 ID</span>
+              <input type="text" bind:value={newModId} placeholder="输入 ID，多个用逗号或空格分隔"
+                class="w-full bg-[var(--bg-card)] border border-[var(--border)] rounded-lg px-4 py-2 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors" />
+            </div>
+            <div class="flex-1">
+              <span class="block text-xs text-[var(--text-muted)] mb-1.5">备注（可选）</span>
+              <input type="text" bind:value={newModNote} placeholder="添加中文备注..."
+                class="w-full bg-[var(--bg-card)] border border-[var(--border)] rounded-lg px-4 py-2 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors" />
+            </div>
+            <button
+              class="px-5 py-2 bg-gradient-to-r from-[var(--accent)] to-cyan-600 hover:from-cyan-500 hover:to-[var(--accent)] text-[var(--text-primary)] text-sm font-medium rounded-lg transition-all cursor-pointer flex items-center gap-2 flex-shrink-0"
+              onclick={addWorkshopMod}
+            >
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+              </svg>
+              添加
+            </button>
+          </div>
+        </div>
+
+        <!-- Mod List -->
+        <div class="mb-5">
+          <h3 class="text-sm font-medium text-[var(--text-primary)] mb-3">已添加模组 ({workshopConfig.file_ids.length})</h3>
+          {#if workshopConfig.file_ids.length === 0}
+            <div class="text-center py-8 bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg">
+              <svg class="w-10 h-10 text-[var(--text-muted)] mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+              </svg>
+              <p class="text-[var(--text-muted)] text-sm">暂无模组</p>
+              <p class="text-[var(--text-muted)] text-xs mt-1">在上方输入创意工坊 ID 添加模组</p>
+            </div>
+          {:else}
+            <div class="space-y-2 max-h-[400px] overflow-y-auto pr-1">
+              {#each workshopConfig.file_ids as modId, index}
+                <div class="flex items-center gap-3 bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg p-3 hover:border-[var(--accent)] transition-all group">
+                  <div class="w-8 h-8 rounded-lg bg-[var(--accent-subtle)] flex items-center justify-center flex-shrink-0">
+                    <span class="text-xs font-medium text-[var(--accent-light)]">{index + 1}</span>
+                  </div>
+                  <div class="flex-1 min-w-0">
+                    <div class="flex items-center gap-2">
+                      <button
+                        onclick={() => openModPage(modId)}
+                        class="text-sm font-medium text-[var(--accent-light)] hover:underline cursor-pointer"
+                      >
+                        {modId}
+                      </button>
+                    </div>
+                    <input
+                      type="text"
+                      value={workshopModNotes[String(modId)] || ""}
+                      onblur={(e) => {
+                        onWorkshopModNoteChange(String(modId), (e.target as HTMLInputElement).value);
+                        saveWorkshopModNotes();
+                      }}
+                      placeholder="点击添加备注..."
+                      class="w-full bg-transparent border-none text-xs text-[var(--text-muted)] placeholder:text-[var(--text-muted)] focus:outline-none focus:text-[var(--text-primary)] mt-1 p-0"
+                    />
+                  </div>
+                  <button
+                    class="p-1.5 text-[var(--text-muted)] hover:text-[var(--danger)] opacity-0 group-hover:opacity-100 transition-all cursor-pointer"
+                    onclick={() => removeWorkshopMod(modId)}
+                    title="移除模组"
+                  >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                  </button>
+                </div>
+              {/each}
+            </div>
+          {/if}
+        </div>
+
+        <!-- Advanced Settings -->
+        <details class="bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg">
+          <summary class="px-4 py-3 cursor-pointer text-sm font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors">
+            高级配置
+          </summary>
+          <div class="px-4 pb-4 pt-2 border-t border-[var(--border)]">
+            <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div>
+                <span class="block text-xs text-[var(--text-muted)] mb-1.5">查询缓存时间（秒）</span>
+                <input type="number" bind:value={workshopConfig.query_cache_max_age_seconds} min="0"
+                  class="w-full bg-[var(--bg-card)] border border-[var(--border)] rounded-lg px-4 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)] transition-colors" />
+              </div>
+              <div>
+                <span class="block text-xs text-[var(--text-muted)] mb-1.5">最大查询重试次数</span>
+                <input type="number" bind:value={workshopConfig.max_query_retries} min="0"
+                  class="w-full bg-[var(--bg-card)] border border-[var(--border)] rounded-lg px-4 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)] transition-colors" />
+              </div>
+              <div>
+                <span class="block text-xs text-[var(--text-muted)] mb-1.5">更新检测关服倒计时（秒）</span>
+                <input type="number" bind:value={workshopConfig.shutdown_update_detected_timer} min="0"
+                  class="w-full bg-[var(--bg-card)] border border-[var(--border)] rounded-lg px-4 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)] transition-colors" />
+              </div>
+              <div>
+                <span class="block text-xs text-[var(--text-muted)] mb-1.5">忽略子项的模组 ID</span>
+                <input type="text" bind:value={ignoreChildrenInput} placeholder="多个用逗号分隔"
+                  class="w-full bg-[var(--bg-card)] border border-[var(--border)] rounded-lg px-4 py-2 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors" />
+              </div>
+            </div>
+
+            <div class="flex flex-wrap gap-4 sm:gap-8 mt-4 pt-4 border-t border-[var(--border)]">
+              <span class="flex items-center gap-3 cursor-pointer">
+                <button
+                  class="w-10 h-6 rounded-full transition-colors cursor-pointer {workshopConfig.use_cached_downloads ? 'bg-[var(--success)]' : 'bg-[var(--border)]'}"
+                  onclick={() => workshopConfig = { ...workshopConfig, use_cached_downloads: !workshopConfig.use_cached_downloads }}
+                  aria-label="切换使用缓存下载"
+                >
+                  <div class="w-4 h-4 rounded-full bg-white transform transition-transform {workshopConfig.use_cached_downloads ? 'translate-x-5' : 'translate-x-1'}"></div>
+                </button>
+                <span class="text-sm text-[var(--text-secondary)]">使用缓存下载</span>
+              </span>
+
+              <span class="flex items-center gap-3 cursor-pointer">
+                <button
+                  class="w-10 h-6 rounded-full transition-colors cursor-pointer {workshopConfig.should_monitor_updates ? 'bg-[var(--success)]' : 'bg-[var(--border)]'}"
+                  onclick={() => workshopConfig = { ...workshopConfig, should_monitor_updates: !workshopConfig.should_monitor_updates }}
+                  aria-label="切换监控更新"
+                >
+                  <div class="w-4 h-4 rounded-full bg-white transform transition-transform {workshopConfig.should_monitor_updates ? 'translate-x-5' : 'translate-x-1'}"></div>
+                </button>
+                <span class="text-sm text-[var(--text-secondary)]">监控模组更新</span>
+              </span>
+            </div>
+
+            <div class="mt-4">
+              <span class="block text-xs text-[var(--text-muted)] mb-1.5">更新检测关服提示消息</span>
+              <input type="text" bind:value={workshopConfig.shutdown_update_detected_message} placeholder="Workshop file update detected, shutdown in: {0}"
+                class="w-full bg-[var(--bg-card)] border border-[var(--border)] rounded-lg px-4 py-2 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors" />
+            </div>
+            <div class="mt-3">
+              <span class="block text-xs text-[var(--text-muted)] mb-1.5">关服踢出消息</span>
+              <input type="text" bind:value={workshopConfig.shutdown_kick_message} placeholder="Shutdown for Workshop file update."
+                class="w-full bg-[var(--bg-card)] border border-[var(--border)] rounded-lg px-4 py-2 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors" />
+            </div>
+          </div>
+        </details>
+
+        <!-- Save Button -->
+        <div class="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <p class="text-xs text-[var(--text-muted)]">配置将保存到 WorkshopDownloadConfig.json</p>
+          <button
+            class="px-6 py-2.5 bg-gradient-to-r from-[var(--accent)] to-blue-600 hover:from-blue-500 hover:to-[var(--accent)] text-[var(--text-primary)] text-sm font-medium rounded-lg transition-all cursor-pointer flex items-center justify-center gap-2 shadow-lg disabled:opacity-40 disabled:cursor-not-allowed"
+            onclick={saveWorkshopConfig}
+            disabled={workshopSaving || workshopLoading || !selectedSaveId}
+          >
+            {#if workshopSaving}
+              <div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+              保存中...
+            {:else}
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+              </svg>
+              保存创意工坊配置
+            {/if}
+          </button>
+        </div>
+      {/if}
     </div>
 
   {:else}
