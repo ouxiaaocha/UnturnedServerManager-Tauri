@@ -25,6 +25,9 @@ jobs:
   # 构建任务
   build:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: UnturnedServerManager-web
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -35,21 +38,12 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
-          cache-dependency-path: UnturnedServerManager-web/package-lock.json
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v2
-        with:
-          version: 9
 
       - name: Install dependencies
-        working-directory: UnturnedServerManager-web
-        run: pnpm install
+        run: npm install
 
       - name: Build VitePress site
-        working-directory: UnturnedServerManager-web
-        run: pnpm docs:build
+        run: npm run build
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
