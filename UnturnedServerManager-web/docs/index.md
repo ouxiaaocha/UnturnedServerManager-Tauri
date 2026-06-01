@@ -53,3 +53,43 @@ features:
     details: 自动检测/下载 SteamCMD，安装 Rocket 模块，初始化存档和 RCON，开箱即用。
     link: /features/wizard
 ---
+
+<section class="home-console-strip" aria-label="产品能力概览">
+  <div class="console-panel console-panel-primary">
+    <span class="console-kicker">Server Operations</span>
+    <strong>启动、停止、重启与日志观察集中在同一工作台</strong>
+    <p>面向长期运行的 Unturned 服务器，把日常维护动作压缩到少量高频入口。</p>
+  </div>
+  <div class="console-panel">
+    <span class="console-kicker">RCON & Saves</span>
+    <strong>远程命令、存档配置、插件目录快速衔接</strong>
+    <p>减少在多个目录、配置文件和控制台窗口之间来回切换。</p>
+  </div>
+  <div class="console-panel">
+    <span class="console-kicker">Automation</span>
+    <strong>更新、创意工坊模组、定时任务统一托管</strong>
+    <p>让服务器维护从临时手工操作变成可重复的管理流程。</p>
+  </div>
+</section>
+
+<section class="home-showcase" aria-label="界面预览">
+  <div class="showcase-copy">
+    <span class="section-eyebrow">Interface Preview</span>
+    <h2>为服主的高频工作流设计</h2>
+    <p>桌面端界面围绕状态确认、启动控制、日志追踪和配置维护组织，适合本机部署、便携目录和 Windows Server 环境。</p>
+  </div>
+  <div class="showcase-grid">
+    <a class="showcase-card showcase-wide" href="/UnturnedServerManager-Tauri/features/dashboard.html">
+      <img src="/dashboard.png" alt="仪表盘界面" />
+      <span>仪表盘监控</span>
+    </a>
+    <a class="showcase-card" href="/UnturnedServerManager-Tauri/features/server.html">
+      <img src="/server.png" alt="服务器控制界面" />
+      <span>服务器控制</span>
+    </a>
+    <a class="showcase-card" href="/UnturnedServerManager-Tauri/features/rcon.html">
+      <img src="/rcon.png" alt="RCON 控制台界面" />
+      <span>RCON 控制台</span>
+    </a>
+  </div>
+</section>
