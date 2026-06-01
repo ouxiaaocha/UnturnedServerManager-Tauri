@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+/// 服务器运行状态
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ServerState {

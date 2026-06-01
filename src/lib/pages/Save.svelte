@@ -11,7 +11,6 @@
   let message = $state("");
   let pluginsLoading = $state(false);
 
-  // Commands.dat fields
   let cmdName = $state("");
   let cmdMap = $state("");
   let cmdPort = $state(27015);
@@ -23,16 +22,13 @@
   let cmdPerspective = $state("Both");
   let cmdGslt = $state("");
 
-  // RCON config
   let rconPort = $state(27115);
   let rconPassword = $state("");
   let showRconPassword = $state(false);
 
-  // Plugins
   let plugins = $state<any[]>([]);
   let pluginNotes = $state<Record<string, string>>({});
 
-  // Workshop config
   let workshopConfig = $state<any>(null);
   let workshopLoading = $state(false);
   let workshopSaving = $state(false);
@@ -41,20 +37,18 @@
   let newModNote = $state("");
   let ignoreChildrenInput = $state("");
 
-  // Save init state
   let showInitPanel = $state(false);
   let newSaveName = $state("Server");
   let initRunning = $state(false);
   let initDone = $state(false);
   let newSaveLogs = $state<string[]>([]);
 
-  // Rocket status for selected save
   let saveHasRocket = $state<boolean | null>(null);
   let rocketInitRunning = $state(false);
   let rocketInitDone = $state(false);
   let rocketInitLogs = $state<string[]>([]);
 
-  // Race condition guard: discard stale responses when switching saves
+  // 竞态保护：切换存档时丢弃过期的异步响应
   let loadGeneration = 0;
   let msgTimer: ReturnType<typeof setTimeout> | undefined;
   let noteSaveTimer: ReturnType<typeof setTimeout> | undefined;
@@ -152,7 +146,7 @@
     loading = true;
     try {
       const info: any = await invoke("read_commands_dat", { saveId: selectedSaveId });
-      if (gen !== loadGeneration) return; // stale response
+      if (gen !== loadGeneration) return; // 过期响应，丢弃
       cmdName = info.name ?? "";
       cmdMap = info.map ?? "";
       cmdPort = info.port ?? 27015;
@@ -165,7 +159,6 @@
       cmdGslt = info.gslt ?? "";
       lastRawLines = info.raw_lines ?? [];
     } catch {}
-    // Load RCON config from Rocket.config.xml
     try {
       const rcon: any = await invoke("read_rocket_rcon_config", { saveId: selectedSaveId });
       if (gen !== loadGeneration) return;
@@ -194,7 +187,6 @@
           raw_lines: lastRawLines,
         },
       });
-      // Save RCON config to Rocket.config.xml
       await invoke("save_rocket_rcon_config", {
         saveId: selectedSaveId,
         port: rconPort,
@@ -586,49 +578,42 @@
         </div>
       {:else}
         <div class="grid grid-cols-1 gap-4 md:grid-cols-2 md:gap-5">
-          <!-- Name -->
           <div>
             <span class="block text-xs text-[var(--text-muted)] mb-2 uppercase tracking-wider">服务器名称</span>
             <input type="text" bind:value={cmdName} placeholder="My Unturned Server"
               class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors" />
           </div>
 
-          <!-- Map -->
           <div>
             <span class="block text-xs text-[var(--text-muted)] mb-2 uppercase tracking-wider">地图</span>
             <input type="text" bind:value={cmdMap} placeholder="PEI"
               class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors" />
           </div>
 
-          <!-- Port -->
           <div>
             <span class="block text-xs text-[var(--text-muted)] mb-2 uppercase tracking-wider">端口</span>
             <input type="number" bind:value={cmdPort} min="1024" max="65535"
               class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)] transition-colors" />
           </div>
 
-          <!-- MaxPlayers -->
           <div>
             <span class="block text-xs text-[var(--text-muted)] mb-2 uppercase tracking-wider">最大玩家数</span>
             <input type="number" bind:value={cmdMaxPlayers} min="1" max="200"
               class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)] transition-colors" />
           </div>
 
-          <!-- Password -->
           <div>
             <span class="block text-xs text-[var(--text-muted)] mb-2 uppercase tracking-wider">服务器密码</span>
             <input type="text" bind:value={cmdPassword} placeholder="留空表示无密码"
               class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors" />
           </div>
 
-          <!-- Owner -->
           <div>
             <span class="block text-xs text-[var(--text-muted)] mb-2 uppercase tracking-wider">管理员 SteamID64</span>
             <input type="text" bind:value={cmdOwner} placeholder="76561198000000000"
               class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors" />
           </div>
 
-          <!-- Perspective -->
           <div>
             <span class="block text-xs text-[var(--text-muted)] mb-2 uppercase tracking-wider">视角</span>
             <select bind:value={cmdPerspective}
@@ -640,7 +625,6 @@
             </select>
           </div>
 
-          <!-- GSLT -->
           <div class="md:col-span-2">
             <span class="block text-xs text-[var(--text-muted)] mb-2 uppercase tracking-wider">GSLT (Game Server Login Token)</span>
             <input type="text" bind:value={cmdGslt} placeholder="可选，用于在服务器浏览器中显示"
@@ -648,7 +632,6 @@
           </div>
         </div>
 
-        <!-- Toggle switches -->
         <div class="flex flex-wrap gap-4 sm:gap-8 mt-5 pt-5 border-t border-[var(--border)]">
           <span class="flex items-center gap-3 cursor-pointer">
             <button

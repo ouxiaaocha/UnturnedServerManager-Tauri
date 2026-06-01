@@ -1,5 +1,6 @@
 use serde::Serialize;
 
+/// 系统资源快照
 #[derive(Serialize, Clone)]
 pub struct SystemStats {
     pub cpu_usage: f32,

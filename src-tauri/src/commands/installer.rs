@@ -21,8 +21,8 @@ fn exe_dir() -> std::path::PathBuf {
         .unwrap_or_else(|| std::env::current_dir().unwrap())
 }
 
-/// Spawn background download + init. Emits installer-progress events.
-/// Final event: "DONE:<path>" on success, "ERROR:<message>" on failure.
+/// 后台下载 SteamCMD 并初始化。通过 installer-progress 事件推送进度。
+/// 成功时发送 "DONE:<path>"，失败时发送 "ERROR:<message>"。
 #[tauri::command]
 pub fn download_steamcmd(
     app: AppHandle,
@@ -61,13 +61,13 @@ fn do_download_steamcmd(app: &AppHandle) -> Result<String, String> {
         return Ok(steamcmd_exe.to_string_lossy().to_string());
     }
 
-    // Clean up any previous failed attempt
+    // 清理之前的失败残留
     if steamcmd_dir.exists() {
         let _ = fs::remove_dir_all(&steamcmd_dir);
     }
     fs::create_dir_all(&steamcmd_dir).map_err(|e| format!("创建目录失败: {}", e))?;
 
-    // Run download logic, clean up on failure
+    // 执行下载，失败时清理
     let result = do_download_steamcmd_inner(app, &steamcmd_dir, &steamcmd_exe);
     if result.is_err() {
         emit(app, "[系统] 下载失败，正在清理...");
@@ -125,7 +125,7 @@ fn do_download_steamcmd_inner(
     emit(app, "[系统] 下载完成，正在解压...");
     fs::write(&zip_path, &bytes).map_err(|e| format!("写入失败: {}", e))?;
 
-    // PowerShell Expand-Archive for reliability
+    // 优先用 PowerShell 解压（更可靠）
     let ps_result = Command::new("powershell")
         .args([
             "-NoProfile",
@@ -142,7 +142,7 @@ fn do_download_steamcmd_inner(
         .status();
 
     if ps_result.map(|s| !s.success()).unwrap_or(true) {
-        // Fallback: zip crate
+        // 备用方案：zip crate 解压
         emit(app, "[系统] 备用解压方案...");
         let zip_file = fs::File::open(&zip_path).map_err(|_| "zip 文件丢失".to_string())?;
         let mut archive = zip::ZipArchive::new(zip_file).map_err(|e| format!("读取 zip: {}", e))?;
@@ -190,7 +190,7 @@ fn do_download_steamcmd_inner(
         .spawn()
         .map_err(|e| format!("启动 SteamCMD 失败: {}", e))?;
 
-    // Read stderr in a separate thread to prevent pipe deadlock
+    // 在独立线程中读取 stderr，防止管道死锁
     let stderr_handle = child.stderr.take().map(|stderr| {
         std::thread::spawn(move || {
             let mut lines = Vec::new();
@@ -271,7 +271,7 @@ fn do_download_server(app: &AppHandle, steamcmd_path: &str) -> Result<String, St
         return Err(format!("SteamCMD 不存在: {}", steamcmd_path));
     }
 
-    // Server installs to: {steamcmd_dir}/steamapps/common/U3DS
+    // 服务端安装路径: {steamcmd_dir}/steamapps/common/U3DS
     let steamcmd_dir = Path::new(steamcmd_path).parent().unwrap_or(Path::new(""));
     let server_root = steamcmd_dir.join("steamapps").join("common").join("U3DS");
     let server_root_str = server_root.to_string_lossy().to_string();
@@ -326,7 +326,7 @@ fn do_download_server_inner(
 
     let mut child = cmd.spawn().map_err(|e| format!("启动 SteamCMD: {}", e))?;
 
-    // Read stderr in a separate thread to prevent pipe deadlock
+    // 在独立线程中读取 stderr，防止管道死锁
     let stderr_handle = child.stderr.take().map(|stderr| {
         std::thread::spawn(move || {
             let mut lines = Vec::new();
@@ -355,11 +355,11 @@ fn do_download_server_inner(
     let status = child.wait().map_err(|e| format!("等待退出: {}", e))?;
 
     if status.success() {
-        // SteamCMD may create lowercase directory. Detect actual dir.
+        // SteamCMD 可能创建小写目录名，需要检测实际路径
         let actual = if server_root.exists() {
             server_root_str.to_string()
         } else {
-            // Try lowercase
+            // 尝试小写路径
             let lower = server_root.parent().unwrap_or(Path::new("")).join("u3ds");
             if lower.exists() {
                 lower.to_string_lossy().to_string()

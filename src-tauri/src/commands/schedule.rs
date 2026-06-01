@@ -4,16 +4,22 @@ use tauri::State;
 
 use crate::services::config_service::{ConfigService, atomic_write};
 
+/// 定时重启任务配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScheduleTask {
     pub id: String,
     pub enabled: bool,
+    /// 任务类型: "daily"（每日）、"interval"（固定间隔）、"weekly"（每周）
     #[serde(rename = "type")]
-    pub task_type: String, // "daily", "interval", "weekly"
-    pub time: Option<String>, // "04:00" for daily
-    pub interval_hours: Option<u32>, // for interval
-    pub weekday: Option<u8>, // 0-6 for weekly
-    pub announce_minutes: Vec<u32>, // [30, 10, 5, 1]
+    pub task_type: String,
+    /// 执行时间，格式 "HH:MM"，用于 daily 和 weekly 类型
+    pub time: Option<String>,
+    /// 间隔小时数，用于 interval 类型
+    pub interval_hours: Option<u32>,
+    /// 星期几（0=周日），用于 weekly 类型
+    pub weekday: Option<u8>,
+    /// 重启前发送公告的分钟数列表
+    pub announce_minutes: Vec<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -38,7 +44,6 @@ pub fn save_schedules(
     config: State<'_, Arc<Mutex<ConfigService>>>,
     tasks: ScheduleConfig,
 ) -> Result<String, String> {
-    // Validate task types
     for task in &tasks.tasks {
         match task.task_type.as_str() {
             "daily" => {

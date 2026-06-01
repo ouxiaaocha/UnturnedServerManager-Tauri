@@ -15,32 +15,25 @@
   let detecting = $state(false);
   let showPassword = $state(false);
 
-  // Per-save RCON config for step 5
   let configSaveId = $state("");
   let rconConfigMap = $state<Record<string, { port: number; password: string }>>({});
 
-  // Auto-download state
   let downloadingS = $state(false);
   let downloadMsg = $state("");
   let downloadLogs = $state<string[]>([]);
 
-  // Rocket module state
   let rocketInstalled = $state<boolean | null>(null);
   let rocketChecking = $state(false);
   let rocketInstalling = $state(false);
 
-  // Save init state
   let saveName = $state("Server");
   let saveInitRunning = $state(false);
   let saveInitDone = $state(false);
 
-  // Existing saves detection
   let existingSaves = $state<any[]>([]);
   let selectedSaveId = $state("");
   let saveHasRocket = $state<boolean | null>(null);
   let saveChecking = $state(false);
-
-  // Retry tracking
   let lastFailedAction = $state("");
 
   function appendLog(msg: string) {
@@ -242,7 +235,7 @@
         serverId = msg.slice(5);
         saveInitRunning = false;
         unlisten();
-        // Re-check saves and Rocket status after successful init
+        // 初始化成功后重新检测存档和 Rocket 状态
         checkExistingSaves();
       } else if (msg.startsWith("ERROR:")) {
         error = msg.slice(6);
@@ -255,7 +248,7 @@
       }
     });
     try {
-      // Use selectedSaveId if initializing Rocket for existing save, otherwise use saveName
+      // 如果已有存档则用选中的 ID，否则用新建的名称
       const initName = existingSaves.length > 0 && selectedSaveId ? selectedSaveId : saveName;
       await invoke("init_server_save", { serverRoot, saveName: initName });
     } catch (e: any) {
@@ -330,7 +323,7 @@
     if (!validateStep()) return;
     saving = true;
     try {
-      // Save global config with the first save's RCON as default
+      // 以第一个存档的 RCON 配置作为全局默认
       const firstId = existingSaves.length > 0 ? existingSaves[0].id : serverId;
       const firstRcon = rconConfigMap[firstId] || { port: 27115, password: "changeme" };
       await invoke("save_wizard_config", {
@@ -340,7 +333,7 @@
         rconPassword: firstRcon.password,
       });
 
-      // Save RCON config for each additional save
+      // 为每个额外存档保存独立的 RCON 配置
       for (const save of existingSaves) {
         const rcon = rconConfigMap[save.id];
         if (rcon && save.id !== firstId) {

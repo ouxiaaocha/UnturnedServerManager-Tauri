@@ -43,7 +43,7 @@ pub fn read_log_file(
     let log_dir = cfg.logs_dir();
     let file_path = log_dir.join(&category).join(format!("{}.log", date));
 
-    // Ensure the resolved path is still under the logs directory
+    // 确保解析后的路径仍在日志目录下（防止路径穿越）
     if let Ok(resolved) = file_path.canonicalize() {
         if !resolved.starts_with(log_dir.canonicalize().unwrap_or_default()) {
             return Err("路径越界".to_string());

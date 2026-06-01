@@ -23,7 +23,7 @@
     updating = true;
     output = [];
 
-    // Listen for real-time progress events
+    // 监听实时进度事件
     unlisten = await listen<string>("update-output", (event) => {
       appendOutput(event.payload);
     });

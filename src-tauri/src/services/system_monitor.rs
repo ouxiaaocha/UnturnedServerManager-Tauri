@@ -4,6 +4,7 @@ use sysinfo::{Networks, System};
 
 const SAMPLE_INTERVAL: Duration = Duration::from_secs(1);
 
+/// 系统资源监控（CPU、内存、网络流量），带 1 秒采样缓存避免频繁刷新
 pub struct SystemMonitor {
     system: System,
     networks: Networks,

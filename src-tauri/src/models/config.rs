@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+/// 应用全局设置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppSettings {
@@ -25,6 +26,7 @@ impl Default for AppSettings {
     }
 }
 
+/// RCON 连接配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RconConfig {
     pub enabled: bool,
@@ -44,6 +46,7 @@ impl Default for RconConfig {
     }
 }
 
+/// 单个服务器实例的配置（路径、RCON、存档 ID）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerProfile {
     pub id: String,
@@ -57,6 +60,7 @@ pub struct ServerProfile {
     pub rcon: RconConfig,
 }
 
+/// 所有服务器实例的配置集合
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ServersConfig {
     pub servers: Vec<ServerProfile>,

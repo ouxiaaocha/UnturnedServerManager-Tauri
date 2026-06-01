@@ -61,38 +61,32 @@
     }
   }
 
+  // 窗口控制命令仅在 Tauri 运行时可用，浏览器预览中静默忽略
+
   async function minimizeWindow() {
     try {
       await getAppWindow()?.minimize();
-    } catch {
-      // Window commands are only available inside the Tauri runtime.
-    }
+    } catch {}
   }
 
   async function toggleWindowMaximize() {
     try {
       await getAppWindow()?.toggleMaximize();
       await refreshMaximizedState();
-    } catch {
-      // Window commands are only available inside the Tauri runtime.
-    }
+    } catch {}
   }
 
   async function closeWindow() {
     try {
       await getAppWindow()?.close();
-    } catch {
-      // Window commands are only available inside the Tauri runtime.
-    }
+    } catch {}
   }
 
   async function startWindowDrag(event: MouseEvent) {
     if (event.button !== 0 || event.detail > 1) return;
     try {
       await getAppWindow()?.startDragging();
-    } catch {
-      // Dragging is a no-op in a regular browser preview.
-    }
+    } catch {}
   }
 
   function onTitlebarDoubleClick(event: MouseEvent) {
@@ -189,9 +183,8 @@
   </div>
 {:else}
   <div class="flex min-h-0 flex-1 flex-col md:flex-row">
-    <!-- Sidebar Navigation -->
+    <!-- 侧边栏导航 -->
     <nav class="relative z-10 flex w-full shrink-0 flex-col border-b border-[var(--border)] bg-[var(--bg-secondary)]/95 shadow-[var(--shadow-sm)] backdrop-blur md:h-full md:w-[232px] md:border-b-0 md:border-r">
-      <!-- Navigation Items -->
       <ul class="flex gap-2 overflow-x-auto px-3 py-3 md:mt-3 md:block md:flex-1 md:space-y-1 md:overflow-visible md:py-0">
         {#each navItems as item}
           <li class="shrink-0 md:shrink">
@@ -214,7 +207,6 @@
         {/each}
       </ul>
 
-      <!-- Version Info & About -->
       <div class="border-t border-[var(--border)] px-3 pb-3 pt-3">
         <button
           class="flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition-all duration-[var(--transition-normal)]
@@ -235,7 +227,6 @@
       </div>
     </nav>
 
-    <!-- Main Content Area -->
     <main class="flex min-h-0 flex-1 flex-col overflow-hidden p-4 sm:p-5 lg:p-6">
       <div class="mx-auto flex min-h-0 w-full max-w-[1280px] flex-1 flex-col">
         {#if currentPage === "dashboard"}

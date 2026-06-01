@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 use chrono::{Local, Duration as ChronoDuration};
 
+/// 分类文件日志服务，支持 app/operation/game 三个类别，按日期轮转和自动清理
 pub struct LogService {
     logs_dir: PathBuf,
 }

@@ -9,6 +9,7 @@ use crate::services::log_service::LogService;
 use crate::services::process::ProcessManager;
 use crate::services::rcon_client::RconClient;
 
+/// 启动后台调度线程，每 10 秒检查一次，匹配到重启时间时通过 RCON 发送公告并执行重启
 pub fn start_scheduler(
     config: Arc<Mutex<ConfigService>>,
     process: Arc<Mutex<ProcessManager>>,
@@ -30,7 +31,7 @@ pub fn start_scheduler(
             let current_total_minutes = (current_hour * 60 + current_minute) as i64;
             let current_day = now.ordinal() as i32;
 
-            // Daily log cleanup (once per day)
+            // 每天执行一次日志清理
             if current_day != last_cleanup_day {
                 last_cleanup_day = current_day;
                 let retention_days = {
@@ -41,19 +42,17 @@ pub fn start_scheduler(
                 ls.cleanup_old_logs(retention_days);
             }
 
-            // Only check once per minute
+            // 每分钟只检查一次任务
             if current_total_minutes == last_check_minute {
                 continue;
             }
             last_check_minute = current_total_minutes;
 
-            // Load tasks
             let tasks = load_tasks(&config);
             if tasks.is_empty() {
                 continue;
             }
 
-            // Check if server is running
             let is_running = {
                 let mut pm = process.lock().unwrap_or_else(|e| e.into_inner());
                 pm.is_running()
@@ -63,7 +62,7 @@ pub fn start_scheduler(
                 continue;
             }
 
-            // Calculate weekday (0=Sunday)
+            // weekday: 0=周日
             let weekday = now.weekday().num_days_from_sunday() as u8;
 
             for task in &tasks {
@@ -75,7 +74,7 @@ pub fn start_scheduler(
                     minutes_until_restart(task, current_hour, current_minute, weekday);
 
                 if let Some(mins) = minutes_until {
-                    // Check if announcement needed
+                    // 检查是否需要发送公告
                     let task_announced = announced.entry(task.id.clone()).or_default();
                     for &announce_at in &task.announce_minutes {
                         if mins == announce_at && !task_announced.contains(&announce_at) {
@@ -84,13 +83,12 @@ pub fn start_scheduler(
                         }
                     }
 
-                    // Time to restart
                     if mins == 0 {
                         execute_restart(&process, &rcon, &config, &log);
                         announced.remove(&task.id);
                     }
                 } else {
-                    // Not in restart window, clear announcement records
+                    // 不在重启窗口内，清除公告记录
                     announced.remove(&task.id);
                 }
             }
@@ -205,7 +203,7 @@ fn send_announce(
 ) {
     let msg = format!("say 服务器将在 {} 分钟后重启", minutes);
 
-    // Extract RCON config before acquiring rcon lock
+    // 先获取 RCON 配置，避免在持有 rcon 锁时再获取 config 锁
     let rcon_config = {
         let cfg = config.lock().unwrap_or_else(|e| e.into_inner());
         let servers = cfg.load_servers_config();
@@ -243,7 +241,7 @@ fn execute_restart(
         ls.log_operation("定时任务: 执行重启");
     }
 
-    // Extract RCON config before acquiring rcon lock
+    // 先获取 RCON 配置，避免在持有 rcon 锁时再获取 config 锁
     let rcon_config = {
         let cfg = config.lock().unwrap_or_else(|e| e.into_inner());
         let servers = cfg.load_servers_config();
@@ -253,7 +251,7 @@ fn execute_restart(
             .map(|p| (p.rcon.host.clone(), p.rcon.port, p.rcon.password.clone()))
     };
 
-    // Shutdown via RCON
+    // 通过 RCON 优雅关闭
     {
         let mut client = rcon.lock().unwrap_or_else(|e| e.into_inner());
         if !client.is_connected() {
@@ -270,7 +268,7 @@ fn execute_restart(
         }
     }
 
-    // Wait for process to exit
+    // 等待进程退出，最多 30 秒
     for _ in 0..30 {
         std::thread::sleep(Duration::from_secs(1));
         let is_running = {
@@ -282,7 +280,7 @@ fn execute_restart(
         }
     }
 
-    // Force stop if still running
+    // 仍在运行则强制停止
     {
         let mut pm = process.lock().unwrap_or_else(|e| e.into_inner());
         if pm.is_running() {
@@ -292,7 +290,7 @@ fn execute_restart(
 
     std::thread::sleep(Duration::from_secs(2));
 
-    // Restart
+    // 重新启动服务器
     let profile = {
         let cfg = config.lock().unwrap_or_else(|e| e.into_inner());
         let servers = cfg.load_servers_config();
