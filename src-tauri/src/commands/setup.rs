@@ -16,7 +16,7 @@ fn emit(app: &AppHandle, msg: &str) {
     let _ = app.emit("installer-progress", msg.to_string());
 }
 
-/// Filter out shader/GPU warnings that are normal in -batchmode -nographics
+/// 过滤 -batchmode -nographics 模式下正常的 shader/GPU 警告
 fn is_shader_noise(s: &str) -> bool {
     s.contains("shader is not supported on this GPU")
         || s.contains("Shader Unsupported:")
@@ -26,7 +26,7 @@ fn is_shader_noise(s: &str) -> bool {
         || s.contains("Fallback off?")
 }
 
-/// Check if Rocket.Unturned module is installed.
+/// 检测 Rocket.Unturned 模块是否已安装
 #[tauri::command]
 pub fn detect_rocket_module(server_root: String) -> Result<bool, String> {
     if server_root.is_empty() {
@@ -42,7 +42,7 @@ pub fn detect_rocket_module(server_root: String) -> Result<bool, String> {
             .unwrap_or(false))
 }
 
-/// Copy Rocket.Unturned from Extras to Modules (background thread).
+/// 将 Rocket.Unturned 从 Extras 目录复制到 Modules（后台线程执行）
 #[tauri::command]
 pub fn install_rocket_module(
     app: AppHandle,
@@ -93,7 +93,7 @@ pub fn install_rocket_module(
             Err(e) => {
                 let ls = log_clone.lock().unwrap_or_else(|e| e.into_inner());
                 ls.log_app(&format!("[ERROR] Rocket.Unturned 安装失败: {}", e));
-                // Only remove directories created by this attempt.
+                // 仅删除本次尝试创建的目录
                 if !dst_existed_before {
                     let _ = fs::remove_dir_all(&dst);
                 }
@@ -129,7 +129,7 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<usize, String> {
     Ok(count)
 }
 
-/// Check if a save has Rocket initialized (Rocket folder + Rocket.config.xml).
+/// 检测存档是否已初始化 Rocket（Rocket 目录 + Rocket.config.xml）
 #[tauri::command]
 pub fn check_save_rocket_status(
     config: State<'_, Arc<Mutex<ConfigService>>>,
@@ -157,8 +157,8 @@ pub fn check_save_rocket_status(
     Ok(rocket_config.exists())
 }
 
-/// Initialize a server save by running the server once until "Loading level: 100%".
-/// Uses background thread + events.
+/// 初始化服务器存档：启动服务端直到 "Loading level: 100%" 后关闭。
+/// 在后台线程执行，通过事件推送进度。
 #[tauri::command]
 pub fn init_server_save(
     app: AppHandle,
@@ -194,11 +194,7 @@ pub fn init_server_save(
         ls.log_app("[ERROR] 初始化存档失败: 存档名称不能包含中文字符");
         return Err("存档名称不能包含中文字符".to_string());
     }
-    if save_name.contains('/')
-        || save_name.contains('\\')
-        || save_name.contains("..")
-        || save_name.contains(':')
-    {
+    if let Err(_) = crate::services::config_service::validate_id(&save_name) {
         let ls = log.lock().unwrap_or_else(|e| e.into_inner());
         ls.log_app("[ERROR] 初始化存档失败: 存档名称包含非法字符");
         return Err("存档名称包含非法字符".to_string());
@@ -222,7 +218,7 @@ pub fn init_server_save(
     emit(&app, &format!("[系统] 正在初始化存档 \"{}\"...", save_name));
     emit(&app, "[系统] 首次启动需要一些时间，请耐心等待...");
 
-    // Record whether save dir already exists before init (to avoid deleting existing data on failure)
+    // 记录存档目录是否已存在，避免失败时误删已有数据
     let save_dir = Path::new(&server_root).join("Servers").join(&save_name);
     let save_dir_lower = Path::new(&server_root)
         .join("Servers")
@@ -240,7 +236,7 @@ pub fn init_server_save(
             Err(e) => {
                 let ls = log_clone.lock().unwrap_or_else(|e| e.into_inner());
                 ls.log_app(&format!("[ERROR] 存档 \"{}\" 初始化失败: {}", save_name, e));
-                // Only clean up if save didn't exist before (partial new save)
+                // 仅清理新创建的部分数据（不删除已有存档）
                 if !existed_before {
                     let _ = fs::remove_dir_all(&save_dir);
                     let _ = fs::remove_dir_all(&save_dir_lower);
@@ -293,7 +289,6 @@ fn do_init_save(
         })
     });
 
-    // Read stdout line by line
     if let Some(stdout) = child.stdout.take() {
         let reader = BufReader::new(stdout);
         for line in reader.lines().map_while(Result::ok) {
@@ -303,7 +298,7 @@ fn do_init_save(
             }
 
             output_count += 1;
-            // Only emit every few lines to avoid flooding
+            // 每隔几行发送一次事件，避免事件洪泛
             if output_count % 5 == 0
                 || trimmed.contains("Loading level")
                 || trimmed.contains("Error")
@@ -316,10 +311,10 @@ fn do_init_save(
                 loaded = true;
                 emit(app, "[系统] 服务端加载完成，正在关闭...");
 
-                // Wait a moment for files to be written
+                // 等待文件写入完成
                 std::thread::sleep(Duration::from_secs(5));
 
-                // Force kill the server process (RCON not available on first run)
+                // 强制终止进程（首次运行时 RCON 不可用，无法优雅关闭）
                 let _ = child.kill();
                 let _ = child.wait();
                 emit(app, "[系统] 服务端已关闭");
@@ -341,13 +336,12 @@ fn do_init_save(
         return Err("服务端未能加载到 100%".to_string());
     }
 
-    // Verify save directory was created
     let save_dir = Path::new(server_root).join("Servers").join(save_name);
     if save_dir.exists() {
         emit(app, &format!("[系统] 存档 \"{}\" 初始化成功", save_name));
         Ok(())
     } else {
-        // Try lowercase (SteamCMD sometimes creates lowercase)
+        // 尝试小写路径（SteamCMD 有时会创建小写目录）
         let lower_dir = Path::new(server_root)
             .join("Servers")
             .join(save_name.to_lowercase());

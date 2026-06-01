@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
@@ -61,9 +62,9 @@ pub fn run_update_blocking(
 
     let mut child = cmd.spawn().map_err(|e| format!("启动 SteamCMD 失败: {}", e))?;
 
-    let mut output_lines = Vec::new();
+    let mut output_lines: VecDeque<String> = VecDeque::new();
 
-    // Drain stderr in a separate thread to prevent pipe deadlock
+    // 在独立线程中读取 stderr，防止管道死锁
     let stderr_handle = child.stderr.take().map(|stderr| {
         std::thread::spawn(move || {
             let mut lines = Vec::new();
@@ -75,16 +76,16 @@ pub fn run_update_blocking(
         })
     });
 
-    // Stream stdout lines in real-time via Tauri events
+    // 通过 Tauri 事件实时推送 stdout 输出
     if let Some(stdout) = child.stdout.take() {
         let app_clone = app.clone();
         let reader = BufReader::new(stdout);
         for line in reader.lines().map_while(Result::ok) {
             let _ = app_clone.emit("update-output", &line);
             if output_lines.len() >= UPDATE_OUTPUT_RETAIN_LINES {
-                output_lines.drain(0..100);
+                output_lines.pop_front();
             }
-            output_lines.push(line);
+            output_lines.push_back(line);
         }
     }
 
@@ -98,12 +99,12 @@ pub fn run_update_blocking(
     };
 
     let _ = app.emit("update-output", &result_msg);
-    output_lines.push(result_msg.clone());
+    output_lines.push_back(result_msg.clone());
 
     {
         let ls = log.lock().unwrap_or_else(|e| e.into_inner());
         ls.log_operation(&result_msg);
     }
 
-    Ok(output_lines)
+    Ok(output_lines.into())
 }

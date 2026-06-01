@@ -30,7 +30,6 @@ pub fn auto_detect_paths() -> DetectResult {
         server_id: None,
     };
 
-    // Detect SteamCMD
     let mut steam_candidates = vec![
         exe_dir.join("SteamCMD").join("steamcmd.exe"),
         exe_dir.join("steamcmd.exe"),
@@ -51,14 +50,12 @@ pub fn auto_detect_paths() -> DetectResult {
         }
     }
 
-    // Detect server
     if let Some(ref steam_path) = result.steam_cmd_path {
         let steam_dir = Path::new(steam_path).parent().unwrap_or(Path::new(""));
         let u3ds = steam_dir.join("steamapps").join("common").join("U3DS");
         if u3ds.join("Unturned.exe").exists() {
             result.server_root = Some(u3ds.to_string_lossy().to_string());
 
-            // Detect server ID
             let servers_dir = u3ds.join("Servers");
             if servers_dir.exists() {
                 if let Ok(entries) = std::fs::read_dir(&servers_dir) {
@@ -115,11 +112,9 @@ pub fn save_config(
     config: State<'_, Arc<Mutex<ConfigService>>>,
     servers: ServersConfig,
 ) -> Result<String, String> {
-    // Validate paths
     for server in &servers.servers {
-        if server.id.contains('/') || server.id.contains('\\') || server.id.contains("..") {
-            return Err("服务器 ID 包含非法字符".to_string());
-        }
+        crate::services::config_service::validate_id(&server.id)
+            .map_err(|_| "服务器 ID 包含非法字符".to_string())?;
         if contains_chinese(&server.steam_cmd_path) {
             return Err("SteamCMD 路径不能包含中文字符".to_string());
         }
@@ -131,7 +126,6 @@ pub fn save_config(
     let cfg = config.lock().unwrap_or_else(|e| e.into_inner());
     cfg.save_servers_config(&servers)?;
 
-    // Sync Rocket.config.xml
     if let Some(profile) = servers.servers.first() {
         let _ = ConfigService::update_rocket_config(
             &profile.server_root,
@@ -159,10 +153,8 @@ pub fn save_wizard_config(
     rcon_port: u16,
     rcon_password: String,
 ) -> Result<String, String> {
-    // Validate inputs
-    if server_id.contains('/') || server_id.contains('\\') || server_id.contains("..") {
-        return Err("服务器 ID 包含非法字符".to_string());
-    }
+    crate::services::config_service::validate_id(&server_id)
+        .map_err(|_| "服务器 ID 包含非法字符".to_string())?;
     if rcon_port == 0 {
         return Err("RCON 端口无效".to_string());
     }
@@ -195,7 +187,6 @@ pub fn save_wizard_config(
 
     cfg.save_servers_config(&servers_config)?;
 
-    // Update Rocket.config.xml
     let _ = ConfigService::update_rocket_config(&server_root, &server_id, rcon_port, &rcon_password);
 
     Ok("配置已保存".to_string())

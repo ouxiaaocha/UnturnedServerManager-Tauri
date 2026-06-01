@@ -4,6 +4,12 @@ use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
+/// RCON 响应缓冲区最大条目数，超过后裁剪旧数据
+const MAX_RESPONSE_ENTRIES: usize = 1000;
+/// 每次裁剪的条目数
+const RESPONSE_TRIM_BATCH: usize = 500;
+
+/// Rocket RCON TCP 客户端，支持连接、认证、命令发送和后台响应读取
 pub struct RconClient {
     stream: Option<TcpStream>,
     responses: Arc<Mutex<Vec<String>>>,
@@ -23,6 +29,7 @@ impl RconClient {
         self.stream.is_some() && self.reader_alive.load(Ordering::SeqCst)
     }
 
+    /// 连接到 Rocket RCON 服务器并认证，返回欢迎信息
     pub fn connect(&mut self, host: &str, port: u16, password: &str) -> Result<String, String> {
         self.disconnect();
 
@@ -49,12 +56,16 @@ impl RconClient {
         // 发送认证
         self.write_line(&format!("login {}", password))?;
 
-        // 等待足够时间让服务器响应认证结果
-        std::thread::sleep(Duration::from_secs(2));
-        if let Some(line) = self.try_read_line() {
-            if line.contains("Invalid") || line.contains("not logged in") || line.contains("incorrect") {
-                self.disconnect();
-                return Err("密码错误".to_string());
+        // 等待认证响应 (多次尝试读取，总等待最多 1 秒)
+        for _ in 0..10 {
+            std::thread::sleep(Duration::from_millis(100));
+            if let Some(line) = self.try_read_line() {
+                if line.contains("Invalid") || line.contains("not logged in") || line.contains("incorrect") {
+                    self.disconnect();
+                    return Err("密码错误".to_string());
+                }
+                // 收到任何其他响应表示认证成功
+                break;
             }
         }
 
@@ -95,8 +106,8 @@ impl RconClient {
                         match line {
                             Ok(l) => {
                                 let mut resp = responses.lock().unwrap_or_else(|e| e.into_inner());
-                                if resp.len() > 1000 {
-                                    resp.drain(0..500);
+                                if resp.len() > MAX_RESPONSE_ENTRIES {
+                                    resp.drain(0..RESPONSE_TRIM_BATCH);
                                 }
                                 resp.push(l);
                             }
@@ -145,6 +156,3 @@ impl RconClient {
         }
     }
 }
-
-// RconClient fields are all Send-safe (TcpStream + Arc<Mutex<Vec<String>>>)
-// Removed manual unsafe impl Send — compiler auto-derives it correctly.

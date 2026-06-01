@@ -1,7 +1,7 @@
 ﻿<script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import { highlightText, formatUptime } from "$lib/utils";
-  import { appState } from "$lib/stores.svelte";
+  import { appState, sharedSaves, loadSharedSaves, sharedSettings, loadSharedSettings } from "$lib/stores.svelte";
 
   let status = $state("已停止");
   let pid = $state("--");
@@ -24,30 +24,23 @@
   let pollTimer: ReturnType<typeof setTimeout> | undefined;
   let pollToken = 0;
 
-  let saves = $state<any[]>([]);
   let selectedSaveId = $state("");
-  let autoUpdateHosting = $state(false);
   let autoUpdateSaving = $state(false);
   let autoUpdateMessage = $state("");
 
   async function loadSaves() {
-    try {
-      saves = await invoke("list_server_saves");
-      if (saves.length > 0 && !selectedSaveId) {
-        selectedSaveId = saves[0].id;
-      }
-    } catch {}
+    await loadSharedSaves();
+    if (sharedSaves.length > 0 && !selectedSaveId) {
+      selectedSaveId = sharedSaves[0].id;
+    }
   }
 
   async function loadAppSettings() {
-    try {
-      const settings: any = await invoke("get_app_settings");
-      autoUpdateHosting = !!settings.autoUpdateHosting;
-    } catch {}
+    await loadSharedSettings();
   }
 
   async function toggleAutoUpdateHosting() {
-    const nextEnabled = !autoUpdateHosting;
+    const nextEnabled = !sharedSettings.autoUpdateHosting;
     autoUpdateSaving = true;
     autoUpdateMessage = "";
     try {
@@ -55,9 +48,9 @@
         enabled: nextEnabled,
         saveId: selectedSaveId || null,
       });
-      autoUpdateHosting = !!settings.autoUpdateHosting;
-      autoUpdateMessage = autoUpdateHosting ? "托管已开启" : "托管已关闭";
-      logs.push({ text: `[系统] 自动更新托管${autoUpdateHosting ? '已开启' : '已关闭'}`, level: "system" });
+      sharedSettings.autoUpdateHosting = !!settings.autoUpdateHosting;
+      autoUpdateMessage = sharedSettings.autoUpdateHosting ? "托管已开启" : "托管已关闭";
+      logs.push({ text: `[系统] 自动更新托管${sharedSettings.autoUpdateHosting ? '已开启' : '已关闭'}`, level: "system" });
     } catch (e: any) {
       autoUpdateMessage = `设置失败: ${e}`;
       logs.push({ text: `[错误] ${e}`, level: "error" });
@@ -286,7 +279,7 @@
           bind:value={selectedSaveId}
           class="bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-3 py-1.5 text-xs text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)] transition-colors cursor-pointer"
         >
-          {#each saves as save}
+          {#each sharedSaves as save}
             <option value={save.id}>{save.id}{save.name ? ` - ${save.name}` : ''}</option>
           {/each}
         </select>
@@ -305,13 +298,13 @@
           <button
             type="button"
             role="switch"
-            aria-checked={autoUpdateHosting}
-            class="relative h-6 w-11 rounded-full border transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed {autoUpdateHosting ? 'bg-[var(--success)] border-[var(--success)]' : 'bg-[var(--bg-elevated)] border-[var(--border)]'}"
+            aria-checked={sharedSettings.autoUpdateHosting}
+            class="relative h-6 w-11 rounded-full border transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed {sharedSettings.autoUpdateHosting ? 'bg-[var(--success)] border-[var(--success)]' : 'bg-[var(--bg-elevated)] border-[var(--border)]'}"
             onclick={toggleAutoUpdateHosting}
             disabled={autoUpdateSaving}
             title="自动更新托管"
           >
-            <span class="absolute top-0.5 h-[18px] w-[18px] rounded-full bg-white transition-all {autoUpdateHosting ? 'left-[21px]' : 'left-0.5'}"></span>
+            <span class="absolute top-0.5 h-[18px] w-[18px] rounded-full bg-white transition-all {sharedSettings.autoUpdateHosting ? 'left-[21px]' : 'left-0.5'}"></span>
           </button>
         </div>
         {#if autoUpdateMessage}

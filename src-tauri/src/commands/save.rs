@@ -39,21 +39,8 @@ pub struct PluginInfo {
 }
 
 fn validate_save_id(id: &str) -> Result<(), String> {
-    if id.contains('/')
-        || id.contains('\\')
-        || id.contains("..")
-        || id.contains(':')
-        || id.contains('*')
-        || id.contains('?')
-        || id.contains('"')
-        || id.contains('<')
-        || id.contains('>')
-        || id.contains('|')
-        || id.is_empty()
-    {
-        return Err("存档 ID 包含非法字符".to_string());
-    }
-    Ok(())
+    crate::services::config_service::validate_id(id)
+        .map_err(|_| "存档 ID 包含非法字符".to_string())
 }
 
 fn resolve_save_dir(
@@ -382,7 +369,6 @@ pub fn save_commands_dat(
         format!("保存 Commands.dat 失败: {}", e)
     })?;
 
-    // Sync Rocket.config.xml with RCON settings
     let _ =
         ConfigService::update_rocket_config(&server_root, &server_id, rcon_port, &rcon_password);
 

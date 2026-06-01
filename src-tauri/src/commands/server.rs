@@ -10,9 +10,9 @@ use crate::services::log_service::LogService;
 use crate::services::process::ProcessManager;
 use crate::services::rcon_client::RconClient;
 
-/// Holds the currently active RCON settings for this session.
-/// When starting with a non-default save, the RCON settings from that save
-/// are stored here so rcon_connect uses them, without overwriting servers.json.
+/// 当前会话的 RCON 连接设置。
+/// 启动非默认存档时，会将该存档的 RCON 配置暂存于此，
+/// 供 rcon_connect 使用，而不会覆盖 servers.json。
 pub struct ActiveRcon {
     pub host: String,
     pub port: u16,
@@ -38,6 +38,7 @@ impl ActiveRcon {
     }
 }
 
+/// 自动更新托管的运行时状态
 #[derive(Default)]
 pub struct AutoUpdateState {
     enabled_running_seen: bool,
@@ -193,23 +194,11 @@ pub fn start_server_inner(
         (profile, server_id)
     };
 
-    // Override save_id and launch mode if provided
     let actual_id = save_id.unwrap_or_else(|| server_id.clone());
 
-    // Validate save_id for path safety
-    if actual_id.contains('/')
-        || actual_id.contains('\\')
-        || actual_id.contains("..")
-        || actual_id.contains(':')
-        || actual_id.contains('*')
-        || actual_id.contains('?')
-        || actual_id.contains('"')
-        || actual_id.contains('<')
-        || actual_id.contains('>')
-        || actual_id.contains('|')
-    {
-        return Err("存档 ID 包含非法字符".to_string());
-    }
+    // 路径安全验证
+    crate::services::config_service::validate_id(&actual_id)
+        .map_err(|_| "存档 ID 包含非法字符".to_string())?;
 
     let mode = launch_mode.unwrap_or_else(|| "internet".to_string());
     let entry_prefix = if mode == "lan" {
@@ -219,9 +208,8 @@ pub fn start_server_inner(
     };
     profile.server_entry = format!("{}/{}", entry_prefix, actual_id);
 
-    // Always prefer the selected save's Rocket.config.xml for the active RCON
-    // session. The default profile in servers.json can lag behind per-save
-    // Rocket settings, especially after editing RCON from the save page.
+    // 优先使用所选存档的 Rocket.config.xml 作为当前会话的 RCON 配置，
+    // 因为 servers.json 中的默认配置可能滞后于存档级别的 RCON 设置。
     let rocket_config_path = Path::new(&profile.server_root)
         .join("Servers")
         .join(&actual_id)
@@ -239,7 +227,7 @@ pub fn start_server_inner(
         }
     }
 
-    // Update session RCON settings (does not modify servers.json)
+    // 更新会话级 RCON 设置（不修改 servers.json）
     {
         let mut ar = active_rcon.lock().unwrap_or_else(|e| e.into_inner());
         ar.host = profile.rcon.host.clone();
@@ -290,13 +278,12 @@ pub async fn stop_server(
         state.mark_expected_stop();
     }
 
-    // Log the operation (lock acquired and released immediately)
     {
         let ls = log.lock().unwrap_or_else(|e| e.into_inner());
         ls.log_operation("停止服务器");
     }
 
-    // Try RCON graceful shutdown
+    // 尝试通过 RCON 优雅关闭
     let should_send_shutdown = {
         let mut rcon_client = rcon.lock().unwrap_or_else(|e| e.into_inner());
         if !rcon_client.is_connected() {
@@ -310,7 +297,7 @@ pub async fn stop_server(
         } else {
             false
         }
-    }; // rcon lock released here
+    }; // rcon 锁在此释放
 
     if should_send_shutdown {
         tokio::time::sleep(std::time::Duration::from_millis(800)).await;
@@ -319,7 +306,7 @@ pub async fn stop_server(
         rcon_client.disconnect();
     }
 
-    // Wait for process to exit (lock NOT held across await)
+    // 等待进程退出（await 期间不持有锁）
     for _ in 0..30 {
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
         let is_running = {
@@ -331,7 +318,7 @@ pub async fn stop_server(
         }
     }
 
-    // Timeout: force stop
+    // 超时：强制停止
     {
         let ls = log.lock().unwrap_or_else(|e| e.into_inner());
         ls.log_operation("[Warning] 服务器未响应，执行强制停止");
@@ -520,13 +507,12 @@ pub async fn restart_server(
         state.mark_expected_stop();
     }
 
-    // Log the operation
     {
         let ls = log.lock().unwrap_or_else(|e| e.into_inner());
         ls.log_operation("重启服务器");
     }
 
-    // Try RCON graceful shutdown using active session RCON
+    // 通过当前会话的 RCON 优雅关闭
     let should_send_shutdown = {
         let mut rcon_client = rcon.lock().unwrap_or_else(|e| e.into_inner());
         if !rcon_client.is_connected() {
@@ -549,7 +535,7 @@ pub async fn restart_server(
         rcon_client.disconnect();
     }
 
-    // Wait for process to exit
+    // 等待进程退出
     for _ in 0..30 {
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
         let is_running = {
@@ -561,7 +547,7 @@ pub async fn restart_server(
         }
     }
 
-    // Force stop if still running
+    // 仍在运行则强制停止
     {
         let mut pm = process.lock().unwrap_or_else(|e| e.into_inner());
         if pm.is_running() {
@@ -571,7 +557,7 @@ pub async fn restart_server(
 
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
-    // Reuse start_server logic with the same save_id/launch_mode
+    // 复用 start_server_inner 重新启动
     start_server_inner(
         app,
         process.inner(),

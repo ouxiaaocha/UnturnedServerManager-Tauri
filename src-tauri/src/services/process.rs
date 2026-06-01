@@ -14,9 +14,13 @@ use crate::models::config::ServerProfile;
 use crate::models::state::ServerState;
 use crate::services::log_service::LogService;
 
+/// 输出缓冲区最大保留行数，超过后按批次裁剪
 const OUTPUT_RETAIN_LINES: usize = 1000;
+/// 每次裁剪的行数
 const OUTPUT_TRIM_BATCH: usize = 100;
+/// 定期维护时保留的行数（更激进的压缩）
 const MAINTENANCE_RETAIN_LINES: usize = 500;
+/// 定期维护间隔（6 小时），用于压缩输出缓冲区内存占用
 const MAINTENANCE_INTERVAL_SECS: u64 = 6 * 60 * 60;
 
 struct OutputBuffer {
@@ -89,6 +93,7 @@ fn push_output_line(output_buffer: &Arc<Mutex<OutputBuffer>>, line: String) {
     buffer.push(line);
 }
 
+/// 管理 Unturned 服务端进程的生命周期、输出缓冲和游戏日志
 pub struct ProcessManager {
     child: Option<Child>,
     state: ServerState,
@@ -274,7 +279,10 @@ struct GameLogWriter {
     game_log_dir: PathBuf,
     current_date: String,
     file: Option<File>,
+    lines_since_flush: u32,
 }
+
+const FLUSH_INTERVAL: u32 = 20;
 
 impl GameLogWriter {
     fn new(game_log_dir: PathBuf) -> Self {
@@ -282,6 +290,7 @@ impl GameLogWriter {
             game_log_dir,
             current_date: String::new(),
             file: None,
+            lines_since_flush: 0,
         }
     }
 
@@ -291,6 +300,10 @@ impl GameLogWriter {
         let time = now.format("%H:%M:%S").to_string();
 
         if self.file.is_none() || self.current_date != date {
+            // 切换日期前先 flush 旧文件
+            if let Some(file) = self.file.as_mut() {
+                let _ = file.flush();
+            }
             let file_path = self.game_log_dir.join(format!("{}.log", date));
             self.file = Some(
                 OpenOptions::new()
@@ -299,13 +312,26 @@ impl GameLogWriter {
                     .open(file_path)?,
             );
             self.current_date = date;
+            self.lines_since_flush = 0;
         }
 
         if let Some(file) = self.file.as_mut() {
             writeln!(file, "[{}] {}", time, line)?;
-            file.flush()?;
+            self.lines_since_flush += 1;
+            if self.lines_since_flush >= FLUSH_INTERVAL {
+                file.flush()?;
+                self.lines_since_flush = 0;
+            }
         }
         Ok(())
+    }
+}
+
+impl Drop for GameLogWriter {
+    fn drop(&mut self) {
+        if let Some(file) = self.file.as_mut() {
+            let _ = file.flush();
+        }
     }
 }
 

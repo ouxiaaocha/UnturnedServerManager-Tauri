@@ -1,16 +1,14 @@
 ﻿<script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import { formatBytes, formatUptime } from "$lib/utils";
-  import { appState } from "$lib/stores.svelte";
+  import { appState, sharedSaves, loadSharedSaves, sharedSettings, loadSharedSettings } from "$lib/stores.svelte";
 
   let status = $state("已停止");
   let uptime = $state("--");
   let pid = $state("--");
   let loading = $state("");
 
-  let saves = $state<any[]>([]);
   let selectedSaveId = $state("");
-  let autoUpdateHosting = $state(false);
   let autoUpdateSaving = $state(false);
   let autoUpdateMessage = $state("");
 
@@ -46,23 +44,18 @@
   }
 
   async function loadSaves() {
-    try {
-      saves = await invoke("list_server_saves");
-      if (saves.length > 0 && !selectedSaveId) {
-        selectedSaveId = saves[0].id;
-      }
-    } catch {}
+    await loadSharedSaves();
+    if (sharedSaves.length > 0 && !selectedSaveId) {
+      selectedSaveId = sharedSaves[0].id;
+    }
   }
 
   async function loadAppSettings() {
-    try {
-      const settings: any = await invoke("get_app_settings");
-      autoUpdateHosting = !!settings.autoUpdateHosting;
-    } catch {}
+    await loadSharedSettings();
   }
 
   async function toggleAutoUpdateHosting() {
-    const nextEnabled = !autoUpdateHosting;
+    const nextEnabled = !sharedSettings.autoUpdateHosting;
     autoUpdateSaving = true;
     autoUpdateMessage = "";
     try {
@@ -70,8 +63,8 @@
         enabled: nextEnabled,
         saveId: selectedSaveId || null,
       });
-      autoUpdateHosting = !!settings.autoUpdateHosting;
-      autoUpdateMessage = autoUpdateHosting ? "托管已开启" : "托管已关闭";
+      sharedSettings.autoUpdateHosting = !!settings.autoUpdateHosting;
+      autoUpdateMessage = sharedSettings.autoUpdateHosting ? "托管已开启" : "托管已关闭";
     } catch (e: any) {
       autoUpdateMessage = `设置失败: ${e}`;
     }
@@ -169,9 +162,9 @@
   }
 
   function nextPollDelay() {
-    if (document.hidden) return 10000;
-    if (loading || status === "运行中") return 2000;
-    return 5000;
+    if (document.hidden) return 10000;  // 页面不可见时降低频率
+    if (loading || status === "运行中") return 2000;  // 服务器运行中时高频轮询
+    return 5000;  // 空闲时低频轮询
   }
 
   async function pollLoop(token = pollToken) {
@@ -217,7 +210,6 @@
     </div>
   </div>
 
-  <!-- Server Status Cards -->
   <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3 md:gap-5 mb-8">
     <div class="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-5 hover:border-[var(--accent)] transition-all duration-[var(--transition-normal)] group">
       <div class="flex items-center gap-3 mb-4">
@@ -258,7 +250,6 @@
     </div>
   </div>
 
-  <!-- System Monitoring Cards -->
   <div class="mb-8">
     <h2 class="text-base font-semibold text-[var(--text-primary)] mb-5 flex items-center gap-2">
       <svg class="w-5 h-5 text-[var(--accent-light)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -267,7 +258,6 @@
       系统监控
     </h2>
     <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3 md:gap-5">
-      <!-- CPU -->
       <div class="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-5 hover:border-[var(--accent)] transition-all duration-[var(--transition-normal)]">
         <div class="flex items-center gap-3 mb-4">
           <div class="w-10 h-10 rounded-lg bg-[var(--accent-subtle)] flex items-center justify-center">
@@ -283,7 +273,6 @@
         </div>
       </div>
 
-      <!-- Memory -->
       <div class="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-5 hover:border-[var(--action)] transition-all duration-[var(--transition-normal)]">
         <div class="flex items-center gap-3 mb-4">
           <div class="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center">
@@ -300,7 +289,6 @@
         </div>
       </div>
 
-      <!-- Network -->
       <div class="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-5 hover:border-[var(--accent)] transition-all duration-[var(--transition-normal)]">
         <div class="flex items-center gap-3 mb-4">
           <div class="w-10 h-10 rounded-lg bg-[var(--success-glow)] flex items-center justify-center">
@@ -332,7 +320,6 @@
     </div>
   </div>
 
-  <!-- Quick Actions -->
   <div class="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-6">
     <h2 class="text-base font-semibold text-[var(--text-primary)] mb-5 flex items-center gap-2">
       <svg class="w-5 h-5 text-[var(--accent-light)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -341,7 +328,6 @@
       快捷操作
     </h2>
 
-    <!-- Save & Mode Selection -->
     <div class="flex flex-col gap-4 mb-5 pb-5 border-b border-[var(--border)] lg:flex-row lg:items-center">
       <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
         <span class="text-xs text-[var(--text-muted)]">存档:</span>
@@ -349,7 +335,7 @@
           bind:value={selectedSaveId}
           class="bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-3 py-1.5 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)] transition-colors cursor-pointer"
         >
-          {#each saves as save}
+          {#each sharedSaves as save}
             <option value={save.id}>{save.id}{save.name ? ` - ${save.name}` : ''}</option>
           {/each}
         </select>
@@ -372,13 +358,13 @@
         <button
           type="button"
           role="switch"
-          aria-checked={autoUpdateHosting}
-          class="relative h-7 w-12 rounded-full border transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed {autoUpdateHosting ? 'bg-[var(--success)] border-[var(--success)]' : 'bg-[var(--bg-primary)] border-[var(--border)]'}"
+          aria-checked={sharedSettings.autoUpdateHosting}
+          class="relative h-7 w-12 rounded-full border transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed {sharedSettings.autoUpdateHosting ? 'bg-[var(--success)] border-[var(--success)]' : 'bg-[var(--bg-primary)] border-[var(--border)]'}"
           onclick={toggleAutoUpdateHosting}
           disabled={autoUpdateSaving}
           title="自动更新托管"
         >
-          <span class="absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all {autoUpdateHosting ? 'left-6' : 'left-0.5'}"></span>
+          <span class="absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all {sharedSettings.autoUpdateHosting ? 'left-6' : 'left-0.5'}"></span>
         </button>
         {#if autoUpdateMessage}
           <span class="text-xs {autoUpdateMessage.includes('失败') ? 'text-[var(--danger)]' : 'text-[var(--success)]'}">{autoUpdateMessage}</span>

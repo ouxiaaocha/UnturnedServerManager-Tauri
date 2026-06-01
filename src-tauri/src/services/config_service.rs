@@ -1,6 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 
 use aes_gcm::{
     aead::rand_core::RngCore,
@@ -21,16 +21,38 @@ pub(crate) fn atomic_write(path: &std::path::Path, content: &str) -> Result<(), 
     Ok(())
 }
 
-fn machine_key() -> Vec<u8> {
-    let mut hasher = Sha256::new();
-    hasher.update(b"UnturnedSM-");
-    if let Ok(hostname) = std::env::var("COMPUTERNAME") {
-        hasher.update(hostname.as_bytes());
+/// Validate that a save/server ID does not contain path-traversal or illegal characters.
+pub(crate) fn validate_id(id: &str) -> Result<(), String> {
+    if id.is_empty()
+        || id.contains('/')
+        || id.contains('\\')
+        || id.contains("..")
+        || id.contains(':')
+        || id.contains('*')
+        || id.contains('?')
+        || id.contains('"')
+        || id.contains('<')
+        || id.contains('>')
+        || id.contains('|')
+    {
+        return Err("ID 包含非法字符".to_string());
     }
-    if let Ok(username) = std::env::var("USERNAME") {
-        hasher.update(username.as_bytes());
-    }
-    hasher.finalize().to_vec()
+    Ok(())
+}
+
+fn machine_key() -> &'static [u8] {
+    static KEY: OnceLock<Vec<u8>> = OnceLock::new();
+    KEY.get_or_init(|| {
+        let mut hasher = Sha256::new();
+        hasher.update(b"UnturnedSM-");
+        if let Ok(hostname) = std::env::var("COMPUTERNAME") {
+            hasher.update(hostname.as_bytes());
+        }
+        if let Ok(username) = std::env::var("USERNAME") {
+            hasher.update(username.as_bytes());
+        }
+        hasher.finalize().to_vec()
+    })
 }
 
 fn encode_password(plain: &str) -> String {
@@ -93,6 +115,7 @@ fn decode_password(stored: &str) -> String {
     stored.to_string()
 }
 
+/// 配置文件管理服务，支持内存缓存、AES-256-GCM 密码加密和原子写入
 pub struct ConfigService {
     base_dir: PathBuf,
     servers_cache: Mutex<Option<ServersConfig>>,
@@ -240,10 +263,7 @@ impl ConfigService {
         port: u16,
         password: &str,
     ) -> Result<(), String> {
-        // Validate server_id does not contain path separators
-        if server_id.contains('/') || server_id.contains('\\') || server_id.contains("..") {
-            return Err("服务器 ID 包含非法字符".to_string());
-        }
+        validate_id(server_id)?;
 
         let path = Path::new(server_root)
             .join("Servers")
@@ -307,19 +327,7 @@ impl ConfigService {
         server_id: &str,
         enabled: bool,
     ) -> Result<(), String> {
-        if server_id.contains('/')
-            || server_id.contains('\\')
-            || server_id.contains("..")
-            || server_id.contains(':')
-            || server_id.contains('*')
-            || server_id.contains('?')
-            || server_id.contains('"')
-            || server_id.contains('<')
-            || server_id.contains('>')
-            || server_id.contains('|')
-        {
-            return Err("服务器 ID 包含非法字符".to_string());
-        }
+        validate_id(server_id)?;
 
         let path = Path::new(server_root)
             .join("Servers")

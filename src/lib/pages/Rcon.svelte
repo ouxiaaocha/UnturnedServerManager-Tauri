@@ -78,9 +78,9 @@
   }
 
   function scrollToBottom() {
-    setTimeout(() => {
+    requestAnimationFrame(() => {
       if (logContainer) logContainer.scrollTop = logContainer.scrollHeight;
-    }, 50);
+    });
   }
 
   function handleKeydown(e: KeyboardEvent) {
@@ -112,7 +112,7 @@
     schedulePoll();
     scheduleStatusCheck();
 
-    // Auto-connect when a server starts
+    // 服务器启动后自动连接 RCON
     const unlisten = listen("server-started", () => {
       addRconLog("检测到服务器启动，5 秒后自动连接 RCON...", "system");
       scrollToBottom();
