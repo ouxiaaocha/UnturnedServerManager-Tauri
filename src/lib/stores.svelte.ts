@@ -48,3 +48,14 @@ export async function loadSharedSettings() {
     sharedSettings.loaded = true;
   } catch {}
 }
+
+// 服务器运行时信息（Dashboard 使用）
+export const serverInfo = $state({
+  serverCode: "",
+  publicIp: "",
+  port: 0,
+  ipLoading: false,
+  portLoading: false,
+  runningSaveId: "",
+  codeParsed: false,
+});

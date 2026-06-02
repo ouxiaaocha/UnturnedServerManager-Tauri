@@ -284,7 +284,7 @@ pub async fn stop_server(
     }
 
     // 尝试通过 RCON 优雅关闭
-    let should_send_shutdown = {
+    let shutdown_sent = {
         let mut rcon_client = rcon.lock().unwrap_or_else(|e| e.into_inner());
         if !rcon_client.is_connected() {
             let ar = active_rcon.lock().unwrap_or_else(|e| e.into_inner());
@@ -299,16 +299,17 @@ pub async fn stop_server(
         }
     }; // rcon 锁在此释放
 
-    if should_send_shutdown {
-        tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+    if shutdown_sent {
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         let mut rcon_client = rcon.lock().unwrap_or_else(|e| e.into_inner());
         let _ = rcon_client.send_command("shutdown");
         rcon_client.disconnect();
     }
 
-    // 等待进程退出（await 期间不持有锁）
-    for _ in 0..30 {
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    // 渐进式轮询等待进程退出：前期高频、后期低频，总超时约 10s
+    for i in 0..44 {
+        let ms = if i < 20 { 100 } else if i < 30 { 200 } else { 500 };
+        tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
         let is_running = {
             let mut pm = process.lock().unwrap_or_else(|e| e.into_inner());
             pm.is_running()
@@ -447,6 +448,49 @@ pub fn start_auto_update_monitor(
     });
 }
 
+/// 获取当前电脑的公网 IP 地址（5 秒超时）
+#[tauri::command]
+pub fn get_public_ip() -> Result<String, String> {
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .map_err(|e| format!("创建HTTP客户端失败: {}", e))?;
+    let resp = client
+        .get("https://api.ipify.org?format=json")
+        .send()
+        .map_err(|e| format!("获取公网IP失败: {}", e))?;
+    let body = resp
+        .text()
+        .map_err(|e| format!("读取IP响应失败: {}", e))?;
+    let json: serde_json::Value =
+        serde_json::from_str(&body).map_err(|e| format!("解析IP响应失败: {}", e))?;
+    json["ip"]
+        .as_str()
+        .map(|s| s.to_string())
+        .ok_or("响应中未找到IP字段".to_string())
+}
+
+/// 从存档的 Commands.dat 中读取游戏端口
+#[tauri::command]
+pub fn get_server_port(
+    config: State<'_, Arc<Mutex<ConfigService>>>,
+    save_id: Option<String>,
+) -> Result<u16, String> {
+    let cfg = config.lock().unwrap_or_else(|e| e.into_inner());
+    let servers = cfg.load_servers_config();
+    let profile = servers.servers.first().ok_or("没有配置服务器")?;
+    let actual_id = save_id.unwrap_or_else(|| profile.id.clone());
+
+    crate::services::config_service::validate_id(&actual_id)
+        .map_err(|_| "存档 ID 包含非法字符".to_string())?;
+
+    let path = crate::commands::save::detect_commands_dat_path(&profile.server_root, &actual_id);
+    let content = std::fs::read_to_string(&path)
+        .map_err(|e| format!("读取 Commands.dat 失败: {}", e))?;
+    let info = crate::commands::save::parse_commands_dat(&content);
+    Ok(info.port.unwrap_or(27015))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -529,15 +573,16 @@ pub async fn restart_server(
     };
 
     if should_send_shutdown {
-        tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         let mut rcon_client = rcon.lock().unwrap_or_else(|e| e.into_inner());
         let _ = rcon_client.send_command("shutdown");
         rcon_client.disconnect();
     }
 
-    // 等待进程退出
-    for _ in 0..30 {
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    // 渐进式轮询等待进程退出（与 stop_server 相同策略）
+    for i in 0..44 {
+        let ms = if i < 20 { 100 } else if i < 30 { 200 } else { 500 };
+        tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
         let is_running = {
             let mut pm = process.lock().unwrap_or_else(|e| e.into_inner());
             pm.is_running()
@@ -555,7 +600,7 @@ pub async fn restart_server(
         }
     }
 
-    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
     // 复用 start_server_inner 重新启动
     start_server_inner(

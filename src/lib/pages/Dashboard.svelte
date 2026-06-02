@@ -1,7 +1,7 @@
 ﻿<script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import { formatBytes, formatUptime } from "$lib/utils";
-  import { appState, sharedSaves, loadSharedSaves, sharedSettings, loadSharedSettings } from "$lib/stores.svelte";
+  import { appState, sharedSaves, loadSharedSaves, sharedSettings, loadSharedSettings, serverInfo } from "$lib/stores.svelte";
 
   let status = $state("已停止");
   let uptime = $state("--");
@@ -20,6 +20,17 @@
   let netUpRate = $state(0);
   let totalDown = $state(0);
   let totalUp = $state(0);
+
+  let copyMessage = $state("");
+  let copyTimeout: ReturnType<typeof setTimeout> | undefined;
+
+  // 缓存：避免每次渲染都遍历存档列表
+  let cachedSaveName = "";
+  let cachedSaveId = "";
+
+  // 限制 snapshot 获取次数，避免启动阶段每 2s 全量拉取
+  let snapshotRetries = 0;
+  const MAX_SNAPSHOT_RETRIES = 5;
 
   // Non-reactive variables for internal state tracking
   let prevNetDown = 0;
@@ -71,12 +82,100 @@
     autoUpdateSaving = false;
   }
 
+  async function fetchPublicIp() {
+    if (serverInfo.publicIp || serverInfo.ipLoading) return;
+    serverInfo.ipLoading = true;
+    try {
+      serverInfo.publicIp = await invoke("get_public_ip");
+    } catch {
+      serverInfo.publicIp = "获取失败";
+    }
+    serverInfo.ipLoading = false;
+  }
+
+  async function fetchServerPort() {
+    if (serverInfo.port || serverInfo.portLoading) return;
+    serverInfo.portLoading = true;
+    try {
+      serverInfo.port = await invoke("get_server_port", { saveId: serverInfo.runningSaveId || null });
+    } catch {
+      serverInfo.port = 27015;
+    }
+    serverInfo.portLoading = false;
+  }
+
+  function parseServerCode(lines: string[]) {
+    for (const line of lines) {
+      const match = line.match(/Server Code:\s*(\d+)/);
+      if (match) {
+        serverInfo.serverCode = match[1];
+        serverInfo.codeParsed = true;
+        break;
+      }
+    }
+  }
+
+  function getRunningSaveName(): string {
+    if (!serverInfo.runningSaveId) {
+      cachedSaveName = "";
+      cachedSaveId = "";
+      return "";
+    }
+    // 仅在 ID 变化时重新查找
+    if (serverInfo.runningSaveId !== cachedSaveId) {
+      cachedSaveId = serverInfo.runningSaveId;
+      const save = sharedSaves.find((s: any) => s.id === serverInfo.runningSaveId);
+      cachedSaveName = save
+        ? (save.name ? `${save.id} - ${save.name}` : save.id)
+        : serverInfo.runningSaveId;
+    }
+    return cachedSaveName;
+  }
+
+  async function copyToClipboard(text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      copyMessage = "✓ 已复制到剪贴板";
+    } catch {
+      copyMessage = "复制失败";
+    }
+    if (copyTimeout) clearTimeout(copyTimeout);
+    copyTimeout = setTimeout(() => { copyMessage = ""; }, 2000);
+  }
+
   async function refreshStatus() {
     try {
       const s: any = await invoke("get_server_status");
       status = s.state;
       pid = s.pid ? String(s.pid) : "--";
       uptime = formatUptime(s.uptime_secs);
+
+      if (s.state === "运行中") {
+        // 记录当前运行的存档 ID
+        if (!serverInfo.runningSaveId) {
+          serverInfo.runningSaveId = selectedSaveId;
+        }
+        fetchPublicIp();
+        fetchServerPort();
+        // 仅在尚未解析到联机码且未超过重试次数时获取输出
+        if (!serverInfo.codeParsed && snapshotRetries < MAX_SNAPSHOT_RETRIES) {
+          snapshotRetries++;
+          try {
+            const snap: any = await invoke("get_server_snapshot", { fromIndex: 0 });
+            if (snap.output && snap.output.length > 0) {
+              parseServerCode(snap.output);
+            }
+          } catch {}
+        }
+      } else if (status !== "启动中") {
+        // 服务器完全停止后清除信息
+        serverInfo.serverCode = "";
+        serverInfo.publicIp = "";
+        serverInfo.port = 0;
+        serverInfo.runningSaveId = "";
+        serverInfo.codeParsed = false;
+        snapshotRetries = 0;
+      }
     } catch {}
   }
 
@@ -119,6 +218,10 @@
         saveId: selectedSaveId || null,
         launchMode: appState.launchMode,
       });
+      // 记录本次启动的存档 ID
+      serverInfo.runningSaveId = selectedSaveId;
+      serverInfo.codeParsed = false;
+      snapshotRetries = 0;
     } catch (e: any) {
       alert(e);
     }
@@ -155,7 +258,12 @@
     if (polling) return;
     polling = true;
     try {
-      await Promise.all([refreshStatus(), refreshSystemStats()]);
+      // 服务器运行中时同时刷新状态和系统监控，否则只刷新状态
+      if (loading || status === "运行中") {
+        await Promise.all([refreshStatus(), refreshSystemStats()]);
+      } else {
+        await refreshStatus();
+      }
     } finally {
       polling = false;
     }
@@ -249,6 +357,102 @@
       <p class="text-2xl font-bold text-[var(--text-primary)] font-mono">{pid}</p>
     </div>
   </div>
+
+  {#if status === '运行中'}
+  <div class="mb-8">
+    <h2 class="text-base font-semibold text-[var(--text-primary)] mb-5 flex items-center gap-2">
+      <svg class="w-5 h-5 text-[var(--accent-light)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+      服务器信息
+    </h2>
+    <div class="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-6">
+      <!-- 当前存档 -->
+      <div class="flex items-center gap-3 mb-5 pb-5 border-b border-[var(--border)]">
+        <div class="w-10 h-10 rounded-lg bg-[var(--accent-subtle)] flex items-center justify-center">
+          <svg class="w-5 h-5 text-[var(--accent-light)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+          </svg>
+        </div>
+        <div class="flex-1 min-w-0">
+          <p class="text-xs text-[var(--text-muted)] mb-1">当前运行存档</p>
+          <p class="text-lg font-bold text-[var(--text-primary)] truncate">{getRunningSaveName() || '--'}</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <div class="w-10 h-10 rounded-lg flex items-center justify-center {appState.launchMode === 'internet' ? 'bg-[var(--accent-subtle)]' : 'bg-[var(--success-glow)]'}">
+            {#if appState.launchMode === 'internet'}
+              <svg class="w-5 h-5 text-[var(--accent-light)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
+              </svg>
+            {:else}
+              <svg class="w-5 h-5 text-[var(--success)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.858 15.355-5.858 21.213 0" />
+              </svg>
+            {/if}
+          </div>
+          <div>
+            <p class="text-xs text-[var(--text-muted)] mb-1">启动方式</p>
+            <p class="text-sm font-bold {appState.launchMode === 'internet' ? 'text-[var(--accent-light)]' : 'text-[var(--success)]'}">
+              {appState.launchMode === 'internet' ? '互联网' : '局域网'}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 公网IP + 端口 -->
+      <div class="mb-5 pb-5 border-b border-[var(--border)]">
+        <div class="flex items-center justify-between">
+          <div>
+            <p class="text-xs text-[var(--text-muted)] mb-1">连接地址</p>
+            <p class="text-lg font-mono font-bold text-[var(--text-primary)]">
+              {serverInfo.ipLoading ? '获取中...' : (serverInfo.publicIp || '--')}
+              {#if serverInfo.port}<span class="text-[var(--text-muted)]">:{serverInfo.port}</span>{/if}
+            </p>
+          </div>
+          <button
+            onclick={() => copyToClipboard(`${serverInfo.publicIp}:${serverInfo.port}`)}
+            disabled={!serverInfo.publicIp || serverInfo.ipLoading}
+            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg hover:border-[var(--accent)] hover:text-[var(--accent-light)] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+            </svg>
+            复制
+          </button>
+        </div>
+        <p class="text-xs text-[var(--text-muted)] mt-2">
+          拥有公网 IP 的玩家可直接通过 IP:端口连接；若无公网 IP，需使用组网工具（如 ZeroTier、Radmin VPN）方可联机。
+        </p>
+      </div>
+
+      <!-- 联机码 -->
+      <div class="mt-5 pt-5 border-t border-[var(--border)]">
+        <div class="flex items-center justify-between">
+          <div class="flex-1 min-w-0">
+            <p class="text-xs text-[var(--text-muted)] mb-1">联机码 (Server Code)</p>
+            <p class="text-lg font-mono font-bold text-[var(--text-primary)] truncate">
+              {serverInfo.serverCode || '等待服务器输出...'}
+            </p>
+          </div>
+          <button
+            onclick={() => copyToClipboard(serverInfo.serverCode)}
+            disabled={!serverInfo.serverCode}
+            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg hover:border-[var(--accent)] hover:text-[var(--accent-light)] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ml-4"
+          >
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+            </svg>
+            复制
+          </button>
+        </div>
+      </div>
+
+      {#if copyMessage}
+        <div class="mt-4 text-center text-sm text-[var(--success)] animate-pulse font-medium">{copyMessage}</div>
+      {/if}
+    </div>
+  </div>
+  {/if}
 
   <div class="mb-8">
     <h2 class="text-base font-semibold text-[var(--text-primary)] mb-5 flex items-center gap-2">

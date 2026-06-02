@@ -81,6 +81,8 @@ pub fn run() {
             commands::server::get_server_status,
             commands::server::get_server_output,
             commands::server::get_server_snapshot,
+            commands::server::get_public_ip,
+            commands::server::get_server_port,
             commands::server::start_server,
             commands::server::stop_server,
             commands::server::force_stop_server,

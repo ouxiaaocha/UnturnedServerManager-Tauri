@@ -54,7 +54,7 @@ fn resolve_save_dir(
     Ok((profile.server_root.clone(), server_id))
 }
 
-fn parse_commands_dat(content: &str) -> CommandsDatInfo {
+pub(crate) fn parse_commands_dat(content: &str) -> CommandsDatInfo {
     let mut info = CommandsDatInfo {
         name: None,
         map: None,
@@ -191,7 +191,7 @@ fn commands_dat_legacy_path(server_root: &str, server_id: &str) -> PathBuf {
         .join("Commands.dat")
 }
 
-fn detect_commands_dat_path(server_root: &str, server_id: &str) -> PathBuf {
+pub(crate) fn detect_commands_dat_path(server_root: &str, server_id: &str) -> PathBuf {
     let primary = commands_dat_primary_path(server_root, server_id);
     if primary.exists() {
         return primary;
