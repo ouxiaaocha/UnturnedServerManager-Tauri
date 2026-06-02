@@ -1,4 +1,6 @@
 ﻿<script lang="ts">
+  declare const __APP_VERSION__: string;
+
   import { invoke } from "@tauri-apps/api/core";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { onMount } from "svelte";
@@ -223,7 +225,7 @@
             <div class="ml-auto h-1.5 w-1.5 rounded-full bg-[var(--accent)]"></div>
           {/if}
         </button>
-        <p class="hidden text-[10px] text-[var(--text-muted)] px-3 mt-2 md:block">v2.0.0</p>
+        <p class="hidden text-[10px] text-[var(--text-muted)] px-3 mt-2 md:block">v{__APP_VERSION__}</p>
       </div>
     </nav>
 

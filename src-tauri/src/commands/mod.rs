@@ -8,3 +8,4 @@ pub mod system;
 pub mod save;
 pub mod installer;
 pub mod setup;
+pub mod updater;

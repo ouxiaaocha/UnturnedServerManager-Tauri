@@ -125,6 +125,7 @@ pub fn run() {
             commands::setup::install_rocket_module,
             commands::setup::init_server_save,
             commands::setup::check_save_rocket_status,
+            commands::updater::check_for_updates,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

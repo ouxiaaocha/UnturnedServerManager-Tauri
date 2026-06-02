@@ -1,4 +1,6 @@
 <script lang="ts">
+  declare const __APP_VERSION__: string;
+
   const capabilities = [
     { label: "服务器控制", value: "启动 / 停止 / 重启" },
     { label: "RCON 控制台", value: "远程命令与响应记录" },
@@ -7,7 +9,7 @@
   ];
 
   const buildInfo = [
-    { label: "版本", value: "v2.0.0" },
+    { label: "版本", value: `v${__APP_VERSION__}` },
     { label: "框架", value: "Tauri v2" },
     { label: "前端", value: "Svelte 5" },
     { label: "平台", value: "Windows Portable" },
@@ -38,7 +40,7 @@
           </div>
           <div class="flex shrink-0 items-center gap-2 rounded-lg border border-[var(--border-accent)] bg-white/70 px-3 py-2 text-xs font-medium text-[var(--accent-light)]">
             <span class="h-2 w-2 rounded-full bg-[var(--success)]"></span>
-            当前版本 v2.0.0
+            当前版本 v{__APP_VERSION__}
           </div>
         </div>
       </div>
