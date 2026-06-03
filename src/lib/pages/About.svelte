@@ -20,7 +20,7 @@
   ];
 </script>
 
-<div class="h-full overflow-y-auto">
+<div>
   <div class="mb-6">
     <h1 class="text-2xl font-bold text-[var(--text-primary)]">关于</h1>
     <p class="mt-1 text-sm text-[var(--text-muted)]">应用信息、维护者与构建状态</p>

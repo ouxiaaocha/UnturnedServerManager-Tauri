@@ -53,3 +53,37 @@ export function formatUptime(secs: number): string {
   const s = Math.floor(secs % 60);
   return h > 0 ? `${h}时${m}分${s}秒` : m > 0 ? `${m}分${s}秒` : `${s}秒`;
 }
+
+/**
+ * 日志行分类函数
+ * 根据日志内容判断日志级别
+ */
+export function classifyLogLevel(line: string): string {
+  if (line.includes("[Error]") || line.includes("Exception") || line.includes("错误")) return "error";
+  if (line.includes("[Warning]") || line.includes("警告")) return "warning";
+  if (line.includes("[系统]")) return "system";
+  if (line.includes("Loading level") || line.includes("registered") || line.includes("成功")) return "info";
+  return "normal";
+}
+
+/**
+ * 滚动容器到底部
+ */
+export function scrollToBottom(element: HTMLElement | null): void {
+  if (!element) return;
+  requestAnimationFrame(() => {
+    element.scrollTop = element.scrollHeight;
+  });
+}
+
+/**
+ * 复制文本到剪贴板
+ */
+export async function copyToClipboard(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    return false;
+  }
+}

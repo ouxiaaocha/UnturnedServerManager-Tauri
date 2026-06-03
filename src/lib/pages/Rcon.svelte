@@ -1,8 +1,7 @@
 ﻿<script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
-  import { listen } from "@tauri-apps/api/event";
   import { rconLogs, addRconLog, addRconLogs } from "$lib/stores.svelte";
-  import { highlightText } from "$lib/utils";
+  import { highlightText, scrollToBottom as scrollBottom } from "$lib/utils";
 
   let connected = $state(false);
   let command = $state("");
@@ -15,6 +14,10 @@
       ? rconLogs.filter((log) => log.text.toLowerCase().includes(normalizedLogSearch))
       : rconLogs
   );
+
+  function scrollToBottom() {
+    scrollBottom(logContainer);
+  }
 
   async function checkStatus() {
     try {
@@ -86,12 +89,6 @@
     scrollToBottom();
   }
 
-  function scrollToBottom() {
-    requestAnimationFrame(() => {
-      if (logContainer) logContainer.scrollTop = logContainer.scrollHeight;
-    });
-  }
-
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === "Enter") send();
   }
@@ -143,7 +140,7 @@
   });
 </script>
 
-<div class="flex flex-col h-full gap-5">
+<div class="flex flex-col gap-5">
   <div>
     <h1 class="text-2xl font-bold text-[var(--text-primary)]">RCON 控制台</h1>
     <p class="text-sm text-[var(--text-muted)] mt-1">远程控制台管理</p>
@@ -191,7 +188,7 @@
   </div>
 
   <!-- Response Area -->
-  <div class="flex-1 bg-[var(--bg-card)] border border-[var(--border)] rounded-xl flex flex-col min-h-0">
+  <div class="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl flex flex-col max-h-[50vh]">
     <div class="flex flex-wrap items-center justify-between gap-3 px-5 py-3 border-b border-[var(--border)] flex-shrink-0">
       <div class="flex items-center gap-2">
         <svg class="w-4 h-4 text-[var(--accent-light)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">

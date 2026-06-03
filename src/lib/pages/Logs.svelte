@@ -1,6 +1,6 @@
 ﻿<script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
-  import { highlightText } from "$lib/utils";
+  import { highlightText, classifyLogLevel } from "$lib/utils";
 
   let category = $state("app");
   let dates: string[] = $state([]);
@@ -60,18 +60,11 @@
     if (gen === loadGeneration) loading = false;
   }
 
-  function classifyLogLine(line: string): string {
-    if (line.includes("[ERROR]") || line.includes("异常") || line.includes("Exception")) return "error";
-    if (line.includes("[Warning]") || line.includes("警告")) return "warning";
-    if (line.includes("[系统]") || line.includes("启动") || line.includes("关闭")) return "system";
-    return "normal";
-  }
-
   $effect(() => { category; loadDates(); });
   $effect(() => { selectedDate; loadLog(); });
 </script>
 
-<div class="flex flex-col h-full gap-5">
+<div class="flex flex-col gap-5">
   <div>
     <h1 class="text-2xl font-bold text-[var(--text-primary)]">日志中心</h1>
     <p class="text-sm text-[var(--text-muted)] mt-1">查看系统、操作和游戏日志</p>
@@ -118,7 +111,7 @@
   </div>
 
   <!-- Log Content -->
-  <div class="flex-1 bg-[var(--bg-card)] border border-[var(--border)] rounded-xl flex flex-col min-h-0">
+  <div class="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl flex flex-col max-h-[50vh]">
     <div class="flex flex-wrap items-center justify-between gap-3 px-5 py-3 border-b border-[var(--border)] flex-shrink-0">
       <span class="text-sm text-[var(--text-muted)]">
         {categories.find(c => c.id === category)?.label} — {selectedDate || '无'}
@@ -162,7 +155,7 @@
             </div>
           {/if}
           {#each filteredLogLines as line}
-            {@const level = classifyLogLine(line)}
+            {@const level = classifyLogLevel(line)}
             <p class="py-0.5 {level === 'error' ? 'text-[var(--danger)]' : level === 'warning' ? 'text-[var(--warning)]' : level === 'system' ? 'text-[var(--accent-light)]' : 'text-[var(--text-secondary)]'}">
               {@html highlightText(line, logSearch)}
             </p>

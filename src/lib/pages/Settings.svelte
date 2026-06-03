@@ -1,5 +1,7 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
+  import { open } from "@tauri-apps/plugin-shell";
+  import { toastStore } from "../stores/toast.svelte";
 
   declare const __APP_VERSION__: string;
 
@@ -7,7 +9,6 @@
   let steamCmdPath = $state("");
   let serverRoot = $state("");
   let saving = $state(false);
-  let message = $state("");
   let existingConfig: any = null;
 
   // --- 更新检测状态 ---
@@ -30,17 +31,17 @@
 
   async function save() {
     saving = true;
-    message = "";
     try {
       const server = {
         ...(existingConfig || {}),
         steamCmdPath,
         serverRoot,
       };
-      await invoke("save_config", { servers: [server] });
-      message = "保存成功";
+      // save_config 期望 ServersConfig 结构体，包含 servers 数组
+      await invoke("save_config", { servers: { servers: [server] } });
+      toastStore.success("保存成功");
     } catch (e: any) {
-      message = `保存失败: ${e}`;
+      toastStore.error(`保存失败: ${e}`);
     }
     saving = false;
   }
@@ -73,13 +74,40 @@
     }
   }
 
+  /** 打开外部链接 */
+  async function openUrl(url: string) {
+    try {
+      await open(url);
+    } catch {
+      // fallback: 尝试用 window.open
+      window.open(url, "_blank");
+    }
+  }
+
+  /** 简单 markdown 转 HTML */
+  function renderMarkdown(text: string): string {
+    if (!text) return "";
+    return text
+      // 标题
+      .replace(/^### (.+)$/gm, '<h4 class="text-sm font-semibold text-[var(--text-primary)] mt-3 mb-1">$1</h4>')
+      .replace(/^## (.+)$/gm, '<h3 class="text-base font-semibold text-[var(--text-primary)] mt-4 mb-2">$1</h3>')
+      // 列表项
+      .replace(/^- (.+)$/gm, '<div class="flex gap-2 ml-1"><span class="text-[var(--accent)]">•</span><span>$1</span></div>')
+      // 粗体
+      .replace(/\*\*(.+?)\*\*/g, '<strong class="font-semibold text-[var(--text-primary)]">$1</strong>')
+      // 链接
+      .replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2" class="text-[var(--accent-light)] hover:underline" onclick="event.preventDefault(); window.__openUrl && window.__openUrl(\'$2\')">$1</a>')
+      // 换行
+      .replace(/\n/g, "<br/>");
+  }
+
   $effect(() => { loadConfig(); });
 
   // 页面加载时自动检测更新
   $effect(() => { checkUpdate(); });
 </script>
 
-<div class="flex flex-col gap-6 h-full overflow-y-auto">
+<div class="flex flex-col gap-6">
   <!-- 页面标题 -->
   <div>
     <h1 class="text-2xl font-bold text-[var(--text-primary)]">设置</h1>
@@ -127,20 +155,6 @@
             保存设置
           {/if}
         </button>
-        {#if message}
-          <span class="text-sm {message.includes('失败') ? 'text-[var(--danger)]' : 'text-[var(--success)]'} flex items-center gap-1">
-            {#if message.includes('失败')}
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            {:else}
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            {/if}
-            {message}
-          </span>
-        {/if}
       </div>
     </div>
 
@@ -192,21 +206,21 @@
             {#if updateInfo.body}
               <div class="mt-2">
                 <p class="text-xs font-medium text-[var(--text-secondary)] mb-2">更新日志</p>
-                <pre class="text-xs text-[var(--text-muted)] whitespace-pre-wrap leading-relaxed bg-[var(--bg-primary)] rounded-lg p-3 max-h-48 overflow-y-auto border border-[var(--border)]">{updateInfo.body}</pre>
+                <div class="text-xs text-[var(--text-muted)] leading-relaxed bg-[var(--bg-primary)] rounded-lg p-3 max-h-48 overflow-y-auto border border-[var(--border)]">
+                  {@html renderMarkdown(updateInfo.body)}
+                </div>
               </div>
             {/if}
             {#if updateInfo.html_url}
-              <a
-                href={updateInfo.html_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                class="inline-flex items-center gap-2 px-4 py-2 mt-1 bg-gradient-to-r from-[var(--accent)] to-cyan-600 hover:from-cyan-500 hover:to-[var(--accent)] text-white text-xs font-medium rounded-lg transition-all duration-[var(--transition-normal)]"
+              <button
+                onclick={() => openUrl(updateInfo.html_url)}
+                class="inline-flex items-center gap-2 px-4 py-2 mt-1 bg-gradient-to-r from-[var(--accent)] to-cyan-600 hover:from-cyan-500 hover:to-[var(--accent)] text-white text-xs font-medium rounded-lg transition-all duration-[var(--transition-normal)] cursor-pointer"
               >
                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
                 </svg>
                 前往下载
-              </a>
+              </button>
             {/if}
           </div>
         {:else if checkStatus === "up_to_date"}

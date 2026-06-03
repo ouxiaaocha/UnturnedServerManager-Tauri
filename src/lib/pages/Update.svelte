@@ -42,7 +42,7 @@
   }
 </script>
 
-<div class="flex flex-col gap-5 h-full overflow-y-auto">
+<div class="flex flex-col gap-5">
   <div>
     <h1 class="text-2xl font-bold text-[var(--text-primary)]">服务端更新</h1>
     <p class="text-sm text-[var(--text-muted)] mt-1">通过 SteamCMD 更新到最新版本</p>

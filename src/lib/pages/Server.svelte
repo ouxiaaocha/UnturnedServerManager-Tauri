@@ -1,14 +1,17 @@
 ﻿<script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
-  import { highlightText, formatUptime } from "$lib/utils";
-  import { appState, sharedSaves, loadSharedSaves, sharedSettings, loadSharedSettings } from "$lib/stores.svelte";
+  import { highlightText, scrollToBottom as scrollBottom } from "$lib/utils";
+  import { appState, sharedSaves, loadSharedSaves, sharedSettings, loadSharedSettings, serverState, serverLogs, refreshServerStatus, clearServerLogs } from "$lib/stores.svelte";
+  import { createPoller } from "../utils/polling.svelte";
+  import SaveSelector from "../components/SaveSelector.svelte";
 
-  let status = $state("已停止");
-  let pid = $state("--");
-  let uptime = $state("--");
-  let logs: Array<{text: string, level: string}> = $state([]);
-  let loading = $state("");
-  let outputIndex = $state(0);
+  // 使用共享的服务器状态
+  let status = $derived(serverState.status);
+  let pid = $derived(serverState.pid);
+  let uptime = $derived(serverState.uptime);
+  let loading = $derived(serverState.loading);
+  let logs = $derived(serverLogs);
+
   let logContainer: HTMLDivElement | undefined = $state();
   let logSearch = $state("");
   let normalizedLogSearch = $derived(logSearch.trim().toLowerCase());
@@ -19,24 +22,23 @@
   );
   let isNearBottom = false;
   let firstLoadDone = false;
-  let isStarting = false;
   let polling = false;
-  let pollTimer: ReturnType<typeof setTimeout> | undefined;
-  let pollToken = 0;
 
   let selectedSaveId = $state("");
   let autoUpdateSaving = $state(false);
   let autoUpdateMessage = $state("");
+
+  // 轮询管理器
+  const poller = createPoller({
+    pollFn: refreshStatus,
+    isActive: () => serverState.loading !== "" || serverState.status === "运行中",
+  });
 
   async function loadSaves() {
     await loadSharedSaves();
     if (sharedSaves.length > 0 && !selectedSaveId) {
       selectedSaveId = sharedSaves[0].id;
     }
-  }
-
-  async function loadAppSettings() {
-    await loadSharedSettings();
   }
 
   async function toggleAutoUpdateHosting() {
@@ -50,42 +52,26 @@
       });
       sharedSettings.autoUpdateHosting = !!settings.autoUpdateHosting;
       autoUpdateMessage = sharedSettings.autoUpdateHosting ? "托管已开启" : "托管已关闭";
-      logs.push({ text: `[系统] 自动更新托管${sharedSettings.autoUpdateHosting ? '已开启' : '已关闭'}`, level: "system" });
+      serverLogs.push({ text: `[系统] 自动更新托管${sharedSettings.autoUpdateHosting ? '已开启' : '已关闭'}`, level: "system" });
     } catch (e: any) {
       autoUpdateMessage = `设置失败: ${e}`;
-      logs.push({ text: `[错误] ${e}`, level: "error" });
+      serverLogs.push({ text: `[错误] ${e}`, level: "error" });
     }
     autoUpdateSaving = false;
-  }
-
-  function classifyLine(line: string): string {
-    if (line.includes("[Error]") || line.includes("Exception")) return "error";
-    if (line.includes("[Warning]")) return "warning";
-    if (line.includes("[系统]")) return "system";
-    if (line.includes("Loading level") || line.includes("registered")) return "info";
-    return "normal";
   }
 
   async function refreshStatus() {
     if (polling) return;
     polling = true;
     try {
-      const s: any = await invoke("get_server_snapshot", { fromIndex: outputIndex });
-      status = s.state;
-      pid = s.pid ? String(s.pid) : "--";
-      uptime = formatUptime(s.uptime_secs);
-
-      if (!isStarting && s.output_count > outputIndex) {
-        const newLines = (s.output ?? []) as string[];
-        const appended = newLines.map((line) => ({ text: line, level: classifyLine(line) }));
-        logs = [...logs, ...appended].slice(-500);
-        outputIndex = s.output_count;
+      const hasNewOutput = await refreshServerStatus();
+      if (hasNewOutput) {
         if (!firstLoadDone) {
           firstLoadDone = true;
           isNearBottom = true;
-          scrollOutputToBottom();
+          scrollBottom(logContainer);
         } else if (isNearBottom) {
-          scrollOutputToBottom();
+          scrollBottom(logContainer);
         }
       }
     } catch {
@@ -95,51 +81,49 @@
   }
 
   async function startServer() {
-    loading = "starting";
-    isStarting = true;
+    serverState.loading = "starting";
+    serverState.isStarting = true;
     try {
       await invoke("start_server", {
         saveId: selectedSaveId || null,
         launchMode: appState.launchMode,
       });
-      outputIndex = 0;
-      logs = [];
+      clearServerLogs();
       firstLoadDone = false;
       isNearBottom = true;
     } catch (e: any) {
-      logs.push({ text: `[错误] ${e}`, level: "error" });
+      serverLogs.push({ text: `[错误] ${e}`, level: "error" });
     }
-    isStarting = false;
-    loading = "";
+    serverState.isStarting = false;
+    serverState.loading = "";
   }
 
   async function stopServer() {
-    loading = "stopping";
+    serverState.loading = "stopping";
     try {
       await invoke("stop_server");
     } catch (e: any) {
-      logs.push({ text: `[错误] ${e}`, level: "error" });
+      serverLogs.push({ text: `[错误] ${e}`, level: "error" });
     }
-    loading = "";
+    serverState.loading = "";
   }
 
   async function restartServer() {
-    loading = "restarting";
-    isStarting = true;
+    serverState.loading = "restarting";
+    serverState.isStarting = true;
     try {
       await invoke("restart_server", {
         saveId: selectedSaveId || null,
         launchMode: appState.launchMode,
       });
-      outputIndex = 0;
-      logs = [];
+      clearServerLogs();
       firstLoadDone = false;
       isNearBottom = true;
     } catch (e: any) {
-      logs.push({ text: `[错误] ${e}`, level: "error" });
+      serverLogs.push({ text: `[错误] ${e}`, level: "error" });
     }
-    isStarting = false;
-    loading = "";
+    serverState.isStarting = false;
+    serverState.loading = "";
   }
 
   async function forceStop() {
@@ -147,7 +131,7 @@
     try {
       await invoke("force_stop_server");
     } catch (e: any) {
-      logs.push({ text: `[错误] ${e}`, level: "error" });
+      serverLogs.push({ text: `[错误] ${e}`, level: "error" });
     }
   }
 
@@ -157,50 +141,19 @@
     isNearBottom = scrollHeight - scrollTop - clientHeight < 80;
   }
 
-  function scrollOutputToBottom() {
-    requestAnimationFrame(() => {
-      if (logContainer) logContainer.scrollTop = logContainer.scrollHeight;
-    });
-  }
-
-  function nextPollDelay() {
-    if (document.hidden) return 10000;
-    if (loading || status === "运行中") return 2000;
-    return 5000;
-  }
-
-  async function pollLoop(token = pollToken) {
-    await refreshStatus();
-    if (token === pollToken) {
-      pollTimer = setTimeout(() => pollLoop(token), nextPollDelay());
-    }
-  }
-
-  function restartPolling() {
-    pollToken += 1;
-    if (pollTimer) clearTimeout(pollTimer);
-    pollLoop(pollToken);
-  }
-
   $effect(() => {
     loadSaves();
-    loadAppSettings();
-    restartPolling();
-    const onVisibilityChange = () => {
-      if (!document.hidden) {
-        restartPolling();
-      }
-    };
-    document.addEventListener("visibilitychange", onVisibilityChange);
+    loadSharedSettings();
+    poller.start();
+    const cleanup = poller.setupVisibilityListener();
     return () => {
-      pollToken += 1;
-      if (pollTimer) clearTimeout(pollTimer);
-      document.removeEventListener("visibilitychange", onVisibilityChange);
+      cleanup();
+      poller.stop();
     };
   });
 </script>
 
-<div class="flex flex-col h-full gap-5">
+<div class="flex flex-col gap-5">
   <!-- Header -->
   <div class="flex flex-wrap items-center justify-between gap-3 flex-shrink-0">
     <div>
@@ -276,14 +229,7 @@
       </div>
 
       <div class="flex flex-wrap items-center gap-3">
-        <select
-          bind:value={selectedSaveId}
-          class="bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-3 py-1.5 text-xs text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)] transition-colors cursor-pointer"
-        >
-          {#each sharedSaves as save}
-            <option value={save.id}>{save.id}{save.name ? ` - ${save.name}` : ''}</option>
-          {/each}
-        </select>
+        <SaveSelector saves={sharedSaves} bind:value={selectedSaveId} />
         <div class="flex rounded-lg overflow-hidden border border-[var(--border)]">
           <button
             class="px-2 py-1 text-xs font-medium transition-all cursor-pointer {appState.launchMode === 'internet' ? 'bg-[var(--accent)] text-[var(--text-primary)]' : 'bg-[var(--bg-primary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}"
@@ -327,7 +273,7 @@
   </div>
 
   <!-- Log Output -->
-  <div class="flex-1 bg-[var(--bg-card)] border border-[var(--border)] rounded-xl flex flex-col min-h-0">
+  <div class="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl flex flex-col max-h-[50vh]">
     <div class="flex flex-wrap items-center justify-between gap-3 px-5 py-3 border-b border-[var(--border)] flex-shrink-0">
       <div class="flex items-center gap-2">
         <svg class="w-4 h-4 text-[var(--accent-light)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -349,7 +295,7 @@
         </div>
         <button
           class="text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors duration-[var(--transition-fast)] px-2 py-1 rounded hover:bg-[var(--bg-card-hover)] cursor-pointer"
-          onclick={() => { logs = []; outputIndex = 0; }}
+          onclick={clearServerLogs}
         >
           清空
         </button>

@@ -1,5 +1,6 @@
 ﻿<script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
+  import { toastStore } from "../stores/toast.svelte";
 
   interface ScheduleTask {
     id: string;
@@ -17,7 +18,6 @@
   let newTime = $state("04:00");
   let newInterval = $state(6);
   let newWeekday = $state(0);
-  let message = $state("");
 
   const weekdays = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
 
@@ -31,10 +31,9 @@
   async function saveSchedules() {
     try {
       await invoke("save_schedules", { tasks });
-      message = "已保存";
-      setTimeout(() => message = "", 2000);
+      toastStore.success("已保存");
     } catch (e: any) {
-      message = `保存失败: ${e}`;
+      toastStore.error(`保存失败: ${e}`);
     }
   }
 
@@ -76,7 +75,7 @@
   $effect(() => { loadSchedules(); });
 </script>
 
-<div class="flex flex-col gap-5 h-full overflow-y-auto">
+<div class="flex flex-col gap-5">
   <div class="flex flex-wrap items-center justify-between gap-3 flex-shrink-0">
     <div>
       <h1 class="text-2xl font-bold text-[var(--text-primary)]">定时任务</h1>
@@ -203,11 +202,6 @@
     {/if}
   </div>
 
-  {#if message}
-    <div class="flex-shrink-0 px-4 py-2 rounded-lg {message.includes('失败') ? 'bg-[var(--danger-glow)] text-[var(--danger)]' : 'bg-[var(--success-glow)] text-[var(--success)]'} text-sm">
-      {message}
-    </div>
-  {/if}
 </div>
 
 

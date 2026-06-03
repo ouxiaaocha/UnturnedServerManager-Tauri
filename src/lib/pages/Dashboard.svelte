@@ -1,12 +1,16 @@
 ﻿<script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
-  import { formatBytes, formatUptime } from "$lib/utils";
-  import { appState, sharedSaves, loadSharedSaves, sharedSettings, loadSharedSettings, serverInfo } from "$lib/stores.svelte";
+  import { formatBytes, copyToClipboard } from "$lib/utils";
+  import { appState, sharedSaves, loadSharedSaves, sharedSettings, loadSharedSettings, serverInfo, serverState, refreshServerStatus } from "$lib/stores.svelte";
+  import { toastStore } from "../stores/toast.svelte";
+  import { createPoller } from "../utils/polling.svelte";
+  import SaveSelector from "../components/SaveSelector.svelte";
 
-  let status = $state("已停止");
-  let uptime = $state("--");
-  let pid = $state("--");
-  let loading = $state("");
+  // 使用共享的服务器状态
+  let status = $derived(serverState.status);
+  let uptime = $derived(serverState.uptime);
+  let pid = $derived(serverState.pid);
+  let loading = $derived(serverState.loading);
 
   let selectedSaveId = $state("");
   let autoUpdateSaving = $state(false);
@@ -20,9 +24,6 @@
   let netUpRate = $state(0);
   let totalDown = $state(0);
   let totalUp = $state(0);
-
-  let copyMessage = $state("");
-  let copyTimeout: ReturnType<typeof setTimeout> | undefined;
 
   // 缓存：避免每次渲染都遍历存档列表
   let cachedSaveName = "";
@@ -38,8 +39,12 @@
   let lastPollTime = 0;
   let firstNetPoll = true;
   let polling = false;
-  let pollTimer: ReturnType<typeof setTimeout> | undefined;
-  let pollToken = 0;
+
+  // 轮询管理器
+  const poller = createPoller({
+    pollFn: pollAll,
+    isActive: () => serverState.loading !== "" || serverState.status === "运行中",
+  });
 
   function formatRate(bytesPerSec: number): string {
     if (bytesPerSec < 0) return "0 B/s";
@@ -59,10 +64,6 @@
     if (sharedSaves.length > 0 && !selectedSaveId) {
       selectedSaveId = sharedSaves[0].id;
     }
-  }
-
-  async function loadAppSettings() {
-    await loadSharedSettings();
   }
 
   async function toggleAutoUpdateHosting() {
@@ -132,25 +133,21 @@
     return cachedSaveName;
   }
 
-  async function copyToClipboard(text: string) {
-    try {
-      await navigator.clipboard.writeText(text);
-      copyMessage = "✓ 已复制到剪贴板";
-    } catch {
-      copyMessage = "复制失败";
+  async function handleCopyToClipboard(text: string) {
+    const success = await copyToClipboard(text);
+    if (success) {
+      toastStore.success("已复制到剪贴板");
+    } else {
+      toastStore.error("复制失败");
     }
-    if (copyTimeout) clearTimeout(copyTimeout);
-    copyTimeout = setTimeout(() => { copyMessage = ""; }, 2000);
   }
 
   async function refreshStatus() {
     try {
-      const s: any = await invoke("get_server_status");
-      status = s.state;
-      pid = s.pid ? String(s.pid) : "--";
-      uptime = formatUptime(s.uptime_secs);
+      // 使用共享的刷新函数
+      await refreshServerStatus();
 
-      if (s.state === "运行中") {
+      if (serverState.status === "运行中") {
         // 记录当前运行的存档 ID
         if (!serverInfo.runningSaveId) {
           serverInfo.runningSaveId = selectedSaveId;
@@ -167,7 +164,7 @@
             }
           } catch (e) { console.error("获取服务器快照失败:", e); }
         }
-      } else if (status !== "启动中") {
+      } else if (serverState.status !== "启动中") {
         // 服务器完全停止后清除信息
         serverInfo.serverCode = "";
         serverInfo.publicIp = "";
@@ -212,7 +209,7 @@
   }
 
   async function startServer() {
-    loading = "starting";
+    serverState.loading = "starting";
     try {
       await invoke("start_server", {
         saveId: selectedSaveId || null,
@@ -225,23 +222,23 @@
     } catch (e: any) {
       alert(e);
     }
-    loading = "";
+    serverState.loading = "";
     await refreshStatus();
   }
 
   async function stopServer() {
-    loading = "stopping";
+    serverState.loading = "stopping";
     try {
       await invoke("stop_server");
     } catch (e: any) {
       alert(e);
     }
-    loading = "";
+    serverState.loading = "";
     await refreshStatus();
   }
 
   async function restartServer() {
-    loading = "restarting";
+    serverState.loading = "restarting";
     try {
       await invoke("restart_server", {
         saveId: selectedSaveId || null,
@@ -250,7 +247,7 @@
     } catch (e: any) {
       alert(e);
     }
-    loading = "";
+    serverState.loading = "";
     await refreshStatus();
   }
 
@@ -259,7 +256,7 @@
     polling = true;
     try {
       // 服务器运行中时同时刷新状态和系统监控，否则只刷新状态
-      if (loading || status === "运行中") {
+      if (serverState.loading || serverState.status === "运行中") {
         await Promise.all([refreshStatus(), refreshSystemStats()]);
       } else {
         await refreshStatus();
@@ -269,44 +266,19 @@
     }
   }
 
-  function nextPollDelay() {
-    if (document.hidden) return 10000;  // 页面不可见时降低频率
-    if (loading || status === "运行中") return 2000;  // 服务器运行中时高频轮询
-    return 5000;  // 空闲时低频轮询
-  }
-
-  async function pollLoop(token = pollToken) {
-    await pollAll();
-    if (token === pollToken) {
-      pollTimer = setTimeout(() => pollLoop(token), nextPollDelay());
-    }
-  }
-
-  function restartPolling() {
-    pollToken += 1;
-    if (pollTimer) clearTimeout(pollTimer);
-    pollLoop(pollToken);
-  }
-
   $effect(() => {
     loadSaves();
-    loadAppSettings();
-    restartPolling();
-    const onVisibilityChange = () => {
-      if (!document.hidden) {
-        restartPolling();
-      }
-    };
-    document.addEventListener("visibilitychange", onVisibilityChange);
+    loadSharedSettings();
+    poller.start();
+    const cleanup = poller.setupVisibilityListener();
     return () => {
-      pollToken += 1;
-      if (pollTimer) clearTimeout(pollTimer);
-      document.removeEventListener("visibilitychange", onVisibilityChange);
+      cleanup();
+      poller.stop();
     };
   });
 </script>
 
-<div class="h-full overflow-y-auto">
+<div>
   <div class="flex flex-wrap items-center justify-between gap-3 mb-8">
     <div>
       <h1 class="text-2xl font-bold text-[var(--text-primary)]">仪表盘</h1>
@@ -410,7 +382,7 @@
             </p>
           </div>
           <button
-            onclick={() => copyToClipboard(`${serverInfo.publicIp}:${serverInfo.port}`)}
+            onclick={() => handleCopyToClipboard(`${serverInfo.publicIp}:${serverInfo.port}`)}
             disabled={!serverInfo.publicIp || serverInfo.ipLoading}
             class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg hover:border-[var(--accent)] hover:text-[var(--accent-light)] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
@@ -435,7 +407,7 @@
             </p>
           </div>
           <button
-            onclick={() => copyToClipboard(serverInfo.serverCode)}
+            onclick={() => handleCopyToClipboard(serverInfo.serverCode)}
             disabled={!serverInfo.serverCode}
             class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg hover:border-[var(--accent)] hover:text-[var(--accent-light)] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ml-4"
           >
@@ -447,9 +419,6 @@
         </div>
       </div>
 
-      {#if copyMessage}
-        <div class="mt-4 text-center text-sm text-[var(--success)] animate-pulse font-medium">{copyMessage}</div>
-      {/if}
     </div>
   </div>
   {/if}
@@ -535,14 +504,7 @@
     <div class="flex flex-col gap-4 mb-5 pb-5 border-b border-[var(--border)] lg:flex-row lg:items-center">
       <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
         <span class="text-xs text-[var(--text-muted)]">存档:</span>
-        <select
-          bind:value={selectedSaveId}
-          class="bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-3 py-1.5 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)] transition-colors cursor-pointer"
-        >
-          {#each sharedSaves as save}
-            <option value={save.id}>{save.id}{save.name ? ` - ${save.name}` : ''}</option>
-          {/each}
-        </select>
+        <SaveSelector saves={sharedSaves} bind:value={selectedSaveId} />
       </div>
       <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
         <span class="text-xs text-[var(--text-muted)]">模式:</span>

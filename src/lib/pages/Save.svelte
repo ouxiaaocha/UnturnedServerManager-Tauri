@@ -1,14 +1,14 @@
 ﻿<script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
-  import { listen } from "@tauri-apps/api/event";
   import { generatePassword } from "$lib/utils";
+  import { toastStore } from "../stores/toast.svelte";
+  import { listenInstallerProgress } from "../utils/installer";
 
   let activeTab = $state("save");
   let saves = $state<any[]>([]);
   let selectedSaveId = $state("");
   let loading = $state(false);
   let saving = $state(false);
-  let message = $state("");
   let pluginsLoading = $state(false);
 
   let cmdName = $state("");
@@ -51,7 +51,6 @@
 
   // 竞态保护：切换存档时丢弃过期的异步响应
   let loadGeneration = 0;
-  let msgTimer: ReturnType<typeof setTimeout> | undefined;
   let noteSaveTimer: ReturnType<typeof setTimeout> | undefined;
   let lastRawLines: string[] = [];
 
@@ -86,21 +85,20 @@
     initRunning = true;
     initDone = false;
     newSaveLogs = [];
-    const unlisten = await listen<string>("installer-progress", (event) => {
-      const msg = event.payload;
-      if (msg.startsWith("DONE:")) {
+    const unlisten = await listenInstallerProgress({
+      onDone: () => {
         initDone = true;
         initRunning = false;
-        unlisten();
         loadSaves();
-      } else if (msg.startsWith("ERROR:")) {
-        alert(`初始化失败: ${msg.slice(6)}`);
+      },
+      onError: (msg) => {
+        alert(`初始化失败: ${msg}`);
         initRunning = false;
-        unlisten();
-      } else {
+      },
+      onProgress: (msg) => {
         newSaveLogs.push(msg);
         if (newSaveLogs.length > 200) newSaveLogs = newSaveLogs.slice(-100);
-      }
+      },
     });
     try {
       await invoke("init_server_save", { saveName: newSaveName });
@@ -116,21 +114,20 @@
     rocketInitRunning = true;
     rocketInitDone = false;
     rocketInitLogs = [];
-    const unlisten = await listen<string>("installer-progress", (event) => {
-      const msg = event.payload;
-      if (msg.startsWith("DONE:")) {
+    const unlisten = await listenInstallerProgress({
+      onDone: () => {
         rocketInitDone = true;
         rocketInitRunning = false;
-        unlisten();
         checkRocketStatus();
-      } else if (msg.startsWith("ERROR:")) {
-        alert(`初始化失败: ${msg.slice(6)}`);
+      },
+      onError: (msg) => {
+        alert(`初始化失败: ${msg}`);
         rocketInitRunning = false;
-        unlisten();
-      } else {
+      },
+      onProgress: (msg) => {
         rocketInitLogs.push(msg);
         if (rocketInitLogs.length > 200) rocketInitLogs = rocketInitLogs.slice(-100);
-      }
+      },
     });
     try {
       await invoke("init_server_save", { saveName: selectedSaveId });
@@ -195,9 +192,7 @@
         // 如果密码仍为掩码状态（用户未修改），发送空字符串表示保留原密码
         password: rconPasswordMasked ? "" : rconPassword,
       });
-      message = "配置已保存";
-      clearTimeout(msgTimer);
-      msgTimer = setTimeout(() => message = "", 3000);
+      toastStore.success("配置已保存");
     } catch (e: any) {
       alert(e);
     }
@@ -276,9 +271,7 @@
       await invoke("save_workshop_mod_notes", { notes: workshopModNotes });
       workshopConfig = normalizedConfig;
       ignoreChildrenInput = normalizedConfig.ignore_children_file_ids.join(", ");
-      message = "创意工坊配置已保存";
-      clearTimeout(msgTimer);
-      msgTimer = setTimeout(() => message = "", 3000);
+      toastStore.success("创意工坊配置已保存");
     } catch (e: any) {
       alert(e);
     }
@@ -403,27 +396,13 @@
   });
 </script>
 
-<div class="h-full overflow-y-auto">
+<div>
   <div class="flex flex-wrap items-center justify-between gap-3 mb-6">
     <div>
       <h1 class="text-2xl font-bold text-[var(--text-primary)]">存档管理</h1>
       <p class="text-sm text-[var(--text-muted)] mt-1">管理服务器存档配置与插件</p>
     </div>
   </div>
-
-  {#if message}
-    <div class="fixed bottom-5 right-5 z-50 flex max-w-[calc(100vw-2rem)] items-center gap-3 rounded-lg border border-[var(--border-accent)] bg-[var(--bg-card)] px-4 py-3 text-sm text-[var(--success)] shadow-[var(--shadow-lg)]">
-      <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--success-glow)]">
-        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-        </svg>
-      </div>
-      <div>
-        <p class="font-medium">{message}</p>
-        <p class="text-xs text-[var(--text-muted)]">Commands.dat 与 RCON 配置已同步</p>
-      </div>
-    </div>
-  {/if}
 
   <!-- Save Selector -->
   <div class="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-4 mb-5">
@@ -718,14 +697,6 @@
     <div class="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <div>
         <p class="text-xs text-[var(--text-muted)]">保存会同时同步 Commands.dat 与当前存档的 RCON 配置。</p>
-        {#if message}
-          <p class="mt-1 flex items-center gap-1 text-xs font-medium text-[var(--success)]">
-            <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-            </svg>
-            {message}
-          </p>
-        {/if}
       </div>
       <button
         class="px-6 py-2.5 bg-gradient-to-r from-[var(--accent)] to-blue-600 hover:from-blue-500 hover:to-[var(--accent)] text-[var(--text-primary)] text-sm font-medium rounded-lg transition-all cursor-pointer flex items-center justify-center gap-2 shadow-lg disabled:opacity-40 disabled:cursor-not-allowed"
@@ -735,11 +706,6 @@
         {#if saving}
           <div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
           保存中...
-        {:else if message}
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-          </svg>
-          已保存
         {:else}
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
