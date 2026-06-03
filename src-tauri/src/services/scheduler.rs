@@ -262,7 +262,7 @@ fn execute_restart(
 
         if client.is_connected() {
             let _ = client.send_command("save");
-            std::thread::sleep(Duration::from_secs(1));
+            std::thread::sleep(Duration::from_millis(300));
             let _ = client.send_command("shutdown");
             client.disconnect();
         }

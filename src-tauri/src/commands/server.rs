@@ -156,6 +156,7 @@ pub fn get_server_snapshot(
 pub fn start_server(
     app: tauri::AppHandle,
     process: State<'_, Arc<Mutex<ProcessManager>>>,
+    rcon: State<'_, Arc<Mutex<RconClient>>>,
     config: State<'_, Arc<Mutex<ConfigService>>>,
     log: State<'_, Arc<Mutex<LogService>>>,
     active_rcon: State<'_, Arc<Mutex<ActiveRcon>>>,
@@ -166,6 +167,7 @@ pub fn start_server(
     start_server_inner(
         app,
         process.inner(),
+        rcon.inner(),
         config.inner(),
         log.inner(),
         active_rcon.inner(),
@@ -179,6 +181,7 @@ pub fn start_server(
 pub fn start_server_inner(
     app: tauri::AppHandle,
     process: &Arc<Mutex<ProcessManager>>,
+    rcon: &Arc<Mutex<RconClient>>,
     config: &Arc<Mutex<ConfigService>>,
     log: &Arc<Mutex<LogService>>,
     active_rcon: &Arc<Mutex<ActiveRcon>>,
@@ -262,6 +265,43 @@ pub fn start_server_inner(
         state.record_start(actual_id, mode);
     }
 
+    // 后台预连接 RCON，避免 stop/restart 时才发起连接导致延迟
+    {
+        let rcon_clone = Arc::clone(rcon);
+        let ar_clone = Arc::clone(active_rcon);
+        let log_clone = Arc::clone(log);
+        std::thread::spawn(move || {
+            // 等待服务器 RCON 端口就绪
+            std::thread::sleep(Duration::from_secs(3));
+
+            for attempt in 1..=3u32 {
+                let (host, port, password) = {
+                    let ar = ar_clone.lock().unwrap_or_else(|e| e.into_inner());
+                    (ar.host.clone(), ar.port, ar.password.clone())
+                };
+
+                let mut client = rcon_clone.lock().unwrap_or_else(|e| e.into_inner());
+                if client.is_connected() {
+                    return; // 已连接（例如前端已手动连接）
+                }
+
+                match client.connect(&host, port, &password) {
+                    Ok(_) => {
+                        let ls = log_clone.lock().unwrap_or_else(|e| e.into_inner());
+                        ls.log_operation("RCON 自动预连接成功");
+                        return;
+                    }
+                    Err(_) => {
+                        drop(client);
+                        if attempt < 3 {
+                            std::thread::sleep(Duration::from_secs(2));
+                        }
+                    }
+                }
+            }
+        });
+    }
+
     Ok("服务器已启动".to_string())
 }
 
@@ -300,7 +340,7 @@ pub async fn stop_server(
     }; // rcon 锁在此释放
 
     if shutdown_sent {
-        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
         let mut rcon_client = rcon.lock().unwrap_or_else(|e| e.into_inner());
         let _ = rcon_client.send_command("shutdown");
         rcon_client.disconnect();
@@ -332,6 +372,7 @@ pub async fn stop_server(
 pub fn start_auto_update_monitor(
     app: tauri::AppHandle,
     process: Arc<Mutex<ProcessManager>>,
+    rcon: Arc<Mutex<RconClient>>,
     config: Arc<Mutex<ConfigService>>,
     log: Arc<Mutex<LogService>>,
     active_rcon: Arc<Mutex<ActiveRcon>>,
@@ -417,6 +458,7 @@ pub fn start_auto_update_monitor(
                 if let Err(e) = start_server_inner(
                     app_for_update.clone(),
                     &process,
+                    &rcon,
                     &config,
                     &log,
                     &active_rcon,
@@ -573,7 +615,7 @@ pub async fn restart_server(
     };
 
     if should_send_shutdown {
-        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
         let mut rcon_client = rcon.lock().unwrap_or_else(|e| e.into_inner());
         let _ = rcon_client.send_command("shutdown");
         rcon_client.disconnect();
@@ -606,6 +648,7 @@ pub async fn restart_server(
     start_server_inner(
         app,
         process.inner(),
+        rcon.inner(),
         config.inner(),
         log.inner(),
         active_rcon.inner(),

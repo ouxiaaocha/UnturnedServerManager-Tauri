@@ -47,6 +47,7 @@ pub fn run() {
     start_output_cache_maintenance(Arc::clone(&process_arc), Arc::clone(&log_arc));
 
     let monitor_process = Arc::clone(&process_arc);
+    let monitor_rcon = Arc::clone(&rcon_arc);
     let monitor_config = Arc::clone(&config_arc);
     let monitor_log = Arc::clone(&log_arc);
     let monitor_active_rcon = Arc::clone(&active_rcon_arc);
@@ -63,6 +64,7 @@ pub fn run() {
             commands::server::start_auto_update_monitor(
                 app.handle().clone(),
                 Arc::clone(&monitor_process),
+                Arc::clone(&monitor_rcon),
                 Arc::clone(&monitor_config),
                 Arc::clone(&monitor_log),
                 Arc::clone(&monitor_active_rcon),

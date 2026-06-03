@@ -32,7 +32,16 @@
     try {
       const lines = await invoke("rcon_poll") as string[];
       if (lines.length > 0) {
-        addRconLogs(lines, "response");
+        // Rocket RCON 服务器对每条命令发送 2 条响应（执行日志 + 结果），
+        // 且通过 Broadcast 发送给所有客户端，导致每条消息出现两次。
+        // 使用 Set 去重，保留首次出现的顺序。
+        const seen = new Set<string>();
+        const deduped = lines.filter(line => {
+          if (seen.has(line)) return false;
+          seen.add(line);
+          return true;
+        });
+        addRconLogs(deduped, "response");
         scrollToBottom();
       }
     } catch (e) { console.error("RCON 轮询失败:", e); }

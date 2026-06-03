@@ -8,8 +8,11 @@ use std::time::Duration;
 const MAX_RESPONSE_ENTRIES: usize = 1000;
 /// 每次裁剪的条目数
 const RESPONSE_TRIM_BATCH: usize = 500;
+/// 心跳间隔（秒），定期发送空 say 保持连接活跃
+/// 服务器 read 循环有 100ms Thread.Sleep，心跳响应会在 ~200ms 内返回
+const HEARTBEAT_INTERVAL_SECS: u64 = 60;
 
-/// Rocket RCON TCP 客户端，支持连接、认证、命令发送和后台响应读取
+/// Rocket RCON TCP 客户端，支持连接、认证、命令发送、后台响应读取和心跳保活
 pub struct RconClient {
     stream: Option<TcpStream>,
     responses: Arc<Mutex<Vec<String>>>,
@@ -36,12 +39,12 @@ impl RconClient {
         let addr = format!("{}:{}", host, port);
         let stream = TcpStream::connect_timeout(
             &addr.parse().map_err(|e| format!("地址无效: {}", e))?,
-            Duration::from_secs(5),
+            Duration::from_secs(2),
         )
         .map_err(|e| format!("连接失败: {}", e))?;
 
-        stream.set_read_timeout(Some(Duration::from_secs(2))).ok();
-        stream.set_write_timeout(Some(Duration::from_secs(5))).ok();
+        stream.set_read_timeout(Some(Duration::from_secs(1))).ok();
+        stream.set_write_timeout(Some(Duration::from_secs(2))).ok();
 
         self.stream = Some(stream);
 
@@ -56,9 +59,9 @@ impl RconClient {
         // 发送认证
         self.write_line(&format!("login {}", password))?;
 
-        // 等待认证响应 (多次尝试读取，总等待最多 1 秒)
+        // 等待认证响应 (多次尝试读取，总等待最多 500ms)
         for _ in 0..10 {
-            std::thread::sleep(Duration::from_millis(100));
+            std::thread::sleep(Duration::from_millis(50));
             if let Some(line) = self.try_read_line() {
                 if line.contains("Invalid") || line.contains("not logged in") || line.contains("incorrect") {
                     self.disconnect();
@@ -96,11 +99,12 @@ impl RconClient {
             let alive = Arc::clone(&self.reader_alive);
 
             if let Some(s) = stream_clone {
-                // 读取线程用阻塞模式，不设超时
-                s.set_read_timeout(None).ok();
+                // 读取线程用阻塞模式，设短超时以便定期发送心跳
+                s.set_read_timeout(Some(Duration::from_secs(HEARTBEAT_INTERVAL_SECS))).ok();
                 alive.store(true, Ordering::SeqCst);
 
                 std::thread::spawn(move || {
+                    let heartbeat_stream = s.try_clone().ok();
                     let reader = BufReader::new(s);
                     for line in reader.lines() {
                         match line {
@@ -110,6 +114,16 @@ impl RconClient {
                                     resp.drain(0..RESPONSE_TRIM_BATCH);
                                 }
                                 resp.push(l);
+                            }
+                            Err(ref e) if e.kind() == std::io::ErrorKind::TimedOut || e.kind() == std::io::ErrorKind::WouldBlock => {
+                                // 读取超时 = 心跳间隔到了，发送空 say 保持连接
+                                if let Some(ref hs) = heartbeat_stream {
+                                    let _ = hs.try_clone().ok().map(|mut h| {
+                                        let _ = h.write_all(b"say \n");
+                                        let _ = h.flush();
+                                    });
+                                }
+                                continue;
                             }
                             Err(_) => break,
                         }
