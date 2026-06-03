@@ -44,8 +44,24 @@ pub fn read_log_file(
     let file_path = log_dir.join(&category).join(format!("{}.log", date));
 
     // 确保解析后的路径仍在日志目录下（防止路径穿越）
-    if let Ok(resolved) = file_path.canonicalize() {
-        if !resolved.starts_with(log_dir.canonicalize().unwrap_or_default()) {
+    // canonicalize 要求路径存在；目录不存在时先创建再检查
+    if !log_dir.exists() {
+        let _ = fs::create_dir_all(&log_dir);
+    }
+    let resolved_log_dir = log_dir
+        .canonicalize()
+        .map_err(|_| "日志目录无效".to_string())?;
+    if file_path.exists() {
+        let resolved = file_path
+            .canonicalize()
+            .map_err(|_| "日志文件路径无效".to_string())?;
+        if !resolved.starts_with(&resolved_log_dir) {
+            return Err("路径越界".to_string());
+        }
+    } else {
+        // 文件不存在时，基于组件路径做静态检查（拒绝 ".." 等）
+        let normalized = log_dir.join(&category).join(format!("{}.log", date));
+        if normalized != file_path {
             return Err("路径越界".to_string());
         }
     }

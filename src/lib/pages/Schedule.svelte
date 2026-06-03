@@ -25,7 +25,7 @@
     try {
       const config: any = await invoke("get_schedules");
       tasks = config.tasks || [];
-    } catch {}
+    } catch (e) { console.error("加载定时任务失败:", e); }
   }
 
   async function saveSchedules() {
@@ -40,7 +40,7 @@
 
   function addTask() {
     const task: ScheduleTask = {
-      id: Date.now().toString(),
+      id: crypto.randomUUID(),
       enabled: true,
       type: newType,
       time: newType === "daily" || newType === "weekly" ? newTime : null,
@@ -54,6 +54,7 @@
   }
 
   function removeTask(id: string) {
+    if (!confirm("确定要删除这个定时任务吗？")) return;
     tasks = tasks.filter(t => t.id !== id);
     saveSchedules();
   }
@@ -172,7 +173,7 @@
       </div>
     {:else}
       <div class="space-y-3">
-        {#each tasks as task}
+        {#each tasks as task (task.id)}
           <div class="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-4 flex flex-wrap items-center justify-between gap-3 hover:border-[var(--border-hover)] transition-all duration-[var(--transition-normal)]">
             <div class="flex items-center gap-4">
               <button

@@ -143,6 +143,7 @@
   }
 
   async function forceStop() {
+    if (!confirm("确定要强制停止服务器吗？未保存的数据可能丢失。")) return;
     try {
       await invoke("force_stop_server");
     } catch (e: any) {

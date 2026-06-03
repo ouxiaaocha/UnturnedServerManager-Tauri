@@ -1,16 +1,15 @@
 {
   "name": "UnturnedServerManager-Tauri",
   "version": "2.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Unturned 专用服务器管理工具 — 基于 Tauri v2 + Svelte 5 + Rust 构建的现代化桌面面板",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1",
     "tauri": "tauri"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": ["unturned", "server-manager", "tauri", "rcon"],
+  "author": "UnturnedServerManager",
   "license": "ISC",
   "devEngines": {
     "packageManager": {

@@ -18,7 +18,7 @@
         appendOutput("[错误] 服务器正在运行中，请先停止服务器再更新");
         return;
       }
-    } catch {}
+    } catch (e) { console.error("检查服务器状态失败:", e); }
 
     updating = true;
     output = [];

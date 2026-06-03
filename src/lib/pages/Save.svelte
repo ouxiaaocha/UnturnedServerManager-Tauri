@@ -24,6 +24,7 @@
 
   let rconPort = $state(27115);
   let rconPassword = $state("");
+  let rconPasswordMasked = $state(false);
   let showRconPassword = $state(false);
 
   let plugins = $state<any[]>([]);
@@ -65,7 +66,7 @@
       }
       if (gen !== loadGeneration) return;
       await checkRocketStatus();
-    } catch {}
+    } catch (e) { console.error("加载存档失败:", e); }
   }
 
   async function checkRocketStatus() {
@@ -158,13 +159,14 @@
       cmdPerspective = info.perspective ?? "Both";
       cmdGslt = info.gslt ?? "";
       lastRawLines = info.raw_lines ?? [];
-    } catch {}
+    } catch (e) { console.error("读取 Commands.dat 失败:", e); }
     try {
       const rcon: any = await invoke("read_rocket_rcon_config", { saveId: selectedSaveId });
       if (gen !== loadGeneration) return;
       rconPort = rcon.port ?? 27115;
       rconPassword = rcon.password ?? "";
-    } catch {}
+      rconPasswordMasked = rcon.has_password && rconPassword.includes("*");
+    } catch (e) { console.error("读取 RCON 配置失败:", e); }
     if (gen === loadGeneration) loading = false;
   }
 
@@ -190,7 +192,8 @@
       await invoke("save_rocket_rcon_config", {
         saveId: selectedSaveId,
         port: rconPort,
-        password: rconPassword,
+        // 如果密码仍为掩码状态（用户未修改），发送空字符串表示保留原密码
+        password: rconPasswordMasked ? "" : rconPassword,
       });
       message = "配置已保存";
       clearTimeout(msgTimer);
@@ -213,7 +216,7 @@
       if (gen !== loadGeneration) return;
       plugins = p as any[];
       pluginNotes = n as Record<string, string>;
-    } catch {}
+    } catch (e) { console.error("加载插件失败:", e); }
     if (gen === loadGeneration) pluginsLoading = false;
   }
 
@@ -434,7 +437,7 @@
           onchange={onSaveChange}
           class="bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)] transition-colors cursor-pointer min-w-[200px]"
         >
-          {#each saves as save}
+          {#each saves as save (save.id)}
             <option value={save.id}>{save.id}{save.name ? ` - ${save.name}` : ''}</option>
           {/each}
         </select>
@@ -811,7 +814,7 @@
             </div>
           {:else}
             <div class="space-y-2 max-h-[400px] overflow-y-auto pr-1">
-              {#each workshopConfig.file_ids as modId, index}
+              {#each workshopConfig.file_ids as modId, index (modId)}
                 <div class="flex items-center gap-3 bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg p-3 hover:border-[var(--accent)] transition-all group">
                   <div class="w-8 h-8 rounded-lg bg-[var(--accent-subtle)] flex items-center justify-center flex-shrink-0">
                     <span class="text-xs font-medium text-[var(--accent-light)]">{index + 1}</span>
@@ -974,7 +977,7 @@
         </div>
       {:else}
         <div class="space-y-3">
-          {#each plugins as plugin}
+          {#each plugins as plugin (plugin.file_name)}
             <div class="bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg p-4 hover:border-[var(--accent)] transition-all">
               <div class="flex items-center gap-3 mb-3">
                 <div class="w-8 h-8 rounded-lg bg-[var(--accent-subtle)] flex items-center justify-center flex-shrink-0">

@@ -14,13 +14,23 @@ export function highlightText(text: string, query: string): string {
 }
 
 /**
- * Generate a cryptographically random password.
+ * Generate a cryptographically random password using rejection sampling to avoid modulo bias.
  */
 export function generatePassword(length = 16): string {
   const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*";
-  const arr = new Uint32Array(length);
-  crypto.getRandomValues(arr);
-  return Array.from(arr, v => chars[v % chars.length]).join("");
+  const limit = Math.floor(0x100000000 / chars.length) * chars.length;
+  let result = "";
+  while (result.length < length) {
+    const arr = new Uint32Array(length - result.length);
+    crypto.getRandomValues(arr);
+    for (const v of arr) {
+      if (v < limit) {
+        result += chars[v % chars.length];
+        if (result.length >= length) break;
+      }
+    }
+  }
+  return result;
 }
 
 /**

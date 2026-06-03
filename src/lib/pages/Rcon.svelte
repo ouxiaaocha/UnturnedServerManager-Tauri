@@ -35,7 +35,7 @@
         addRconLogs(lines, "response");
         scrollToBottom();
       }
-    } catch {}
+    } catch (e) { console.error("RCON 轮询失败:", e); }
   }
 
   async function connect() {

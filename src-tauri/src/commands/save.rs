@@ -516,6 +516,8 @@ impl Default for WorkshopDownloadConfig {
 pub struct RocketRconInfo {
     pub port: u16,
     pub password: String,
+    /// 密码是否已设置（非空）
+    pub has_password: bool,
 }
 
 #[tauri::command]
@@ -538,6 +540,7 @@ pub fn read_rocket_rcon_config(
         return Ok(RocketRconInfo {
             port: 27115,
             password: String::new(),
+            has_password: false,
         });
     }
 
@@ -566,7 +569,18 @@ pub fn read_rocket_rcon_config(
         }
     }
 
-    Ok(RocketRconInfo { port, password })
+    let has_password = !password.is_empty();
+    // 掩码处理：不将原始密码发送到前端
+    let masked = if has_password {
+        "*".repeat(password.len().min(8))
+    } else {
+        String::new()
+    };
+    Ok(RocketRconInfo {
+        port,
+        password: masked,
+        has_password,
+    })
 }
 
 #[tauri::command]
@@ -582,7 +596,20 @@ pub fn save_rocket_rcon_config(
         resolve_save_dir(&cfg, &save_id)?
     };
 
-    ConfigService::update_rocket_config(&server_root, &server_id, port, &password).map_err(
+    // 密码为空时表示保留原密码，从现有配置中读取
+    let actual_password = if password.is_empty() {
+        let cfg = config.lock().unwrap_or_else(|e| e.into_inner());
+        let servers_config = cfg.load_servers_config();
+        servers_config
+            .servers
+            .first()
+            .map(|p| p.rcon.password.clone())
+            .unwrap_or_default()
+    } else {
+        password.clone()
+    };
+
+    ConfigService::update_rocket_config(&server_root, &server_id, port, &actual_password).map_err(
         |e| {
             let ls = log.lock().unwrap_or_else(|e| e.into_inner());
             ls.log_app(&format!(
@@ -599,7 +626,7 @@ pub fn save_rocket_rcon_config(
         if let Some(profile) = servers_config.servers.first_mut() {
             if profile.id == server_id {
                 profile.rcon.port = port;
-                profile.rcon.password = password.clone();
+                profile.rcon.password = actual_password;
                 cfg.save_servers_config(&servers_config)?;
             }
         }

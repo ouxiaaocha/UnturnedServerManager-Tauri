@@ -165,7 +165,7 @@
             if (snap.output && snap.output.length > 0) {
               parseServerCode(snap.output);
             }
-          } catch {}
+          } catch (e) { console.error("获取服务器快照失败:", e); }
         }
       } else if (status !== "启动中") {
         // 服务器完全停止后清除信息
@@ -176,7 +176,7 @@
         serverInfo.codeParsed = false;
         snapshotRetries = 0;
       }
-    } catch {}
+    } catch (e) { console.error("刷新服务器状态失败:", e); }
   }
 
   async function refreshSystemStats() {
@@ -208,7 +208,7 @@
         prevNetUp = s.bytes_transmitted;
         lastPollTime = now;
       }
-    } catch {}
+    } catch (e) { console.error("刷新系统信息失败:", e); }
   }
 
   async function startServer() {

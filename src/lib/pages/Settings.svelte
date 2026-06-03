@@ -25,7 +25,7 @@
         steamCmdPath = s.steamCmdPath || "";
         serverRoot = s.serverRoot || "";
       }
-    } catch {}
+    } catch (e) { console.error("加载配置失败:", e); }
   }
 
   async function save() {

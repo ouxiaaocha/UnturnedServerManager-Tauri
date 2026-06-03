@@ -9,7 +9,7 @@
   let serverRoot = $state("");
   let serverId = $state("PEI");
   let rconPort = $state(27115);
-  let rconPassword = $state("changeme");
+  let rconPassword = $state(generatePassword(16));
   let error = $state("");
   let saving = $state(false);
   let detecting = $state(false);
@@ -325,7 +325,7 @@
     try {
       // 以第一个存档的 RCON 配置作为全局默认
       const firstId = existingSaves.length > 0 ? existingSaves[0].id : serverId;
-      const firstRcon = rconConfigMap[firstId] || { port: 27115, password: "changeme" };
+      const firstRcon = rconConfigMap[firstId] || { port: 27115, password: generatePassword(16) };
       await invoke("save_wizard_config", {
         steamCmdPath, serverRoot,
         serverId: firstId,

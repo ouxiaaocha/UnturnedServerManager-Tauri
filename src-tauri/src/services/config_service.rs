@@ -17,7 +17,11 @@ use std::collections::HashMap;
 pub(crate) fn atomic_write(path: &std::path::Path, content: &str) -> Result<(), String> {
     let tmp_path = path.with_extension("tmp");
     fs::write(&tmp_path, content).map_err(|e| format!("写入临时文件失败: {}", e))?;
-    fs::rename(&tmp_path, path).map_err(|e| format!("重命名失败: {}", e))?;
+    if let Err(e) = fs::rename(&tmp_path, path) {
+        // rename 失败时清理临时文件，避免残留
+        let _ = fs::remove_file(&tmp_path);
+        return Err(format!("重命名失败: {}", e));
+    }
     Ok(())
 }
 

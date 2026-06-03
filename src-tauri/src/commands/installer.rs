@@ -125,25 +125,8 @@ fn do_download_steamcmd_inner(
     emit(app, "[系统] 下载完成，正在解压...");
     fs::write(&zip_path, &bytes).map_err(|e| format!("写入失败: {}", e))?;
 
-    // 优先用 PowerShell 解压（更可靠）
-    let ps_result = Command::new("powershell")
-        .args([
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            &format!(
-                "Expand-Archive -Path '{}' -DestinationPath '{}' -Force",
-                zip_path.display(),
-                steamcmd_dir.display()
-            ),
-        ])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
-
-    if ps_result.map(|s| !s.success()).unwrap_or(true) {
-        // 备用方案：zip crate 解压
-        emit(app, "[系统] 备用解压方案...");
+    // 使用 zip crate 解压（安全，避免 PowerShell 命令注入风险）
+    {
         let zip_file = fs::File::open(&zip_path).map_err(|_| "zip 文件丢失".to_string())?;
         let mut archive = zip::ZipArchive::new(zip_file).map_err(|e| format!("读取 zip: {}", e))?;
         for i in 0..archive.len() {

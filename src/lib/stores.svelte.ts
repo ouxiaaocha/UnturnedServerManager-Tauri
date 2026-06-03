@@ -31,7 +31,7 @@ export async function loadSharedSaves() {
     const saves = await invoke("list_server_saves");
     sharedSaves.splice(0, sharedSaves.length, ...(saves as any[]));
     sharedSavesLoaded = true;
-  } catch {}
+  } catch (e) { console.error("加载存档列表失败:", e); }
 }
 
 // Shared app settings
@@ -46,7 +46,7 @@ export async function loadSharedSettings() {
     const settings: any = await invoke("get_app_settings");
     sharedSettings.autoUpdateHosting = !!settings.autoUpdateHosting;
     sharedSettings.loaded = true;
-  } catch {}
+  } catch (e) { console.error("加载应用设置失败:", e); }
 }
 
 // 服务器运行时信息（Dashboard 使用）

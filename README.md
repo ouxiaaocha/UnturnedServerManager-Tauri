@@ -191,7 +191,7 @@ src-tauri/
 
 | 工具 | 建议版本 |
 | --- | --- |
-| Node.js | 18 或更高 |
+| Node.js | 22 或更高 |
 | pnpm | 11 或更高 |
 | Rust | 1.77.2 或更高 |
 | Visual Studio Build Tools | C++ 桌面开发工作负载 |
