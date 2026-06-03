@@ -2,10 +2,14 @@
   declare const __APP_VERSION__: string;
 
   const capabilities = [
-    { label: "服务器控制", value: "启动 / 停止 / 重启" },
-    { label: "RCON 控制台", value: "远程命令与响应记录" },
-    { label: "存档管理", value: "Commands.dat / Rocket 配置" },
-    { label: "定时任务", value: "自动重启与维护窗口" },
+    { label: "仪表盘监控", value: "状态 / PID / CPU / 内存 / 网络" },
+    { label: "服务器控制", value: "启动 / 停止 / 重启 / 强制停止" },
+    { label: "RCON 控制台", value: "远程命令与自动连接" },
+    { label: "存档配置", value: "Commands.dat / GSLT / 地图 / 端口" },
+    { label: "创意工坊模组", value: "模组管理 / 备注 / 更新监控" },
+    { label: "插件管理", value: "Rocket 插件 / 配置目录" },
+    { label: "日志中心", value: "软件 / 操作 / 游戏日志" },
+    { label: "定时任务", value: "每日 / 每周 / 间隔重启" },
   ];
 
   const buildInfo = [

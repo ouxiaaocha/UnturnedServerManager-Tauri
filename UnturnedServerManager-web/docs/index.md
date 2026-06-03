@@ -48,6 +48,14 @@ features:
     title: 存档配置
     details: 管理 Commands.dat、Rocket RCON、PvE、作弊、GSLT、地图、端口和最大玩家数等配置。
     link: /features/save
+  - icon: 🔌
+    title: 插件管理
+    details: 查看 Rocket 插件目录，保存插件备注，快速打开插件配置目录。
+    link: /features/plugins
+  - icon: 🔄
+    title: 服务端更新
+    details: 调用 SteamCMD 更新 Unturned 服务端，实时显示更新输出。
+    link: /features/update
   - icon: 🚀
     title: 首次引导
     details: 自动检测/下载 SteamCMD，安装 Rocket 模块，初始化存档和 RCON，开箱即用。
