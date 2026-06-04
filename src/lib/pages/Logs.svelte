@@ -67,7 +67,7 @@
 <div class="flex flex-col gap-5">
   <div>
     <h1 class="text-2xl font-bold text-[var(--text-primary)]">日志中心</h1>
-    <p class="text-sm text-[var(--text-muted)] mt-1">查看系统、操作和游戏日志</p>
+    <p class="text-sm text-[var(--text-muted)] mt-1">查看软件、操作和游戏日志</p>
   </div>
 
   <!-- Filter Bar -->

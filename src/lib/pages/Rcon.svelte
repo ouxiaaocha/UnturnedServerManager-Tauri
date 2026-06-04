@@ -127,7 +127,7 @@
 <div class="flex flex-col gap-5">
   <div>
     <h1 class="text-2xl font-bold text-[var(--text-primary)]">RCON 控制台</h1>
-    <p class="text-sm text-[var(--text-muted)] mt-1">远程控制台管理</p>
+    <p class="text-sm text-[var(--text-muted)] mt-1">远程服务器命令控制</p>
   </div>
 
   <!-- Connection Status -->
@@ -203,7 +203,7 @@
     <div bind:this={logContainer} class="flex-1 overflow-y-auto p-4 font-mono text-xs leading-6">
       {#if rconLogs.length === 0}
         <div class="flex items-center justify-center h-full text-[var(--text-muted)]">
-          <p class="italic">连接 RCON 后可发送命令...</p>
+          <p class="italic">连接后发送命令...</p>
         </div>
       {:else}
         {#if logSearch && filteredLogs.length === 0}

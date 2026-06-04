@@ -105,7 +105,7 @@
     try {
       environmentReport = await invoke("check_runtime_environment", { includeSteamTest }) as EnvironmentReport;
       if (includeSteamTest) {
-        toastStore.success(environmentReport.ok ? "完整检测完成，核心运行条件正常" : "完整检测完成，请查看异常项");
+        toastStore.success(environmentReport.ok ? "检测完成，运行条件正常" : "检测完成，请查看异常项");
       }
     } catch (e: any) {
       toastStore.error(`运行环境检测失败: ${e}`);
@@ -258,7 +258,7 @@
               placeholder="C:\SteamCMD\steamcmd.exe"
               class="w-full border-0 bg-transparent p-0 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none"
             />
-            <span class="mt-2 block text-[11px] text-[var(--danger)]">路径不要包含中文字符，避免 SteamCMD 或服务端启动异常。</span>
+            <span class="mt-2 block text-[11px] text-[var(--danger)]">路径避免中文，防止启动异常</span>
           </div>
           <div class="block rounded-xl border border-[var(--border)] bg-[var(--bg-primary)]/65 p-4 transition-all duration-[var(--transition-normal)] focus-within:border-[var(--accent)] focus-within:bg-white">
             <div class="mb-2 flex items-center justify-between gap-3">
@@ -275,7 +275,7 @@
               placeholder="C:\SteamCMD\steamapps\common\U3DS"
               class="w-full border-0 bg-transparent p-0 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none"
             />
-            <span class="mt-2 block text-[11px] text-[var(--danger)]">目录内应能找到 Unturned.exe，且路径不要包含中文字符。</span>
+            <span class="mt-2 block text-[11px] text-[var(--danger)]">需包含 Unturned.exe，路径避免中文</span>
           </div>
         </div>
       </section>
@@ -327,7 +327,7 @@
               <p class="mt-2 text-2xl font-bold text-[var(--text-primary)]">{environmentTotalCount ? `${environmentReadyCount}/${environmentTotalCount}` : "--"}</p>
             </div>
             <div class="rounded-xl border border-[var(--border)] bg-[var(--bg-primary)]/70 p-4">
-              <p class="text-[11px] text-[var(--text-muted)]">SteamCMD 网络</p>
+              <p class="text-[11px] text-[var(--text-muted)]">SteamCMD</p>
               <p class="mt-2 text-sm font-bold {steamConnectivityItem?.ok ? 'text-[var(--success)]' : 'text-[var(--text-secondary)]'}">
                 {steamConnectivityItem ? (steamConnectivityItem.ok ? "可用" : "待测试") : "未测试"}
               </p>
@@ -374,7 +374,7 @@
             </div>
           {:else}
             <div class="rounded-xl border border-dashed border-[var(--border-hover)] bg-[var(--bg-primary)]/60 p-5 text-sm text-[var(--text-muted)]">
-              暂无检测结果。保存路径后，点击“快速检测”即可检查本机运行条件。
+              保存路径后点击「快速检测」检查运行条件
             </div>
           {/if}
         </div>

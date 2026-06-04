@@ -79,7 +79,7 @@
   <div class="flex flex-wrap items-center justify-between gap-3 flex-shrink-0">
     <div>
       <h1 class="text-2xl font-bold text-[var(--text-primary)]">定时任务</h1>
-      <p class="text-sm text-[var(--text-muted)] mt-1">配置自动重启计划</p>
+      <p class="text-sm text-[var(--text-muted)] mt-1">设置自动重启</p>
     </div>
     <button
       class="px-5 py-2.5 bg-gradient-to-r from-[var(--accent)] to-cyan-600 hover:from-cyan-500 hover:to-[var(--accent)] text-[var(--text-primary)] text-sm font-medium rounded-lg transition-all duration-[var(--transition-normal)] cursor-pointer flex items-center gap-2"
@@ -155,7 +155,7 @@
         <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>
-        重启前会在 30、10、5、1 分钟时发送公告
+        提前 30/10/5/1 分钟公告
       </p>
     </div>
   {/if}
@@ -168,7 +168,7 @@
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>
         <p class="text-sm">暂无定时任务</p>
-        <p class="text-xs mt-1">点击"添加任务"创建</p>
+        <p class="text-xs mt-1">点击上方按钮创建</p>
       </div>
     {:else}
       <div class="space-y-3">

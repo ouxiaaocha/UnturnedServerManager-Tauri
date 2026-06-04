@@ -400,7 +400,7 @@
   <div class="flex flex-wrap items-center justify-between gap-3 mb-6">
     <div>
       <h1 class="text-2xl font-bold text-[var(--text-primary)]">存档管理</h1>
-      <p class="text-sm text-[var(--text-muted)] mt-1">管理服务器存档配置与插件</p>
+      <p class="text-sm text-[var(--text-muted)] mt-1">存档配置、模组与插件</p>
     </div>
   </div>
 
@@ -435,14 +435,14 @@
     <!-- Init New Save Panel -->
     {#if showInitPanel}
       <div class="mt-4 pt-4 border-t border-[var(--border)]">
-        <p class="text-xs text-[var(--text-muted)] mb-3">创建新的服务器存档。服务端会自动启动并生成世界数据和配置文件。</p>
+        <p class="text-xs text-[var(--text-muted)] mb-3">创建新存档，自动生成世界数据和配置文件</p>
         <div class="flex flex-col items-stretch gap-3 sm:flex-row sm:items-end">
           <div class="flex-1">
             <span class="block text-xs text-[var(--text-muted)] mb-1.5">存档名称</span>
             <input type="text" bind:value={newSaveName} placeholder="Server"
               disabled={initRunning || initDone}
               class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors disabled:opacity-50" />
-            <p class="text-[10px] text-[var(--danger)] mt-1">不能包含中文字符和特殊符号</p>
+            <p class="text-[10px] text-[var(--danger)] mt-1">仅支持英文、数字和下划线</p>
           </div>
           <button
             class="px-5 py-2 bg-gradient-to-r from-[var(--success)] to-emerald-600 hover:from-emerald-500 hover:to-[var(--success)] text-[var(--text-primary)] text-sm font-medium rounded-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2 flex-shrink-0"
@@ -484,9 +484,9 @@
         <svg class="w-5 h-5 text-[var(--warning)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
         </svg>
-        <span class="text-sm text-[var(--warning)] font-medium">存档 "{selectedSaveId}" 缺少 Rocket 配置</span>
+        <span class="text-sm text-[var(--warning)] font-medium">存档缺少 Rocket 配置</span>
       </div>
-      <p class="text-xs text-[var(--text-secondary)] mb-3">RCON 和插件功能需要 Rocket 配置文件。运行一次服务端来自动生成。</p>
+      <p class="text-xs text-[var(--text-secondary)] mb-3">运行一次服务端可自动生成 Rocket 配置</p>
       <div class="flex items-center gap-3">
         <button
           class="px-5 py-2 bg-gradient-to-r from-[var(--warning)] to-amber-600 hover:from-amber-500 hover:to-[var(--warning)] text-[var(--text-primary)] text-sm font-medium rounded-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2"
@@ -689,14 +689,14 @@
         </div>
         <div class="mt-4 px-4 py-3 rounded-lg bg-[var(--bg-primary)] border border-[var(--border)] text-xs text-[var(--text-muted)]">
           <svg class="w-4 h-4 inline mr-1 text-[var(--accent-light)]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-          每个存档有独立的 RCON 配置，修改后点击下方「保存配置」同步保存。
+          每个存档独立配置，修改后点击"保存配置"
         </div>
       {/if}
     </div>
 
     <div class="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <div>
-        <p class="text-xs text-[var(--text-muted)]">保存会同时同步 Commands.dat 与当前存档的 RCON 配置。</p>
+        <p class="text-xs text-[var(--text-muted)]">同时保存服务器和 RCON 配置</p>
       </div>
       <button
         class="px-6 py-2.5 bg-gradient-to-r from-[var(--accent)] to-blue-600 hover:from-blue-500 hover:to-[var(--accent)] text-[var(--text-primary)] text-sm font-medium rounded-lg transition-all cursor-pointer flex items-center justify-center gap-2 shadow-lg disabled:opacity-40 disabled:cursor-not-allowed"
@@ -776,7 +776,7 @@
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
               </svg>
               <p class="text-[var(--text-muted)] text-sm">暂无模组</p>
-              <p class="text-[var(--text-muted)] text-xs mt-1">在上方输入创意工坊 ID 添加模组</p>
+              <p class="text-[var(--text-muted)] text-xs mt-1">输入创意工坊 ID 添加</p>
             </div>
           {:else}
             <div class="space-y-2 max-h-[400px] overflow-y-auto pr-1">
@@ -888,7 +888,7 @@
 
         <!-- Save Button -->
         <div class="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <p class="text-xs text-[var(--text-muted)]">配置将保存到 WorkshopDownloadConfig.json</p>
+          <p class="text-xs text-[var(--text-muted)]">保存到 WorkshopDownloadConfig.json</p>
           <button
             class="px-6 py-2.5 bg-gradient-to-r from-[var(--accent)] to-blue-600 hover:from-blue-500 hover:to-[var(--accent)] text-[var(--text-primary)] text-sm font-medium rounded-lg transition-all cursor-pointer flex items-center justify-center gap-2 shadow-lg disabled:opacity-40 disabled:cursor-not-allowed"
             onclick={saveWorkshopConfig}
@@ -939,7 +939,7 @@
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
           </svg>
           <p class="text-[var(--text-muted)] text-sm">未找到插件</p>
-          <p class="text-[var(--text-muted)] text-xs mt-1">请确认 Rocket 插件已安装到 Rocket/Plugins 目录</p>
+          <p class="text-[var(--text-muted)] text-xs mt-1">请将插件放入 Rocket/Plugins 目录</p>
         </div>
       {:else}
         <div class="space-y-3">

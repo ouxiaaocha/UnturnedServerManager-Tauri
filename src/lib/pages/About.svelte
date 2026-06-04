@@ -37,7 +37,7 @@
             <div class="min-w-0">
               <p class="text-xs font-semibold uppercase tracking-wider text-[var(--accent-light)]">Unturned Server Manager</p>
               <h2 class="mt-1 text-2xl font-bold leading-tight text-[var(--text-primary)]">Unturned 服务器管理工具</h2>
-              <p class="mt-2 max-w-2xl text-sm text-[var(--text-secondary)]">面向单机部署和轻量运维的桌面控制台，把服务端启动、RCON、存档、插件、更新和定时任务收在一个工作台里。</p>
+              <p class="mt-2 max-w-2xl text-sm text-[var(--text-secondary)]">一站式 Unturned 服务器管理，集成启动、RCON、存档、插件、更新与定时任务</p>
             </div>
           </div>
           <div class="flex shrink-0 items-center gap-2 rounded-lg border border-[var(--border-accent)] bg-white/70 px-3 py-2 text-xs font-medium text-[var(--accent-light)]">

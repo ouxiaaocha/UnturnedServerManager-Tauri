@@ -64,7 +64,7 @@
 
       if (missing) {
         await message(
-          `检测到运行条件不完整，请到“设置”页面处理：\n\n${missing}`,
+            `运行条件不完整，请前往”设置”处理：\n\n${missing}`,
           { title: "运行环境检测", kind: "warning" },
         );
       }

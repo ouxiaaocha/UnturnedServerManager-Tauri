@@ -176,7 +176,7 @@
   <div class="flex flex-wrap items-center justify-between gap-3 flex-shrink-0">
     <div>
       <h1 class="text-2xl font-bold text-[var(--text-primary)]">服务器控制</h1>
-      <p class="text-sm text-[var(--text-muted)] mt-1">管理 Unturned 服务器实例</p>
+      <p class="text-sm text-[var(--text-muted)] mt-1">启动、停止、重启服务器</p>
     </div>
     <div class="flex items-center gap-3 px-4 py-2 rounded-lg bg-[var(--bg-card)] border border-[var(--border)]">
       <div class="w-2.5 h-2.5 rounded-full {status === '运行中' ? 'bg-[var(--success)] animate-pulse' : status === '错误' ? 'bg-[var(--danger)]' : 'bg-[var(--text-muted)]'}"></div>
@@ -351,7 +351,7 @@
       <input
         type="text"
         bind:value={localCommand}
-        placeholder="输入本地服务器命令，例如 Save 或 Say hello..."
+        placeholder="输入命令，如 Save 或 Say hello"
         class="w-full bg-[var(--bg-card)] border border-[var(--border)] rounded-lg px-4 py-3 pr-11 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors duration-[var(--transition-normal)] font-mono disabled:opacity-50 disabled:cursor-not-allowed"
         disabled={status !== '运行中' || loading !== ''}
         aria-label="本地服务器命令"

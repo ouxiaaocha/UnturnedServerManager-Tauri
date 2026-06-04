@@ -279,7 +279,7 @@
   <div class="flex flex-wrap items-center justify-between gap-3 mb-8">
     <div>
       <h1 class="text-2xl font-bold text-[var(--text-primary)]">仪表盘</h1>
-      <p class="text-sm text-[var(--text-muted)] mt-1">服务器状态概览与系统监控</p>
+      <p class="text-sm text-[var(--text-muted)] mt-1">服务器运行状态与系统资源</p>
     </div>
     <div class="flex items-center gap-2 px-4 py-2 rounded-lg bg-[var(--bg-card)] border border-[var(--border)]">
       <div class="w-2 h-2 rounded-full {status === '运行中' ? 'bg-[var(--success)] animate-pulse' : status === '错误' ? 'bg-[var(--danger)]' : 'bg-[var(--text-muted)]'}"></div>
@@ -390,7 +390,7 @@
           </button>
         </div>
         <p class="text-xs text-[var(--text-muted)] mt-2">
-          拥有公网 IP 的玩家可直接通过 IP:端口连接；若无公网 IP，需使用组网工具（如 ZeroTier、Radmin VPN）方可联机。
+          有公网 IP 可直连，否则需组网工具（ZeroTier / Radmin VPN）
         </p>
       </div>
 
@@ -398,7 +398,7 @@
       <div class="mt-5 pt-5 border-t border-[var(--border)]">
         <div class="flex items-center justify-between">
           <div class="flex-1 min-w-0">
-            <p class="text-xs text-[var(--text-muted)] mb-1">联机码 (Server Code)</p>
+            <p class="text-xs text-[var(--text-muted)] mb-1">联机码</p>
             <p class="text-lg font-mono font-bold text-[var(--text-primary)] truncate">
               {serverInfo.serverCode || '等待服务器输出...'}
             </p>
@@ -517,7 +517,7 @@
         </div>
       </div>
       <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
-        <span class="text-xs text-[var(--text-muted)]">自动更新托管:</span>
+        <span class="text-xs text-[var(--text-muted)]">自动更新:</span>
         <button
           type="button"
           role="switch"
