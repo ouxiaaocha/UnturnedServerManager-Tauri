@@ -5,8 +5,8 @@ export default defineConfig({
   title: 'Unturned Server Manager',
   description: '清新、轻量、便携的 Unturned 专用服务器管理工具',
 
-  // GitHub Pages 部署路径
-  base: '/UnturnedServerManager-Tauri/',
+  // GitHub Pages 部署路径（自定义域名使用根路径）
+  base: '/',
 
   // 主题配置
   themeConfig: {
