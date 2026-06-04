@@ -16,18 +16,11 @@ pub struct SystemMonitor {
 
 impl SystemMonitor {
     pub fn new() -> Self {
-        let mut system = System::new();
-        system.refresh_cpu_all();
-        system.refresh_memory();
-
-        let networks = Networks::new_with_refreshed_list();
-        let (initial_received, initial_transmitted) = Self::sum_network_bytes(&networks);
-
         Self {
-            system,
-            networks,
-            initial_bytes_received: initial_received,
-            initial_bytes_transmitted: initial_transmitted,
+            system: System::new(),
+            networks: Networks::new(),
+            initial_bytes_received: 0,
+            initial_bytes_transmitted: 0,
             last_refresh: None,
             cached_stats: None,
         }
@@ -36,7 +29,12 @@ impl SystemMonitor {
     fn refresh(&mut self) {
         self.system.refresh_cpu_all();
         self.system.refresh_memory();
-        self.networks.refresh(false);
+        self.networks.refresh(self.last_refresh.is_none());
+        let (total_received, total_transmitted) = Self::sum_network_bytes(&self.networks);
+        if self.last_refresh.is_none() {
+            self.initial_bytes_received = total_received;
+            self.initial_bytes_transmitted = total_transmitted;
+        }
         self.last_refresh = Some(Instant::now());
         self.cached_stats = Some(self.compute_stats());
     }

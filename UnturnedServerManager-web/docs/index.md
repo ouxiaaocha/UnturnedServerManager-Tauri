@@ -4,7 +4,7 @@ layout: home
 hero:
   name: "Unturned Server Manager"
   text: "清新 · 轻量 · 便携"
-  tagline: 基于 Tauri v2 + Svelte 5 + Rust 构建的 Unturned 专用服务器管理工具，把服务端启动、RCON、存档、创意工坊模组、插件、更新、日志和定时任务集中到一个现代化桌面面板里。
+  tagline: 基于 Tauri v2 + Svelte 5 + Rust 构建的 Unturned 专用服务器管理工具，把服务端启动、本地命令控制、RCON、存档、创意工坊模组、插件、更新、日志和定时任务集中到一个现代化桌面面板里。
   image:
     src: /hero.png
     alt: Unturned Server Manager
@@ -22,15 +22,15 @@ hero:
 features:
   - icon: 🖥️
     title: 仪表盘监控
-    details: 实时查看服务器状态、PID、运行时间、CPU、内存、网络流量，支持快速启动、停止、重启操作。
+    details: 实时查看服务器状态、PID、运行时间、CPU、内存、网络流量，支持通过本地命令快速启动、停止、重启。
     link: /features/dashboard
   - icon: 🎮
     title: 服务器控制
-    details: 一键启动、停止、重启、强制停止，支持实时日志输出、日志搜索、局域网/互联网模式切换。
+    details: 一键启动、停止、重启、强制停止，支持本地命令输入、实时日志输出、日志搜索、局域网/互联网模式切换。
     link: /features/server
   - icon: 🔧
     title: RCON 远程管理
-    details: 连接 Rocket RCON 远程管理服务器，发送命令并接收响应，服务器启动后可自动连接。
+    details: RCON 作为额外远程功能保留，可连接 Rocket RCON 发送命令并接收响应。
     link: /features/rcon
   - icon: 📦
     title: 创意工坊模组
@@ -54,11 +54,11 @@ features:
     link: /features/plugins
   - icon: 🔄
     title: 服务端更新
-    details: 调用 SteamCMD 更新 Unturned 服务端，实时显示更新输出。
+    details: 调用 SteamCMD 更新 Unturned 服务端，实时显示 SteamCMD 自更新、服务端校验和安装输出。
     link: /features/update
   - icon: 🚀
     title: 首次引导
-    details: 自动检测/下载 SteamCMD，安装 Rocket 模块，初始化存档和 RCON，开箱即用。
+    details: 自动检测/下载 SteamCMD，安装 Rocket 模块，初始化存档、RCON 和本地命令 Bridge，开箱即用。
     link: /features/wizard
 ---
 
@@ -69,9 +69,9 @@ features:
     <p>面向长期运行的 Unturned 服务器，把日常维护动作压缩到少量高频入口。</p>
   </div>
   <div class="console-panel">
-    <span class="console-kicker">RCON & Saves</span>
-    <strong>远程命令、存档配置、插件目录快速衔接</strong>
-    <p>减少在多个目录、配置文件和控制台窗口之间来回切换。</p>
+    <span class="console-kicker">Local Bridge & Saves</span>
+    <strong>本地命令、存档配置、插件目录快速衔接</strong>
+    <p>常用控制命令走本地 Bridge，RCON 只作为额外远程入口保留。</p>
   </div>
   <div class="console-panel">
     <span class="console-kicker">Automation</span>

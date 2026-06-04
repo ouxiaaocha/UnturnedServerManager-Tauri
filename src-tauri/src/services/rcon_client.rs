@@ -1,7 +1,7 @@
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpStream;
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 /// RCON 响应缓冲区最大条目数，超过后裁剪旧数据
@@ -44,8 +44,12 @@ impl RconClient {
         )
         .map_err(|e| format!("连接失败: {}", e))?;
 
-        raw_stream.set_read_timeout(Some(Duration::from_secs(1))).ok();
-        raw_stream.set_write_timeout(Some(Duration::from_secs(2))).ok();
+        raw_stream
+            .set_read_timeout(Some(Duration::from_secs(1)))
+            .ok();
+        raw_stream
+            .set_write_timeout(Some(Duration::from_secs(2)))
+            .ok();
 
         let shared_stream = Arc::new(Mutex::new(raw_stream));
         self.stream = Some(Arc::clone(&shared_stream));
@@ -65,7 +69,10 @@ impl RconClient {
         for _ in 0..10 {
             std::thread::sleep(Duration::from_millis(50));
             if let Some(line) = self.try_read_line_from(&shared_stream) {
-                if line.contains("Invalid") || line.contains("not logged in") || line.contains("incorrect") {
+                if line.contains("Invalid")
+                    || line.contains("not logged in")
+                    || line.contains("incorrect")
+                {
                     self.disconnect();
                     return Err("密码错误".to_string());
                 }
@@ -110,7 +117,8 @@ impl RconClient {
 
         // 读取线程用阻塞模式，设短超时以便定期发送心跳
         if let Ok(s) = shared_stream.lock() {
-            s.set_read_timeout(Some(Duration::from_secs(HEARTBEAT_INTERVAL_SECS))).ok();
+            s.set_read_timeout(Some(Duration::from_secs(HEARTBEAT_INTERVAL_SECS)))
+                .ok();
         }
         alive.store(true, Ordering::SeqCst);
 
@@ -143,7 +151,10 @@ impl RconClient {
                         // EOF，连接已关闭
                         break;
                     }
-                    Err(ref e) if e.kind() == std::io::ErrorKind::TimedOut || e.kind() == std::io::ErrorKind::WouldBlock => {
+                    Err(ref e)
+                        if e.kind() == std::io::ErrorKind::TimedOut
+                            || e.kind() == std::io::ErrorKind::WouldBlock =>
+                    {
                         // 读取超时 = 心跳间隔到了，发送空 say 保持连接
                         if let Ok(mut stream) = shared_stream.lock() {
                             let _ = stream.write_all(b"say \n");
@@ -161,7 +172,8 @@ impl RconClient {
     fn write_line_to(&self, stream: &Arc<Mutex<TcpStream>>, text: &str) -> Result<(), String> {
         let mut s = stream.lock().map_err(|_| "连接锁中毒".to_string())?;
         let data = format!("{}\n", text);
-        s.write_all(data.as_bytes()).map_err(|e| format!("发送失败: {}", e))?;
+        s.write_all(data.as_bytes())
+            .map_err(|e| format!("发送失败: {}", e))?;
         s.flush().map_err(|e| format!("flush 失败: {}", e))?;
         Ok(())
     }

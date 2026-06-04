@@ -70,7 +70,6 @@ export const serverState = $state({
   uptime: "--",
   loading: "" as "" | "starting" | "stopping" | "restarting",
   outputIndex: 0,
-  isStarting: false,
 });
 
 /** 服务器输出日志 */
@@ -92,10 +91,17 @@ export function appendServerLogs(lines: string[]) {
   }
 }
 
-/** 刷新服务器状态（供 Dashboard 和 Server 页面共享） */
-export async function refreshServerStatus(): Promise<boolean> {
+/** 刷新服务器状态（供 Dashboard 和 Server 页面共享），返回本次新增输出 */
+export async function refreshServerStatus(): Promise<string[]> {
   try {
-    const s: any = await invoke("get_server_snapshot", { fromIndex: serverState.outputIndex });
+    let s: any = await invoke("get_server_snapshot", { fromIndex: serverState.outputIndex });
+
+    // 重启后后端输出缓冲会重新计数；检测到计数回退时，从新进程的起点重新同步。
+    if (s.output_count < serverState.outputIndex) {
+      serverState.outputIndex = 0;
+      s = await invoke("get_server_snapshot", { fromIndex: 0 });
+    }
+
     serverState.status = s.state;
     serverState.pid = s.pid ? String(s.pid) : "--";
 
@@ -109,15 +115,14 @@ export async function refreshServerStatus(): Promise<boolean> {
       serverState.uptime = "--";
     }
 
-    // 处理新输出
-    if (!serverState.isStarting && s.output_count > serverState.outputIndex) {
+    if (s.output_count > serverState.outputIndex) {
       const newLines = (s.output ?? []) as string[];
       appendServerLogs(newLines);
       serverState.outputIndex = s.output_count;
-      return true; // 有新输出
+      return newLines;
     }
-    return false;
+    return [];
   } catch {
-    return false;
+    return [];
   }
 }

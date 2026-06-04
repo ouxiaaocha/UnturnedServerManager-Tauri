@@ -123,9 +123,7 @@ impl ProcessManager {
     }
 
     pub fn uptime_secs(&self) -> u64 {
-        self.start_time
-            .map(|t| t.elapsed().as_secs())
-            .unwrap_or(0)
+        self.start_time.map(|t| t.elapsed().as_secs()).unwrap_or(0)
     }
 
     pub fn start(&mut self, profile: &ServerProfile) -> Result<(), String> {
@@ -161,8 +159,7 @@ impl ProcessManager {
         #[cfg(windows)]
         cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
 
-        let child = cmd.spawn()
-            .map_err(|e| format!("启动失败: {}", e))?;
+        let child = cmd.spawn().map_err(|e| format!("启动失败: {}", e))?;
 
         // Store child and set state BEFORE spawning reader threads
         self.child = Some(child);
@@ -233,6 +230,14 @@ impl ProcessManager {
         Ok(())
     }
 
+    pub fn record_sent_command(&self, command: &str) {
+        push_output_line(&self.output_buffer, format!("[命令] > {}", command));
+    }
+
+    pub fn record_system_message(&self, message: &str) {
+        push_output_line(&self.output_buffer, format!("[系统] {}", message));
+    }
+
     pub fn get_new_output(&self, from_index: usize) -> Vec<String> {
         let buffer = self.output_buffer.lock().unwrap_or_else(|e| e.into_inner());
         buffer.new_lines(from_index)
@@ -249,6 +254,17 @@ impl ProcessManager {
         let mut buffer = self.output_buffer.lock().unwrap_or_else(|e| e.into_inner());
         buffer.compact(retain_lines)
     }
+}
+
+pub fn normalize_server_command(command: &str) -> Result<&str, String> {
+    if command.contains('\n') || command.contains('\r') {
+        return Err("命令不能包含换行".to_string());
+    }
+    let command = command.trim();
+    if command.is_empty() {
+        return Err("命令不能为空".to_string());
+    }
+    Ok(command)
 }
 
 pub fn start_output_cache_maintenance(
@@ -348,7 +364,10 @@ mod tests {
 
         assert!(buffer.start_index > 0);
         assert_eq!(buffer.total_count(), OUTPUT_RETAIN_LINES + 1);
-        assert_eq!(buffer.lines.len(), OUTPUT_RETAIN_LINES + 1 - OUTPUT_TRIM_BATCH);
+        assert_eq!(
+            buffer.lines.len(),
+            OUTPUT_RETAIN_LINES + 1 - OUTPUT_TRIM_BATCH
+        );
     }
 
     #[test]
@@ -362,5 +381,22 @@ mod tests {
 
         assert_eq!(lines.first().unwrap(), "line 100");
         assert_eq!(lines.last().unwrap(), "line 1000");
+    }
+
+    #[test]
+    fn validate_server_command_rejects_empty_input() {
+        assert_eq!(normalize_server_command("  ").unwrap_err(), "命令不能为空");
+    }
+
+    #[test]
+    fn validate_server_command_rejects_multiline_input() {
+        assert_eq!(
+            normalize_server_command("Save\nShutdown").unwrap_err(),
+            "命令不能包含换行"
+        );
+        assert_eq!(
+            normalize_server_command("Save\rShutdown").unwrap_err(),
+            "命令不能包含换行"
+        );
     }
 }

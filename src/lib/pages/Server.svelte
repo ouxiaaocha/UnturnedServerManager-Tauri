@@ -27,6 +27,11 @@
   let selectedSaveId = $state("");
   let autoUpdateSaving = $state(false);
   let autoUpdateMessage = $state("");
+  let localCommand = $state("");
+  let localCommandSending = $state(false);
+  let canSendLocalCommand = $derived(
+    status === "运行中" && loading === "" && localCommand.trim() !== "" && !localCommandSending
+  );
 
   // 轮询管理器
   const poller = createPoller({
@@ -64,8 +69,8 @@
     if (polling) return;
     polling = true;
     try {
-      const hasNewOutput = await refreshServerStatus();
-      if (hasNewOutput) {
+      const newLines = await refreshServerStatus();
+      if (newLines.length > 0) {
         if (!firstLoadDone) {
           firstLoadDone = true;
           isNearBottom = true;
@@ -82,19 +87,17 @@
 
   async function startServer() {
     serverState.loading = "starting";
-    serverState.isStarting = true;
+    clearServerLogs();
+    firstLoadDone = false;
+    isNearBottom = true;
     try {
       await invoke("start_server", {
         saveId: selectedSaveId || null,
         launchMode: appState.launchMode,
       });
-      clearServerLogs();
-      firstLoadDone = false;
-      isNearBottom = true;
     } catch (e: any) {
       serverLogs.push({ text: `[错误] ${e}`, level: "error" });
     }
-    serverState.isStarting = false;
     serverState.loading = "";
   }
 
@@ -110,19 +113,15 @@
 
   async function restartServer() {
     serverState.loading = "restarting";
-    serverState.isStarting = true;
+    isNearBottom = true;
     try {
       await invoke("restart_server", {
         saveId: selectedSaveId || null,
         launchMode: appState.launchMode,
       });
-      clearServerLogs();
-      firstLoadDone = false;
-      isNearBottom = true;
     } catch (e: any) {
       serverLogs.push({ text: `[错误] ${e}`, level: "error" });
     }
-    serverState.isStarting = false;
     serverState.loading = "";
   }
 
@@ -132,6 +131,25 @@
       await invoke("force_stop_server");
     } catch (e: any) {
       serverLogs.push({ text: `[错误] ${e}`, level: "error" });
+    }
+  }
+
+  async function sendLocalCommand() {
+    const command = localCommand.trim();
+    if (!canSendLocalCommand || !command) return;
+
+    localCommandSending = true;
+    try {
+      await invoke("send_server_command", { command });
+      localCommand = "";
+      isNearBottom = true;
+      await refreshStatus();
+      scrollBottom(logContainer);
+    } catch (e: any) {
+      serverLogs.push({ text: `[错误] 本地命令发送失败: ${e}`, level: "error" });
+      scrollBottom(logContainer);
+    } finally {
+      localCommandSending = false;
     }
   }
 
@@ -326,5 +344,39 @@
       {/if}
     </div>
   </div>
-</div>
 
+  <!-- Local Command Input -->
+  <form class="flex gap-3 flex-shrink-0" onsubmit={(e) => { e.preventDefault(); sendLocalCommand(); }}>
+    <div class="flex-1 relative">
+      <input
+        type="text"
+        bind:value={localCommand}
+        placeholder="输入本地服务器命令，例如 Save 或 Say hello..."
+        class="w-full bg-[var(--bg-card)] border border-[var(--border)] rounded-lg px-4 py-3 pr-11 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors duration-[var(--transition-normal)] font-mono disabled:opacity-50 disabled:cursor-not-allowed"
+        disabled={status !== '运行中' || loading !== ''}
+        aria-label="本地服务器命令"
+      />
+      <div class="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+        </svg>
+      </div>
+    </div>
+    <button
+      type="submit"
+      class="px-6 py-3 bg-gradient-to-r from-[var(--accent)] to-cyan-600 hover:from-cyan-500 hover:to-[var(--accent)] text-[var(--text-primary)] text-sm font-medium rounded-lg transition-all duration-[var(--transition-normal)] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2"
+      disabled={!canSendLocalCommand}
+      title="发送到本地服务器控制台"
+    >
+      {#if localCommandSending}
+        <div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+        发送中...
+      {:else}
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+        </svg>
+        发送
+      {/if}
+    </button>
+  </form>
+</div>

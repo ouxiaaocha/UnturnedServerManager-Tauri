@@ -1,6 +1,7 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
-  import { open } from "@tauri-apps/plugin-shell";
+  import { open as openDialog } from "@tauri-apps/plugin-dialog";
+  import { open as openShell } from "@tauri-apps/plugin-shell";
   import { toastStore } from "../stores/toast.svelte";
 
   declare const __APP_VERSION__: string;
@@ -9,7 +10,31 @@
   let steamCmdPath = $state("");
   let serverRoot = $state("");
   let saving = $state(false);
-  let existingConfig: any = null;
+  let existingConfig = $state<any>(null);
+
+  // --- 运行环境检测状态 ---
+  type EnvironmentItem = {
+    key: string;
+    label: string;
+    ok: boolean;
+    required: boolean;
+    message: string;
+    path?: string;
+  };
+  type EnvironmentReport = {
+    ok: boolean;
+    saveId?: string;
+    items: EnvironmentItem[];
+  };
+  let environmentReport = $state<EnvironmentReport | null>(null);
+  let environmentChecking = $state(false);
+  let environmentFullChecking = $state(false);
+  let environmentRepairing = $state("");
+  let requiredEnvironmentItems = $derived(environmentReport?.items?.filter((item) => item.required) || []);
+  let failedEnvironmentItems = $derived(requiredEnvironmentItems.filter((item) => !item.ok));
+  let environmentReadyCount = $derived(requiredEnvironmentItems.filter((item) => item.ok).length);
+  let environmentTotalCount = $derived(requiredEnvironmentItems.length);
+  let steamConnectivityItem = $derived(environmentReport?.items?.find((item) => item.key === "steamcmd_connectivity"));
 
   // --- 更新检测状态 ---
   type CheckStatus = "idle" | "checking" | "has_update" | "up_to_date" | "error";
@@ -26,6 +51,7 @@
         steamCmdPath = s.steamCmdPath || "";
         serverRoot = s.serverRoot || "";
       }
+      await checkEnvironment(false);
     } catch (e) { console.error("加载配置失败:", e); }
   }
 
@@ -40,10 +66,66 @@
       // save_config 期望 ServersConfig 结构体，包含 servers 数组
       await invoke("save_config", { servers: { servers: [server] } });
       toastStore.success("保存成功");
+      await checkEnvironment(false);
     } catch (e: any) {
       toastStore.error(`保存失败: ${e}`);
     }
     saving = false;
+  }
+
+  async function browseSteamCmdPath() {
+    const selected = await openDialog({
+      title: "选择 steamcmd.exe",
+      multiple: false,
+      directory: false,
+      filters: [{ name: "SteamCMD", extensions: ["exe"] }],
+    });
+    if (typeof selected === "string") {
+      steamCmdPath = selected;
+    }
+  }
+
+  async function browseServerRoot() {
+    const selected = await openDialog({
+      title: "选择服务端目录",
+      multiple: false,
+      directory: true,
+    });
+    if (typeof selected === "string") {
+      serverRoot = selected;
+    }
+  }
+
+  async function checkEnvironment(includeSteamTest = false) {
+    if (includeSteamTest) {
+      environmentFullChecking = true;
+    } else {
+      environmentChecking = true;
+    }
+    try {
+      environmentReport = await invoke("check_runtime_environment", { includeSteamTest }) as EnvironmentReport;
+      if (includeSteamTest) {
+        toastStore.success(environmentReport.ok ? "完整检测完成，核心运行条件正常" : "完整检测完成，请查看异常项");
+      }
+    } catch (e: any) {
+      toastStore.error(`运行环境检测失败: ${e}`);
+    } finally {
+      environmentChecking = false;
+      environmentFullChecking = false;
+    }
+  }
+
+  async function repairEnvironment(target: "rocket" | "bridge" | "all") {
+    environmentRepairing = target;
+    try {
+      const message = await invoke("install_runtime_requirement", { target }) as string;
+      toastStore.success(message);
+      await checkEnvironment(false);
+    } catch (e: any) {
+      toastStore.error(`安装失败: ${e}`);
+    } finally {
+      environmentRepairing = "";
+    }
   }
 
   async function checkUpdate() {
@@ -77,17 +159,26 @@
   /** 打开外部链接 */
   async function openUrl(url: string) {
     try {
-      await open(url);
+      await openShell(url);
     } catch {
       // fallback: 尝试用 window.open
       window.open(url, "_blank");
     }
   }
 
-  /** 简单 markdown 转 HTML */
+  function escapeHtml(text: string): string {
+    return text
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  /** 简单 markdown 转 HTML，先转义再渲染少量安全格式 */
   function renderMarkdown(text: string): string {
     if (!text) return "";
-    return text
+    return escapeHtml(text)
       // 标题
       .replace(/^### (.+)$/gm, '<h4 class="text-sm font-semibold text-[var(--text-primary)] mt-3 mb-1">$1</h4>')
       .replace(/^## (.+)$/gm, '<h3 class="text-base font-semibold text-[var(--text-primary)] mt-4 mb-2">$1</h3>')
@@ -96,7 +187,7 @@
       // 粗体
       .replace(/\*\*(.+?)\*\*/g, '<strong class="font-semibold text-[var(--text-primary)]">$1</strong>')
       // 链接
-      .replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2" class="text-[var(--accent-light)] hover:underline" onclick="event.preventDefault(); window.__openUrl && window.__openUrl(\'$2\')">$1</a>')
+      .replace(/\[(.+?)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" class="text-[var(--accent-light)] hover:underline" target="_blank" rel="noreferrer">$1</a>')
       // 换行
       .replace(/\n/g, "<br/>");
   }
@@ -107,141 +198,301 @@
   $effect(() => { checkUpdate(); });
 </script>
 
-<div class="flex flex-col gap-6">
-  <!-- 页面标题 -->
-  <div>
-    <h1 class="text-2xl font-bold text-[var(--text-primary)]">设置</h1>
-    <p class="text-sm text-[var(--text-muted)] mt-1">管理路径配置与软件更新</p>
-  </div>
-
-  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-    <!-- ========== 左栏：路径配置 ========== -->
-    <div class="space-y-4">
-      <h2 class="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider flex items-center gap-2">
-        <svg class="w-4 h-4 text-[var(--accent-light)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
-        </svg>
-        路径配置
-      </h2>
-      <div class="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-5 space-y-4">
-        <div>
-          <span class="block text-xs text-[var(--text-muted)] mb-2">SteamCMD 路径</span>
-          <input type="text" bind:value={steamCmdPath} placeholder="C:\SteamCMD\steamcmd.exe"
-            class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors duration-[var(--transition-normal)]" />
-          <p class="text-xs text-[var(--danger)] mt-1.5">⚠ 目录不能包含中文字符，否则可能导致服务器无法启动</p>
-        </div>
-        <div>
-          <span class="block text-xs text-[var(--text-muted)] mb-2">服务端目录</span>
-          <input type="text" bind:value={serverRoot} placeholder="C:\SteamCMD\steamapps\common\U3DS"
-            class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors duration-[var(--transition-normal)]" />
-          <p class="text-xs text-[var(--danger)] mt-1.5">⚠ 目录不能包含中文字符，否则可能导致服务器无法启动</p>
-        </div>
+<div class="flex flex-col gap-5">
+  <div class="overflow-hidden rounded-2xl border border-[var(--border-accent)] bg-[linear-gradient(135deg,rgba(15,159,143,0.12),rgba(255,255,255,0.88)_46%,rgba(47,111,237,0.08))] p-5 shadow-[var(--shadow-md)]">
+    <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+      <div class="min-w-0">
+        <h1 class="text-2xl font-bold text-[var(--text-primary)]">设置</h1>
       </div>
-
-      <!-- 保存按钮 -->
-      <div class="flex items-center gap-4">
-        <button
-          class="px-8 py-3 bg-gradient-to-r from-[var(--accent)] to-cyan-600 hover:from-cyan-500 hover:to-[var(--accent)] text-[var(--text-primary)] text-sm font-medium rounded-lg transition-all duration-[var(--transition-normal)] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2"
-          onclick={save}
-          disabled={saving}
-        >
-          {#if saving}
-            <div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-            保存中...
-          {:else}
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-            </svg>
-            保存设置
-          {/if}
-        </button>
+      <div class="grid min-w-[260px] grid-cols-2 gap-3">
+        <div class="rounded-xl border border-white/70 bg-white/75 p-3 shadow-[var(--shadow-sm)]">
+          <p class="text-[11px] text-[var(--text-muted)]">当前存档</p>
+          <p class="mt-1 truncate text-sm font-bold text-[var(--text-primary)]">{environmentReport?.saveId || existingConfig?.id || "未配置"}</p>
+        </div>
+        <div class="rounded-xl border border-white/70 bg-white/75 p-3 shadow-[var(--shadow-sm)]">
+          <p class="text-[11px] text-[var(--text-muted)]">运行条件</p>
+          <p class="mt-1 text-sm font-bold {environmentReport?.ok ? 'text-[var(--success)]' : failedEnvironmentItems.length ? 'text-[var(--warning)]' : 'text-[var(--text-secondary)]'}">
+            {environmentTotalCount ? `${environmentReadyCount}/${environmentTotalCount}` : "未检测"}
+          </p>
+        </div>
       </div>
     </div>
+  </div>
 
-    <!-- ========== 右栏：关于软件 & 更新检测 ========== -->
-    <div class="space-y-4">
-      <h2 class="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider flex items-center gap-2">
-        <svg class="w-4 h-4 text-[var(--accent-light)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-        </svg>
-        关于软件
-      </h2>
-      <div class="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-5 space-y-5">
-        <!-- 当前版本 & 检查按钮 -->
-        <div class="flex items-center justify-between">
-          <div class="flex items-center gap-3">
-            <span class="text-sm text-[var(--text-secondary)]">当前版本</span>
-            <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg border border-[var(--border-accent)] bg-[var(--accent-subtle)] text-xs font-semibold text-[var(--accent-light)]">
-              <span class="h-1.5 w-1.5 rounded-full bg-[var(--success)]"></span>
-              v{__APP_VERSION__}
-            </span>
+  <div class="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1.45fr)_minmax(360px,0.85fr)]">
+    <div class="space-y-5">
+      <section class="overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] shadow-[var(--shadow-sm)]">
+        <div class="flex flex-col gap-3 border-b border-[var(--border)] bg-[var(--bg-secondary)]/70 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 class="mt-1 text-base font-bold text-[var(--text-primary)]">核心路径</h2>
           </div>
           <button
-            class="px-4 py-2 text-xs font-medium rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] text-[var(--text-secondary)] hover:border-[var(--accent)] hover:text-[var(--accent-light)] transition-all duration-[var(--transition-normal)] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer flex items-center gap-1.5"
-            onclick={checkUpdate}
-            disabled={checkStatus === "checking"}
+            class="inline-flex items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-[var(--accent)] to-cyan-600 px-5 py-2.5 text-sm font-medium text-white transition-all duration-[var(--transition-normal)] hover:from-cyan-500 hover:to-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50"
+            onclick={save}
+            disabled={saving}
           >
-            {#if checkStatus === "checking"}
-              <div class="w-3.5 h-3.5 border-2 border-[var(--accent)] border-t-transparent rounded-full animate-spin"></div>
-              检测中...
+            {#if saving}
+              <div class="h-4 w-4 rounded-full border-2 border-white border-t-transparent animate-spin"></div>
+              保存中...
             {:else}
-              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
               </svg>
-              检查更新
+              保存设置
             {/if}
           </button>
         </div>
-
-        <!-- 检测结果 -->
-        {#if checkStatus === "has_update" && updateInfo}
-          <div class="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-4 space-y-3">
-            <div class="flex items-center gap-2">
-              <span class="text-lg">🆕</span>
-              <span class="text-sm font-semibold text-emerald-400">发现新版本 v{updateInfo.latest_version}</span>
+        <div class="grid gap-4 p-5 lg:grid-cols-2">
+          <div class="block rounded-xl border border-[var(--border)] bg-[var(--bg-primary)]/65 p-4 transition-all duration-[var(--transition-normal)] focus-within:border-[var(--accent)] focus-within:bg-white">
+            <div class="mb-2 flex items-center justify-between gap-3">
+              <span class="text-xs font-semibold text-[var(--text-secondary)]">SteamCMD 路径</span>
+              <button
+                type="button"
+                class="shrink-0 rounded-md border border-[var(--border)] bg-white px-2.5 py-1 text-[11px] font-medium text-[var(--text-secondary)] transition-all hover:border-[var(--accent)] hover:text-[var(--accent-light)]"
+                onclick={browseSteamCmdPath}
+              >浏览</button>
             </div>
+            <input
+              type="text"
+              bind:value={steamCmdPath}
+              placeholder="C:\SteamCMD\steamcmd.exe"
+              class="w-full border-0 bg-transparent p-0 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none"
+            />
+            <span class="mt-2 block text-[11px] text-[var(--danger)]">路径不要包含中文字符，避免 SteamCMD 或服务端启动异常。</span>
+          </div>
+          <div class="block rounded-xl border border-[var(--border)] bg-[var(--bg-primary)]/65 p-4 transition-all duration-[var(--transition-normal)] focus-within:border-[var(--accent)] focus-within:bg-white">
+            <div class="mb-2 flex items-center justify-between gap-3">
+              <span class="text-xs font-semibold text-[var(--text-secondary)]">服务端目录</span>
+              <button
+                type="button"
+                class="shrink-0 rounded-md border border-[var(--border)] bg-white px-2.5 py-1 text-[11px] font-medium text-[var(--text-secondary)] transition-all hover:border-[var(--accent)] hover:text-[var(--accent-light)]"
+                onclick={browseServerRoot}
+              >浏览</button>
+            </div>
+            <input
+              type="text"
+              bind:value={serverRoot}
+              placeholder="C:\SteamCMD\steamapps\common\U3DS"
+              class="w-full border-0 bg-transparent p-0 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none"
+            />
+            <span class="mt-2 block text-[11px] text-[var(--danger)]">目录内应能找到 Unturned.exe，且路径不要包含中文字符。</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] shadow-[var(--shadow-sm)]">
+        <div class="flex flex-col gap-3 border-b border-[var(--border)] bg-[var(--bg-secondary)]/70 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <div class="flex flex-wrap items-center gap-2">
+              <h2 class="text-base font-bold text-[var(--text-primary)]">运行环境检测</h2>
+              {#if environmentReport}
+                <span class="rounded-full border px-2.5 py-0.5 text-[11px] font-semibold {environmentReport.ok ? 'border-[var(--success)]/30 bg-[var(--success)]/10 text-[var(--success)]' : 'border-[var(--warning)]/30 bg-[var(--warning)]/10 text-[var(--warning)]'}">
+                  {environmentReport.ok ? "核心条件正常" : `${failedEnvironmentItems.length} 项需处理`}
+                </span>
+              {/if}
+            </div>
+          </div>
+          <div class="flex flex-wrap gap-2">
+            <button
+              class="inline-flex items-center justify-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2 text-xs font-medium text-[var(--text-secondary)] transition-all duration-[var(--transition-normal)] hover:border-[var(--accent)] hover:text-[var(--accent-light)] disabled:cursor-not-allowed disabled:opacity-50"
+              onclick={() => checkEnvironment(false)}
+              disabled={environmentChecking || environmentFullChecking}
+            >
+              {#if environmentChecking}
+                <div class="h-3.5 w-3.5 rounded-full border-2 border-[var(--accent)] border-t-transparent animate-spin"></div>
+                检测中...
+              {:else}
+                快速检测
+              {/if}
+            </button>
+            <button
+              class="inline-flex items-center justify-center gap-1.5 rounded-lg border border-[var(--border-accent)] bg-[var(--accent-subtle)] px-3 py-2 text-xs font-semibold text-[var(--accent-light)] transition-all duration-[var(--transition-normal)] hover:border-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50"
+              onclick={() => checkEnvironment(true)}
+              disabled={environmentChecking || environmentFullChecking}
+            >
+              {#if environmentFullChecking}
+                <div class="h-3.5 w-3.5 rounded-full border-2 border-[var(--accent)] border-t-transparent animate-spin"></div>
+                测试中...
+              {:else}
+                完整检测
+              {/if}
+            </button>
+          </div>
+        </div>
+
+        <div class="p-5">
+          <div class="mb-4 grid gap-3 md:grid-cols-3">
+            <div class="rounded-xl border border-[var(--border)] bg-[var(--bg-primary)]/70 p-4">
+              <p class="text-[11px] text-[var(--text-muted)]">核心条件</p>
+              <p class="mt-2 text-2xl font-bold text-[var(--text-primary)]">{environmentTotalCount ? `${environmentReadyCount}/${environmentTotalCount}` : "--"}</p>
+            </div>
+            <div class="rounded-xl border border-[var(--border)] bg-[var(--bg-primary)]/70 p-4">
+              <p class="text-[11px] text-[var(--text-muted)]">SteamCMD 网络</p>
+              <p class="mt-2 text-sm font-bold {steamConnectivityItem?.ok ? 'text-[var(--success)]' : 'text-[var(--text-secondary)]'}">
+                {steamConnectivityItem ? (steamConnectivityItem.ok ? "可用" : "待测试") : "未测试"}
+              </p>
+            </div>
+            <div class="rounded-xl border border-[var(--border)] bg-[var(--bg-primary)]/70 p-4">
+              <p class="text-[11px] text-[var(--text-muted)]">本地命令</p>
+              <p class="mt-2 text-sm font-bold {environmentReport?.items?.find((item) => item.key === 'bridge_dll')?.ok ? 'text-[var(--success)]' : 'text-[var(--warning)]'}">
+                {environmentReport?.items?.find((item) => item.key === 'bridge_dll')?.ok ? "Bridge 就绪" : "需安装 Bridge"}
+              </p>
+            </div>
+          </div>
+
+          {#if environmentReport?.items?.length}
+            <div class="grid gap-2">
+              {#each environmentReport.items as item (item.key)}
+                <div class="group rounded-xl border border-[var(--border)] bg-white/60 p-3 transition-all duration-[var(--transition-normal)] hover:border-[var(--border-hover)] hover:bg-white">
+                  <div class="flex items-start gap-3">
+                    <div class="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg {item.ok ? 'bg-[var(--success-glow)] text-[var(--success)]' : item.required ? 'bg-[var(--danger-glow)] text-[var(--danger)]' : 'bg-[var(--warning-glow)] text-[var(--warning)]'}">
+                      {#if item.ok}
+                        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                        </svg>
+                      {:else}
+                        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+                        </svg>
+                      {/if}
+                    </div>
+                    <div class="min-w-0 flex-1">
+                      <div class="flex flex-wrap items-center gap-2">
+                        <span class="text-sm font-semibold text-[var(--text-primary)]">{item.label}</span>
+                        <span class="rounded-full px-2 py-0.5 text-[11px] font-medium {item.ok ? 'bg-[var(--success)]/10 text-[var(--success)]' : item.required ? 'bg-[var(--danger)]/10 text-[var(--danger)]' : 'bg-[var(--warning)]/10 text-[var(--warning)]'}">
+                          {item.ok ? "正常" : item.required ? "缺失" : "需检查"}
+                        </span>
+                      </div>
+                      <p class="mt-1 text-xs text-[var(--text-secondary)]">{item.message}</p>
+                      {#if item.path}
+                        <p class="mt-1 truncate font-mono text-[11px] text-[var(--text-muted)]">{item.path}</p>
+                      {/if}
+                    </div>
+                  </div>
+                </div>
+              {/each}
+            </div>
+          {:else}
+            <div class="rounded-xl border border-dashed border-[var(--border-hover)] bg-[var(--bg-primary)]/60 p-5 text-sm text-[var(--text-muted)]">
+              暂无检测结果。保存路径后，点击“快速检测”即可检查本机运行条件。
+            </div>
+          {/if}
+        </div>
+      </section>
+    </div>
+
+    <aside class="space-y-5">
+      <section class="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-5 shadow-[var(--shadow-sm)]">
+        <h2 class="text-base font-bold text-[var(--text-primary)]">修复与重装</h2>
+        <div class="mt-4 grid gap-2">
+          <button
+            class="inline-flex items-center justify-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-2.5 text-xs font-medium text-[var(--text-secondary)] transition-all duration-[var(--transition-normal)] hover:border-[var(--accent)] hover:text-[var(--accent-light)] disabled:cursor-not-allowed disabled:opacity-50"
+            onclick={() => repairEnvironment("rocket")}
+            disabled={!!environmentRepairing || !serverRoot.trim()}
+          >
+            {#if environmentRepairing === "rocket"}
+              <div class="h-3.5 w-3.5 rounded-full border-2 border-[var(--accent)] border-t-transparent animate-spin"></div>
+              安装中...
+            {:else}
+              重新安装 Rocket
+            {/if}
+          </button>
+          <button
+            class="inline-flex items-center justify-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-2.5 text-xs font-medium text-[var(--text-secondary)] transition-all duration-[var(--transition-normal)] hover:border-[var(--accent)] hover:text-[var(--accent-light)] disabled:cursor-not-allowed disabled:opacity-50"
+            onclick={() => repairEnvironment("bridge")}
+            disabled={!!environmentRepairing || !serverRoot.trim()}
+          >
+            {#if environmentRepairing === "bridge"}
+              <div class="h-3.5 w-3.5 rounded-full border-2 border-[var(--accent)] border-t-transparent animate-spin"></div>
+              安装中...
+            {:else}
+              重新安装 Bridge
+            {/if}
+          </button>
+          <button
+            class="inline-flex items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-[var(--accent)] to-cyan-600 px-4 py-2.5 text-xs font-semibold text-white transition-all duration-[var(--transition-normal)] hover:from-cyan-500 hover:to-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50"
+            onclick={() => repairEnvironment("all")}
+            disabled={!!environmentRepairing || !serverRoot.trim()}
+          >
+            {#if environmentRepairing === "all"}
+              <div class="h-3.5 w-3.5 rounded-full border-2 border-white border-t-transparent animate-spin"></div>
+              修复中...
+            {:else}
+              一键修复缺失项
+            {/if}
+          </button>
+        </div>
+      </section>
+
+      <section class="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-5 shadow-[var(--shadow-sm)]">
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <h2 class="text-base font-bold text-[var(--text-primary)]">软件更新</h2>
+          </div>
+          <span class="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border-accent)] bg-[var(--accent-subtle)] px-3 py-1 text-xs font-semibold text-[var(--accent-light)]">
+            <span class="h-1.5 w-1.5 rounded-full bg-[var(--success)]"></span>
+            v{__APP_VERSION__}
+          </span>
+        </div>
+        <div class="mt-4 grid grid-cols-2 gap-2">
+          <div class="rounded-xl border border-[var(--border)] bg-[var(--bg-primary)]/70 p-3">
+            <p class="text-[11px] text-[var(--text-muted)]">本地版本</p>
+            <p class="mt-1 font-mono text-sm font-bold text-[var(--text-primary)]">v{updateInfo?.current_version || __APP_VERSION__}</p>
+          </div>
+          <div class="rounded-xl border border-[var(--border)] bg-[var(--bg-primary)]/70 p-3">
+            <p class="text-[11px] text-[var(--text-muted)]">云端版本</p>
+            <p class="mt-1 font-mono text-sm font-bold {updateInfo?.latest_version ? 'text-[var(--text-primary)]' : 'text-[var(--text-muted)]'}">
+              {updateInfo?.latest_version ? `v${updateInfo.latest_version}` : "未检测"}
+            </p>
+          </div>
+        </div>
+        <button
+          class="mt-4 inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-2.5 text-xs font-medium text-[var(--text-secondary)] transition-all duration-[var(--transition-normal)] hover:border-[var(--accent)] hover:text-[var(--accent-light)] disabled:cursor-not-allowed disabled:opacity-50"
+          onclick={checkUpdate}
+          disabled={checkStatus === "checking"}
+        >
+          {#if checkStatus === "checking"}
+            <div class="h-3.5 w-3.5 rounded-full border-2 border-[var(--accent)] border-t-transparent animate-spin"></div>
+            检测中...
+          {:else}
+            <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            检查更新
+          {/if}
+        </button>
+
+        {#if checkStatus === "has_update" && updateInfo}
+          <div class="mt-4 rounded-xl border border-[var(--success)]/30 bg-[var(--success)]/5 p-4">
+            <p class="text-sm font-semibold text-[var(--success)]">发现新版本 v{updateInfo.latest_version}</p>
             {#if updateInfo.published_at}
-              <p class="text-xs text-[var(--text-muted)]">发布时间：{formatDate(updateInfo.published_at)}</p>
+              <p class="mt-1 text-xs text-[var(--text-muted)]">发布时间：{formatDate(updateInfo.published_at)}</p>
             {/if}
             {#if updateInfo.body}
-              <div class="mt-2">
-                <p class="text-xs font-medium text-[var(--text-secondary)] mb-2">更新日志</p>
-                <div class="text-xs text-[var(--text-muted)] leading-relaxed bg-[var(--bg-primary)] rounded-lg p-3 max-h-48 overflow-y-auto border border-[var(--border)]">
-                  {@html renderMarkdown(updateInfo.body)}
-                </div>
+              <div class="mt-3 max-h-48 overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] p-3 text-xs leading-relaxed text-[var(--text-muted)]">
+                {@html renderMarkdown(updateInfo.body)}
               </div>
             {/if}
             {#if updateInfo.html_url}
               <button
                 onclick={() => openUrl(updateInfo.html_url)}
-                class="inline-flex items-center gap-2 px-4 py-2 mt-1 bg-gradient-to-r from-[var(--accent)] to-cyan-600 hover:from-cyan-500 hover:to-[var(--accent)] text-white text-xs font-medium rounded-lg transition-all duration-[var(--transition-normal)] cursor-pointer"
+                class="mt-3 inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-[var(--accent)] to-cyan-600 px-4 py-2 text-xs font-medium text-white transition-all duration-[var(--transition-normal)] hover:from-cyan-500 hover:to-[var(--accent)]"
               >
-                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                </svg>
                 前往下载
               </button>
             {/if}
           </div>
         {:else if checkStatus === "up_to_date"}
-          <div class="rounded-lg border border-[var(--success)]/30 bg-[var(--success)]/5 p-4 flex items-center gap-3">
-            <svg class="w-5 h-5 text-[var(--success)] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <span class="text-sm text-[var(--success)]">当前已是最新版本</span>
+          <div class="mt-4 rounded-xl border border-[var(--success)]/30 bg-[var(--success)]/5 p-4 text-sm text-[var(--success)]">
+            当前已是最新版本
           </div>
         {:else if checkStatus === "error"}
-          <div class="rounded-lg border border-[var(--danger)]/30 bg-[var(--danger)]/5 p-4 flex items-center gap-3">
-            <svg class="w-5 h-5 text-[var(--danger)] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <div class="min-w-0">
-              <span class="text-sm text-[var(--danger)]">检测更新失败</span>
-              <p class="text-xs text-[var(--text-muted)] mt-0.5">{errorMsg}</p>
-            </div>
+          <div class="mt-4 rounded-xl border border-[var(--danger)]/30 bg-[var(--danger)]/5 p-4">
+            <p class="text-sm font-semibold text-[var(--danger)]">检测更新失败</p>
+            <p class="mt-1 text-xs text-[var(--text-muted)]">{errorMsg}</p>
           </div>
         {/if}
-      </div>
-    </div>
+      </section>
+    </aside>
   </div>
 </div>

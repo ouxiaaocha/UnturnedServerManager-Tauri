@@ -2,6 +2,7 @@
   declare const __APP_VERSION__: string;
 
   import { invoke } from "@tauri-apps/api/core";
+  import { message } from "@tauri-apps/plugin-dialog";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { onMount } from "svelte";
   import DashboardPage from "./lib/pages/Dashboard.svelte";
@@ -36,6 +37,9 @@
     try {
       const isFirst = await invoke("is_first_run") as boolean;
       showWizard = isFirst;
+      if (!isFirst) {
+        void checkRuntimeEnvironmentOnStartup();
+      }
     } catch {
       showWizard = true;
     }
@@ -44,6 +48,29 @@
 
   function onWizardComplete() {
     showWizard = false;
+    void checkRuntimeEnvironmentOnStartup();
+  }
+
+  async function checkRuntimeEnvironmentOnStartup() {
+    if (!isTauriRuntime()) return;
+    try {
+      const report: any = await invoke("check_runtime_environment", { includeSteamTest: false });
+      if (report?.ok) return;
+
+      const missing = (report.items || [])
+        .filter((item: any) => item.required && !item.ok)
+        .map((item: any) => `• ${item.label}: ${item.message}`)
+        .join("\n");
+
+      if (missing) {
+        await message(
+          `检测到运行条件不完整，请到“设置”页面处理：\n\n${missing}`,
+          { title: "运行环境检测", kind: "warning" },
+        );
+      }
+    } catch (e: any) {
+      await message(`运行环境检测失败：${e}`, { title: "运行环境检测", kind: "error" });
+    }
   }
 
   function isTauriRuntime() {

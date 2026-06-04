@@ -120,7 +120,10 @@ fn decode_password(stored: &str, salt: &[u8]) -> (String, bool) {
                 if let Ok(cipher) = Aes256Gcm::new_from_slice(&key) {
                     let nonce = Nonce::from_slice(nonce_bytes);
                     if let Ok(plaintext) = cipher.decrypt(nonce, ciphertext) {
-                        return (String::from_utf8(plaintext).unwrap_or_else(|_| stored.to_string()), false);
+                        return (
+                            String::from_utf8(plaintext).unwrap_or_else(|_| stored.to_string()),
+                            false,
+                        );
                     }
                 }
             }
@@ -130,7 +133,7 @@ fn decode_password(stored: &str, salt: &[u8]) -> (String, bool) {
     if let Some(enc_part) = stored.strip_prefix("enc:") {
         if let Ok(decoded) = BASE64.decode(enc_part) {
             let key = legacy_machine_key();
-            if let Ok(cipher) = Aes256Gcm::new_from_slice(&key) {
+            if let Ok(cipher) = Aes256Gcm::new_from_slice(key) {
                 let nonce_bytes = [0u8; 12];
                 let nonce = Nonce::from_slice(&nonce_bytes);
                 if let Ok(plaintext) = cipher.decrypt(nonce, decoded.as_slice()) {
@@ -235,10 +238,7 @@ impl ConfigService {
             ServersConfig::default()
         };
 
-        *self
-            .servers_cache
-            .lock()
-            .unwrap_or_else(|e| e.into_inner()) = Some(config.clone());
+        *self.servers_cache.lock().unwrap_or_else(|e| e.into_inner()) = Some(config.clone());
         config
     }
 
@@ -253,10 +253,7 @@ impl ConfigService {
         let content = serde_json::to_string_pretty(&config_to_save)
             .map_err(|e| format!("序列化失败: {}", e))?;
         atomic_write(&path, &content)?;
-        *self
-            .servers_cache
-            .lock()
-            .unwrap_or_else(|e| e.into_inner()) = Some(config.clone());
+        *self.servers_cache.lock().unwrap_or_else(|e| e.into_inner()) = Some(config.clone());
         Ok(())
     }
 
@@ -335,7 +332,9 @@ impl ConfigService {
         let content = fs::read_to_string(&path).map_err(|e| format!("读取失败: {}", e))?;
 
         // 定位 RCON 元素边界，在元素内部替换属性，避免误匹配注释或其他元素中的同名属性
-        let rcon_start = content.find("<RCON ").or_else(|| content.find("<RCON\t"))
+        let rcon_start = content
+            .find("<RCON ")
+            .or_else(|| content.find("<RCON\t"))
             .or_else(|| content.find("<RCON\n"));
         let new_content = if let Some(start) = rcon_start {
             // 找到 RCON 元素的结束位置（以 /> 或 > 结尾）
@@ -443,9 +442,7 @@ impl ConfigService {
                 .or_insert_with(|| serde_json::Value::String("public".to_string()));
             server_object
                 .entry("Update_Shutdown_Warnings".to_string())
-                .or_insert_with(|| {
-                    serde_json::json!(["30:00", "10:00", "5:00", "1:00"])
-                });
+                .or_insert_with(|| serde_json::json!(["30:00", "10:00", "5:00", "1:00"]));
         }
 
         let content =

@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 use tauri::State;
 
-use crate::services::config_service::{ConfigService, atomic_write};
+use crate::services::config_service::{atomic_write, ConfigService};
 
 /// 定时重启任务配置
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -1,9 +1,9 @@
-use std::sync::{Arc, Mutex};
-use std::path::Path;
 use serde::Serialize;
+use std::path::Path;
+use std::sync::{Arc, Mutex};
 use tauri::State;
 
-use crate::models::config::{AppSettings, ServersConfig, ServerProfile, RconConfig};
+use crate::models::config::{AppSettings, RconConfig, ServerProfile, ServersConfig};
 use crate::services::config_service::ConfigService;
 
 fn contains_chinese(s: &str) -> bool {
@@ -40,7 +40,11 @@ pub fn auto_detect_paths() -> DetectResult {
         Path::new("D:/Program Files/SteamCMD/steamcmd.exe").to_path_buf(),
     ];
     if let Ok(userprofile) = std::env::var("USERPROFILE") {
-        steam_candidates.push(Path::new(&userprofile).join("steamcmd").join("steamcmd.exe"));
+        steam_candidates.push(
+            Path::new(&userprofile)
+                .join("steamcmd")
+                .join("steamcmd.exe"),
+        );
     }
 
     for path in &steam_candidates {
@@ -61,7 +65,8 @@ pub fn auto_detect_paths() -> DetectResult {
                 if let Ok(entries) = std::fs::read_dir(&servers_dir) {
                     for entry in entries.flatten() {
                         if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
-                            result.server_id = Some(entry.file_name().to_string_lossy().to_string());
+                            result.server_id =
+                                Some(entry.file_name().to_string_lossy().to_string());
                             break;
                         }
                     }
@@ -187,7 +192,8 @@ pub fn save_wizard_config(
 
     cfg.save_servers_config(&servers_config)?;
 
-    let _ = ConfigService::update_rocket_config(&server_root, &server_id, rcon_port, &rcon_password);
+    let _ =
+        ConfigService::update_rocket_config(&server_root, &server_id, rcon_port, &rcon_password);
 
     Ok("配置已保存".to_string())
 }

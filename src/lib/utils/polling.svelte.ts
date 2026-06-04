@@ -27,6 +27,7 @@ export function createPoller(options: PollerOptions) {
 
   let pollToken = 0;
   let pollTimer: ReturnType<typeof setTimeout> | undefined;
+  let running = false;
 
   function nextPollDelay(): number {
     if (typeof document !== "undefined" && document.hidden) return hiddenInterval;
@@ -46,12 +47,16 @@ export function createPoller(options: PollerOptions) {
   }
 
   function start() {
+    if (running) return;
+    running = true;
     pollToken += 1;
     if (pollTimer) clearTimeout(pollTimer);
-    pollLoop();
+    const token = pollToken;
+    pollTimer = setTimeout(() => pollLoop(token), 0);
   }
 
   function stop() {
+    running = false;
     pollToken += 1;
     if (pollTimer) {
       clearTimeout(pollTimer);

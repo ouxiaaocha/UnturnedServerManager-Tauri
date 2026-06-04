@@ -2,7 +2,7 @@ use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::PathBuf;
 
-use chrono::{Local, Duration as ChronoDuration};
+use chrono::{Duration as ChronoDuration, Local};
 
 /// 分类文件日志服务，支持 app/operation/game 三个类别，按日期轮转和自动清理
 pub struct LogService {

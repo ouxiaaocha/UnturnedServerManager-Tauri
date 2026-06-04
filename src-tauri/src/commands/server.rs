@@ -3,13 +3,17 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+use sysinfo::System;
 use tauri::{Emitter, State};
 
 use crate::commands::update::run_update_blocking;
 use crate::services::config_service::ConfigService;
+use crate::services::local_command_bridge;
 use crate::services::log_service::LogService;
 use crate::services::process::ProcessManager;
-use crate::services::rcon_client::RconClient;
+
+const RESTART_SETTLE_TIMEOUT: Duration = Duration::from_secs(12);
+const RESTART_COOLDOWN_AFTER_EXIT: Duration = Duration::from_secs(3);
 
 /// 当前会话的 RCON 连接设置。
 /// 启动非默认存档时，会将该存档的 RCON 配置暂存于此，
@@ -63,6 +67,18 @@ impl AutoUpdateState {
     fn mark_expected_stop(&mut self) {
         self.expected_stop = true;
         self.stopped_since = None;
+    }
+
+    pub fn current_save_id(&self, default_save_id: &str) -> String {
+        self.last_save_id
+            .clone()
+            .unwrap_or_else(|| default_save_id.to_string())
+    }
+
+    pub fn current_launch_mode(&self) -> String {
+        self.last_launch_mode
+            .clone()
+            .unwrap_or_else(|| "internet".to_string())
     }
 }
 
@@ -153,11 +169,41 @@ pub fn get_server_snapshot(
 }
 
 #[tauri::command]
+pub fn send_server_command(
+    process: State<'_, Arc<Mutex<ProcessManager>>>,
+    config: State<'_, Arc<Mutex<ConfigService>>>,
+    auto_update: State<'_, Arc<Mutex<AutoUpdateState>>>,
+    command: String,
+) -> Result<String, String> {
+    {
+        let mut pm = process.lock().unwrap_or_else(|e| e.into_inner());
+        if !pm.is_running() {
+            return Err("服务器未运行，无法发送本地命令".to_string());
+        }
+    }
+
+    let (server_root, save_id) = {
+        let cfg = config.lock().unwrap_or_else(|e| e.into_inner());
+        let servers = cfg.load_servers_config();
+        let profile = servers.servers.first().ok_or("没有配置服务器")?;
+        let state = auto_update.lock().unwrap_or_else(|e| e.into_inner());
+        let save_id = state
+            .last_save_id
+            .clone()
+            .unwrap_or_else(|| profile.id.clone());
+        (profile.server_root.clone(), save_id)
+    };
+
+    let command = local_command_bridge::enqueue_command(&server_root, &save_id, &command)?;
+    let pm = process.lock().unwrap_or_else(|e| e.into_inner());
+    pm.record_sent_command(&command);
+    Ok("命令已写入本地命令桥".to_string())
+}
+
+#[tauri::command]
 #[allow(clippy::too_many_arguments)]
 pub fn start_server(
-    app: tauri::AppHandle,
     process: State<'_, Arc<Mutex<ProcessManager>>>,
-    rcon: State<'_, Arc<Mutex<RconClient>>>,
     config: State<'_, Arc<Mutex<ConfigService>>>,
     log: State<'_, Arc<Mutex<LogService>>>,
     active_rcon: State<'_, Arc<Mutex<ActiveRcon>>>,
@@ -166,9 +212,7 @@ pub fn start_server(
     launch_mode: Option<String>,
 ) -> Result<String, String> {
     start_server_inner(
-        app,
         process.inner(),
-        rcon.inner(),
         config.inner(),
         log.inner(),
         active_rcon.inner(),
@@ -180,9 +224,7 @@ pub fn start_server(
 
 #[allow(clippy::too_many_arguments)]
 pub fn start_server_inner(
-    app: tauri::AppHandle,
     process: &Arc<Mutex<ProcessManager>>,
-    rcon: &Arc<Mutex<RconClient>>,
     config: &Arc<Mutex<ConfigService>>,
     log: &Arc<Mutex<LogService>>,
     active_rcon: &Arc<Mutex<ActiveRcon>>,
@@ -224,10 +266,13 @@ pub fn start_server_inner(
         profile.rcon.password = password;
     }
 
+    local_command_bridge::ensure_bridge_installed(&profile.server_root, &actual_id)?;
+
     {
         let cfg = config.lock().unwrap_or_else(|e| e.into_inner());
         if cfg.load_app_settings().auto_update_hosting {
-            let _ = ConfigService::update_auto_update_config(&profile.server_root, &actual_id, true);
+            let _ =
+                ConfigService::update_auto_update_config(&profile.server_root, &actual_id, true);
         }
     }
 
@@ -259,87 +304,62 @@ pub fn start_server_inner(
         server_id, actual_id, mode_str
     ));
 
-    let _ = app.emit("server-started", &actual_id);
-
     {
         let mut state = auto_update.lock().unwrap_or_else(|e| e.into_inner());
         state.record_start(actual_id, mode);
     }
 
-    // 后台预连接 RCON，避免 stop/restart 时才发起连接导致延迟
-    {
-        let rcon_clone = Arc::clone(rcon);
-        let ar_clone = Arc::clone(active_rcon);
-        let log_clone = Arc::clone(log);
-        std::thread::spawn(move || {
-            // 等待服务器 RCON 端口就绪
-            std::thread::sleep(Duration::from_secs(3));
-
-            for attempt in 1..=3u32 {
-                let (host, port, password) = {
-                    let ar = ar_clone.lock().unwrap_or_else(|e| e.into_inner());
-                    (ar.host.clone(), ar.port, ar.password.clone())
-                };
-
-                let mut client = rcon_clone.lock().unwrap_or_else(|e| e.into_inner());
-                if client.is_connected() {
-                    return; // 已连接（例如前端已手动连接）
-                }
-
-                match client.connect(&host, port, &password) {
-                    Ok(_) => {
-                        let ls = log_clone.lock().unwrap_or_else(|e| e.into_inner());
-                        ls.log_operation("RCON 自动预连接成功");
-                        return;
-                    }
-                    Err(_) => {
-                        drop(client);
-                        if attempt < 3 {
-                            std::thread::sleep(Duration::from_secs(2));
-                        }
-                    }
-                }
-            }
-        });
-    }
-
     Ok("服务器已启动".to_string())
 }
 
-/// 通过 RCON 优雅关闭服务器：先 save，再 shutdown，然后渐进式轮询等待进程退出。
+fn local_command_target(
+    config: &Arc<Mutex<ConfigService>>,
+    auto_update: &Arc<Mutex<AutoUpdateState>>,
+) -> Result<(String, String), String> {
+    let cfg = config.lock().unwrap_or_else(|e| e.into_inner());
+    let servers = cfg.load_servers_config();
+    let profile = servers.servers.first().ok_or("没有配置服务器")?;
+    let state = auto_update.lock().unwrap_or_else(|e| e.into_inner());
+    let save_id = state
+        .last_save_id
+        .clone()
+        .unwrap_or_else(|| profile.id.clone());
+    Ok((profile.server_root.clone(), save_id))
+}
+
+/// 通过本地命令桥优雅关闭服务器：先 save，再 shutdown，然后渐进式轮询等待进程退出。
 /// 超时后自动强制停止。返回 Ok("stopped") 或 Ok("forced") 或 Err。
-async fn graceful_shutdown(
+async fn local_bridge_shutdown(
     process: &Arc<Mutex<ProcessManager>>,
-    rcon: &Arc<Mutex<RconClient>>,
-    active_rcon: &Arc<Mutex<ActiveRcon>>,
+    config: &Arc<Mutex<ConfigService>>,
+    auto_update: &Arc<Mutex<AutoUpdateState>>,
     log: &Arc<Mutex<LogService>>,
 ) -> Result<&'static str, String> {
-    // 尝试通过 RCON 优雅关闭
-    let shutdown_sent = {
-        let mut rcon_client = rcon.lock().unwrap_or_else(|e| e.into_inner());
-        if !rcon_client.is_connected() {
-            let ar = active_rcon.lock().unwrap_or_else(|e| e.into_inner());
-            let _ = rcon_client.connect(&ar.host, ar.port, &ar.password);
-        }
+    let (server_root, save_id) = local_command_target(config, auto_update)?;
+    let save_command = local_command_bridge::enqueue_command(&server_root, &save_id, "save")?;
+    {
+        let pm = process.lock().unwrap_or_else(|e| e.into_inner());
+        pm.record_sent_command(&save_command);
+    }
 
-        if rcon_client.is_connected() {
-            let _ = rcon_client.send_command("save");
-            true
-        } else {
-            false
-        }
-    }; // rcon 锁在此释放
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
 
-    if shutdown_sent {
-        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-        let mut rcon_client = rcon.lock().unwrap_or_else(|e| e.into_inner());
-        let _ = rcon_client.send_command("shutdown");
-        rcon_client.disconnect();
+    let shutdown_command =
+        local_command_bridge::enqueue_command(&server_root, &save_id, "shutdown")?;
+    {
+        let pm = process.lock().unwrap_or_else(|e| e.into_inner());
+        pm.record_sent_command(&shutdown_command);
     }
 
     // 渐进式轮询等待进程退出：前期高频、后期低频，总超时约 10s
     for i in 0..44 {
-        let ms = if i < 20 { 100 } else if i < 30 { 200 } else { 500 };
+        let ms = if i < 20 {
+            100
+        } else if i < 30 {
+            200
+        } else {
+            500
+        };
         tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
         let is_running = {
             let mut pm = process.lock().unwrap_or_else(|e| e.into_inner());
@@ -360,11 +380,51 @@ async fn graceful_shutdown(
     Ok("forced")
 }
 
+fn is_unturned_process_alive(server_root: &str) -> bool {
+    let target = Path::new(server_root).join("Unturned.exe");
+    let target = target
+        .canonicalize()
+        .unwrap_or(target)
+        .to_string_lossy()
+        .to_lowercase();
+
+    let system = System::new_all();
+    system.processes().values().any(|process| {
+        process
+            .exe()
+            .map(|exe| {
+                let exe = exe
+                    .canonicalize()
+                    .unwrap_or_else(|_| exe.to_path_buf())
+                    .to_string_lossy()
+                    .to_lowercase();
+                exe == target
+            })
+            .unwrap_or(false)
+    })
+}
+
+async fn wait_before_restart(process: &Arc<Mutex<ProcessManager>>, server_root: &str) {
+    {
+        let pm = process.lock().unwrap_or_else(|e| e.into_inner());
+        pm.record_system_message("服务器进程已退出，等待后台资源完全释放...");
+    }
+
+    let started = Instant::now();
+    while started.elapsed() < RESTART_SETTLE_TIMEOUT {
+        if !is_unturned_process_alive(server_root) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+
+    tokio::time::sleep(RESTART_COOLDOWN_AFTER_EXIT).await;
+}
+
 #[tauri::command(async)]
 pub async fn stop_server(
     process: State<'_, Arc<Mutex<ProcessManager>>>,
-    rcon: State<'_, Arc<Mutex<RconClient>>>,
-    active_rcon: State<'_, Arc<Mutex<ActiveRcon>>>,
+    config: State<'_, Arc<Mutex<ConfigService>>>,
     auto_update: State<'_, Arc<Mutex<AutoUpdateState>>>,
     log: State<'_, Arc<Mutex<LogService>>>,
 ) -> Result<String, String> {
@@ -378,10 +438,10 @@ pub async fn stop_server(
         ls.log_operation("停止服务器");
     }
 
-    let result = graceful_shutdown(
+    let result = local_bridge_shutdown(
         process.inner(),
-        rcon.inner(),
-        active_rcon.inner(),
+        config.inner(),
+        auto_update.inner(),
         log.inner(),
     )
     .await?;
@@ -399,7 +459,6 @@ pub type AutoUpdateStopSignal = Arc<AtomicBool>;
 pub fn start_auto_update_monitor(
     app: tauri::AppHandle,
     process: Arc<Mutex<ProcessManager>>,
-    rcon: Arc<Mutex<RconClient>>,
     config: Arc<Mutex<ConfigService>>,
     log: Arc<Mutex<LogService>>,
     active_rcon: Arc<Mutex<ActiveRcon>>,
@@ -489,9 +548,7 @@ pub fn start_auto_update_monitor(
                         "[系统] 自动更新完成，正在重新启动服务器...",
                     );
                     if let Err(e) = start_server_inner(
-                        app_for_update.clone(),
                         &process,
-                        &rcon,
                         &config,
                         &log,
                         &active_rcon,
@@ -512,10 +569,8 @@ pub fn start_auto_update_monitor(
                 Err(e) => {
                     let ls = log.lock().unwrap_or_else(|e| e.into_inner());
                     ls.log_operation(&format!("[ERROR] 自动更新托管失败: {}", e));
-                    let _ = app_for_update.emit(
-                        "update-output",
-                        &format!("[ERROR] 自动更新托管失败: {}", e),
-                    );
+                    let _ = app_for_update
+                        .emit("update-output", &format!("[ERROR] 自动更新托管失败: {}", e));
                     let mut state = auto_update.lock().unwrap_or_else(|e| e.into_inner());
                     state.update_in_progress = false;
                 }
@@ -535,9 +590,7 @@ pub fn get_public_ip() -> Result<String, String> {
         .get("https://api.ipify.org?format=json")
         .send()
         .map_err(|e| format!("获取公网IP失败: {}", e))?;
-    let body = resp
-        .text()
-        .map_err(|e| format!("读取IP响应失败: {}", e))?;
+    let body = resp.text().map_err(|e| format!("读取IP响应失败: {}", e))?;
     let json: serde_json::Value =
         serde_json::from_str(&body).map_err(|e| format!("解析IP响应失败: {}", e))?;
     json["ip"]
@@ -561,8 +614,8 @@ pub fn get_server_port(
         .map_err(|_| "存档 ID 包含非法字符".to_string())?;
 
     let path = crate::commands::save::detect_commands_dat_path(&profile.server_root, &actual_id);
-    let content = std::fs::read_to_string(&path)
-        .map_err(|e| format!("读取 Commands.dat 失败: {}", e))?;
+    let content =
+        std::fs::read_to_string(&path).map_err(|e| format!("读取 Commands.dat 失败: {}", e))?;
     let info = crate::commands::save::parse_commands_dat(&content);
     Ok(info.port.unwrap_or(27015))
 }
@@ -612,9 +665,7 @@ pub fn force_stop_server(
 #[tauri::command(async)]
 #[allow(clippy::too_many_arguments)]
 pub async fn restart_server(
-    app: tauri::AppHandle,
     process: State<'_, Arc<Mutex<ProcessManager>>>,
-    rcon: State<'_, Arc<Mutex<RconClient>>>,
     config: State<'_, Arc<Mutex<ConfigService>>>,
     log: State<'_, Arc<Mutex<LogService>>>,
     active_rcon: State<'_, Arc<Mutex<ActiveRcon>>>,
@@ -632,21 +683,20 @@ pub async fn restart_server(
         ls.log_operation("重启服务器");
     }
 
-    graceful_shutdown(
+    local_bridge_shutdown(
         process.inner(),
-        rcon.inner(),
-        active_rcon.inner(),
+        config.inner(),
+        auto_update.inner(),
         log.inner(),
     )
     .await?;
 
-    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    let (server_root, _) = local_command_target(config.inner(), auto_update.inner())?;
+    wait_before_restart(process.inner(), &server_root).await;
 
     // 复用 start_server_inner 重新启动
     start_server_inner(
-        app,
         process.inner(),
-        rcon.inner(),
         config.inner(),
         log.inner(),
         active_rcon.inner(),

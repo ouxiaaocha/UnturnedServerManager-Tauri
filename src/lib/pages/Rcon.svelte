@@ -66,7 +66,6 @@
   }
 
   async function disconnect() {
-    clearTimeout(autoConnectTimer);
     await invoke("rcon_disconnect");
     connected = false;
     addRconLog("已断开连接", "system");
@@ -95,7 +94,6 @@
 
   let pollTimer: ReturnType<typeof setTimeout> | undefined;
   let statusTimer: ReturnType<typeof setTimeout> | undefined;
-  let autoConnectTimer: ReturnType<typeof setTimeout> | undefined;
   let effectAlive = true;
 
   function schedulePoll() {
@@ -118,24 +116,10 @@
     schedulePoll();
     scheduleStatusCheck();
 
-    // 服务器启动后自动连接 RCON
-    const unlisten = listen("server-started", () => {
-      addRconLog("检测到服务器启动，5 秒后自动连接 RCON...", "system");
-      scrollToBottom();
-      clearTimeout(autoConnectTimer);
-      autoConnectTimer = setTimeout(async () => {
-        if (effectAlive && !connected && !connecting) {
-          await connect();
-        }
-      }, 5000);
-    });
-
     return () => {
       effectAlive = false;
       clearTimeout(pollTimer);
       clearTimeout(statusTimer);
-      clearTimeout(autoConnectTimer);
-      unlisten.then(fn => fn());
     };
   });
 </script>

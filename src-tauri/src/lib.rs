@@ -1,18 +1,18 @@
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, Mutex};
 use tauri::Manager;
 
+mod commands;
 mod models;
 mod services;
-mod commands;
 
-use services::process::{start_output_cache_maintenance, ProcessManager};
-use services::rcon_client::RconClient;
+use commands::server::{ActiveRcon, AutoUpdateState};
 use services::config_service::ConfigService;
 use services::log_service::LogService;
+use services::process::{start_output_cache_maintenance, ProcessManager};
+use services::rcon_client::RconClient;
 use services::scheduler;
 use services::system_monitor::SystemMonitor;
-use commands::server::{ActiveRcon, AutoUpdateState};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -43,13 +43,12 @@ pub fn run() {
     scheduler::start_scheduler(
         Arc::clone(&config_arc),
         Arc::clone(&process_arc),
-        Arc::clone(&rcon_arc),
         Arc::clone(&log_arc),
+        Arc::clone(&auto_update_arc),
     );
     start_output_cache_maintenance(Arc::clone(&process_arc), Arc::clone(&log_arc));
 
     let monitor_process = Arc::clone(&process_arc);
-    let monitor_rcon = Arc::clone(&rcon_arc);
     let monitor_config = Arc::clone(&config_arc);
     let monitor_log = Arc::clone(&log_arc);
     let monitor_active_rcon = Arc::clone(&active_rcon_arc);
@@ -68,7 +67,6 @@ pub fn run() {
             commands::server::start_auto_update_monitor(
                 app.handle().clone(),
                 Arc::clone(&monitor_process),
-                Arc::clone(&monitor_rcon),
                 Arc::clone(&monitor_config),
                 Arc::clone(&monitor_log),
                 Arc::clone(&monitor_active_rcon),
@@ -89,6 +87,7 @@ pub fn run() {
             commands::server::get_server_status,
             commands::server::get_server_output,
             commands::server::get_server_snapshot,
+            commands::server::send_server_command,
             commands::server::get_public_ip,
             commands::server::get_server_port,
             commands::server::start_server,
@@ -107,6 +106,8 @@ pub fn run() {
             commands::config::is_first_run,
             commands::config::save_wizard_config,
             commands::config::auto_detect_paths,
+            commands::environment::check_runtime_environment,
+            commands::environment::install_runtime_requirement,
             commands::logs::read_log_file,
             commands::logs::list_log_dates,
             commands::update::run_update,

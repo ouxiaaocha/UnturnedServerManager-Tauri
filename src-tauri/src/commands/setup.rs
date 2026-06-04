@@ -42,6 +42,23 @@ pub fn detect_rocket_module(server_root: String) -> Result<bool, String> {
             .unwrap_or(false))
 }
 
+pub fn install_rocket_module_sync(server_root: &str) -> Result<usize, String> {
+    let src = Path::new(server_root)
+        .join("Extras")
+        .join("Rocket.Unturned");
+    if !src.exists() {
+        return Err(format!(
+            "未找到 Extras/Rocket.Unturned 目录 ({})",
+            src.display()
+        ));
+    }
+
+    let dst = Path::new(server_root)
+        .join("Modules")
+        .join("Rocket.Unturned");
+    copy_dir_recursive(&src, &dst)
+}
+
 /// 将 Rocket.Unturned 从 Extras 目录复制到 Modules（后台线程执行）
 #[tauri::command]
 pub fn install_rocket_module(
@@ -80,7 +97,7 @@ pub fn install_rocket_module(
         let dst = Path::new(&server_root)
             .join("Modules")
             .join("Rocket.Unturned");
-        match copy_dir_recursive(&src, &dst) {
+        match install_rocket_module_sync(&server_root) {
             Ok(count) => {
                 let ls = log_clone.lock().unwrap_or_else(|e| e.into_inner());
                 ls.log_app(&format!(
@@ -194,7 +211,7 @@ pub fn init_server_save(
         ls.log_app("[ERROR] 初始化存档失败: 存档名称不能包含中文字符");
         return Err("存档名称不能包含中文字符".to_string());
     }
-    if let Err(_) = crate::services::config_service::validate_id(&save_name) {
+    if crate::services::config_service::validate_id(&save_name).is_err() {
         let ls = log.lock().unwrap_or_else(|e| e.into_inner());
         ls.log_app("[ERROR] 初始化存档失败: 存档名称包含非法字符");
         return Err("存档名称包含非法字符".to_string());

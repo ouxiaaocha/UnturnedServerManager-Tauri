@@ -4,17 +4,18 @@ use std::time::Duration;
 use chrono::{Datelike, Local, Timelike};
 
 use crate::commands::schedule::ScheduleTask;
+use crate::commands::server::AutoUpdateState;
 use crate::services::config_service::ConfigService;
+use crate::services::local_command_bridge;
 use crate::services::log_service::LogService;
 use crate::services::process::ProcessManager;
-use crate::services::rcon_client::RconClient;
 
-/// 启动后台调度线程，每 10 秒检查一次，匹配到重启时间时通过 RCON 发送公告并执行重启
+/// 启动后台调度线程，每 10 秒检查一次，匹配到重启时间时通过本地命令桥发送公告并执行重启
 pub fn start_scheduler(
     config: Arc<Mutex<ConfigService>>,
     process: Arc<Mutex<ProcessManager>>,
-    rcon: Arc<Mutex<RconClient>>,
     log: Arc<Mutex<LogService>>,
+    auto_update: Arc<Mutex<AutoUpdateState>>,
 ) {
     std::thread::spawn(move || {
         let mut last_check_minute: i64 = -1;
@@ -78,13 +79,26 @@ pub fn start_scheduler(
                     let task_announced = announced.entry(task.id.clone()).or_default();
                     for &announce_at in &task.announce_minutes {
                         if mins == announce_at && !task_announced.contains(&announce_at) {
-                            send_announce(&rcon, &config, &log, announce_at, task.server_id.as_deref());
+                            send_announce(
+                                &process,
+                                &config,
+                                &log,
+                                &auto_update,
+                                announce_at,
+                                task.server_id.as_deref(),
+                            );
                             task_announced.push(announce_at);
                         }
                     }
 
                     if mins == 0 {
-                        execute_restart(&process, &rcon, &config, &log, task.server_id.as_deref());
+                        execute_restart(
+                            &process,
+                            &config,
+                            &log,
+                            &auto_update,
+                            task.server_id.as_deref(),
+                        );
                         announced.remove(&task.id);
                     }
                 } else {
@@ -109,21 +123,6 @@ fn load_tasks(config: &Arc<Mutex<ConfigService>>) -> Vec<ScheduleTask> {
     }
 }
 
-/// 根据 server_id 查找服务器配置，返回 (host, port, password)
-fn find_rcon_config(
-    config: &Arc<Mutex<ConfigService>>,
-    server_id: Option<&str>,
-) -> Option<(String, u16, String)> {
-    let cfg = config.lock().unwrap_or_else(|e| e.into_inner());
-    let servers = cfg.load_servers_config();
-    let profile = if let Some(id) = server_id {
-        servers.servers.iter().find(|s| s.id == id)
-    } else {
-        servers.servers.first()
-    };
-    profile.map(|p| (p.rcon.host.clone(), p.rcon.port, p.rcon.password.clone()))
-}
-
 /// 根据 server_id 查找服务器配置并 clone profile
 fn find_server_profile(
     config: &Arc<Mutex<ConfigService>>,
@@ -136,6 +135,25 @@ fn find_server_profile(
     } else {
         servers.servers.first().cloned()
     }
+}
+
+fn resolve_command_profile(
+    config: &Arc<Mutex<ConfigService>>,
+    auto_update: &Arc<Mutex<AutoUpdateState>>,
+    server_id: Option<&str>,
+) -> Option<crate::models::config::ServerProfile> {
+    let mut profile = find_server_profile(config, server_id)?;
+    if server_id.is_none() {
+        let state = auto_update.lock().unwrap_or_else(|e| e.into_inner());
+        profile.id = state.current_save_id(&profile.id);
+        let entry_prefix = if state.current_launch_mode() == "lan" {
+            "+LanServer"
+        } else {
+            "+InternetServer"
+        };
+        profile.server_entry = format!("{}/{}", entry_prefix, profile.id);
+    }
+    Some(profile)
 }
 
 fn minutes_until_restart(
@@ -200,65 +218,36 @@ fn parse_time(time_str: &str) -> Option<u32> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn interval_task(hours: u32) -> ScheduleTask {
-        ScheduleTask {
-            id: "interval".to_string(),
-            enabled: true,
-            task_type: "interval".to_string(),
-            time: None,
-            interval_hours: Some(hours),
-            weekday: None,
-            announce_minutes: vec![30, 10, 5, 1],
-            server_id: None,
-        }
-    }
-
-    #[test]
-    fn interval_restart_returns_zero_at_cycle_boundary() {
-        let task = interval_task(6);
-
-        assert_eq!(minutes_until_restart(&task, 6, 0, 0), Some(0));
-    }
-}
-
 fn send_announce(
-    rcon: &Arc<Mutex<RconClient>>,
+    process: &Arc<Mutex<ProcessManager>>,
     config: &Arc<Mutex<ConfigService>>,
     log: &Arc<Mutex<LogService>>,
+    auto_update: &Arc<Mutex<AutoUpdateState>>,
     minutes: u32,
     server_id: Option<&str>,
 ) {
     let msg = format!("say 服务器将在 {} 分钟后重启", minutes);
-
-    // 先获取 RCON 配置，避免在持有 rcon 锁时再获取 config 锁
-    let rcon_config = find_rcon_config(config, server_id);
-
-    let mut client = rcon.lock().unwrap_or_else(|e| e.into_inner());
-    if !client.is_connected() {
-        if let Some((host, port, password)) = rcon_config {
-            let _ = client.connect(&host, port, &password);
+    if let Some(profile) = resolve_command_profile(config, auto_update, server_id) {
+        match local_command_bridge::enqueue_command(&profile.server_root, &profile.id, &msg) {
+            Ok(command) => {
+                let pm = process.lock().unwrap_or_else(|e| e.into_inner());
+                pm.record_sent_command(&command);
+                let ls = log.lock().unwrap_or_else(|e| e.into_inner());
+                ls.log_operation(&format!("定时任务公告: {}分钟后重启", minutes));
+            }
+            Err(e) => {
+                let ls = log.lock().unwrap_or_else(|e| e.into_inner());
+                ls.log_operation(&format!("[Warning] 定时任务公告发送失败: {}", e));
+            }
         }
     }
-
-    if client.is_connected() {
-        let _ = client.send_command(&msg);
-    }
-
-    drop(client);
-
-    let ls = log.lock().unwrap_or_else(|e| e.into_inner());
-    ls.log_operation(&format!("定时任务公告: {}分钟后重启", minutes));
 }
 
 fn execute_restart(
     process: &Arc<Mutex<ProcessManager>>,
-    rcon: &Arc<Mutex<RconClient>>,
     config: &Arc<Mutex<ConfigService>>,
     log: &Arc<Mutex<LogService>>,
+    auto_update: &Arc<Mutex<AutoUpdateState>>,
     server_id: Option<&str>,
 ) {
     {
@@ -266,24 +255,30 @@ fn execute_restart(
         ls.log_operation("定时任务: 执行重启");
     }
 
-    // 先获取 RCON 配置，避免在持有 rcon 锁时再获取 config 锁
-    let rcon_config = find_rcon_config(config, server_id);
+    let profile = match resolve_command_profile(config, auto_update, server_id) {
+        Some(profile) => profile,
+        None => {
+            let ls = log.lock().unwrap_or_else(|e| e.into_inner());
+            ls.log_operation("[ERROR] 定时任务重启失败: 没有配置服务器");
+            return;
+        }
+    };
 
-    // 通过 RCON 优雅关闭
-    {
-        let mut client = rcon.lock().unwrap_or_else(|e| e.into_inner());
-        if !client.is_connected() {
-            if let Some((host, port, password)) = rcon_config {
-                let _ = client.connect(&host, port, &password);
+    for command in ["save", "shutdown"] {
+        match local_command_bridge::enqueue_command(&profile.server_root, &profile.id, command) {
+            Ok(sent) => {
+                let pm = process.lock().unwrap_or_else(|e| e.into_inner());
+                pm.record_sent_command(&sent);
+            }
+            Err(e) => {
+                let ls = log.lock().unwrap_or_else(|e| e.into_inner());
+                ls.log_operation(&format!(
+                    "[Warning] 定时任务命令发送失败 ({}): {}",
+                    command, e
+                ));
             }
         }
-
-        if client.is_connected() {
-            let _ = client.send_command("save");
-            std::thread::sleep(Duration::from_millis(300));
-            let _ = client.send_command("shutdown");
-            client.disconnect();
-        }
+        std::thread::sleep(Duration::from_millis(300));
     }
 
     // 等待进程退出，最多 30 秒
@@ -308,14 +303,36 @@ fn execute_restart(
 
     std::thread::sleep(Duration::from_secs(2));
 
-    // 重新启动服务器
-    let profile = find_server_profile(config, server_id);
-    if let Some(profile) = profile {
-        {
-            let mut pm = process.lock().unwrap_or_else(|e| e.into_inner());
-            let _ = pm.start(&profile);
+    let _ = local_command_bridge::ensure_bridge_installed(&profile.server_root, &profile.id);
+    {
+        let mut pm = process.lock().unwrap_or_else(|e| e.into_inner());
+        let _ = pm.start(&profile);
+    }
+    let ls = log.lock().unwrap_or_else(|e| e.into_inner());
+    ls.log_operation("定时任务: 服务器已重启");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn interval_task(hours: u32) -> ScheduleTask {
+        ScheduleTask {
+            id: "interval".to_string(),
+            enabled: true,
+            task_type: "interval".to_string(),
+            time: None,
+            interval_hours: Some(hours),
+            weekday: None,
+            announce_minutes: vec![30, 10, 5, 1],
+            server_id: None,
         }
-        let ls = log.lock().unwrap_or_else(|e| e.into_inner());
-        ls.log_operation("定时任务: 服务器已重启");
+    }
+
+    #[test]
+    fn interval_restart_returns_zero_at_cycle_boundary() {
+        let task = interval_task(6);
+
+        assert_eq!(minutes_until_restart(&task, 6, 0, 0), Some(0));
     }
 }

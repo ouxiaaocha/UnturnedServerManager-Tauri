@@ -8,7 +8,7 @@
 
 | 文件 | 说明 |
 | --- | --- |
-| `Unturned Server Manager_x.x.x_x64-setup.exe` | NSIS 安装程序，推荐使用 |
+| `Unturned Server Manager_2.1.0_x64-setup.exe` | NSIS 安装程序，推荐使用 |
 | `unturned-server-manager.exe` | 便携版可执行文件，无需安装 |
 
 ## 系统要求

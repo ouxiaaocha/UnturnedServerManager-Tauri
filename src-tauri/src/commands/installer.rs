@@ -99,8 +99,7 @@ fn do_download_steamcmd_inner(
     let mut downloaded: u64 = 0;
 
     // 流式写入磁盘，避免将整个文件读入内存
-    let mut out_file = fs::File::create(&zip_path)
-        .map_err(|e| format!("创建文件失败: {}", e))?;
+    let mut out_file = fs::File::create(&zip_path).map_err(|e| format!("创建文件失败: {}", e))?;
 
     let mut buffer = [0u8; 65536];
     loop {
@@ -295,15 +294,16 @@ fn do_download_server_inner(
 
     let mut cmd = Command::new(steamcmd_path);
     cmd.args([
-        "+force_install_dir",
-        server_root_str,
         "+login",
         "anonymous",
+        "+force_install_dir",
+        server_root_str,
         "+app_update",
         "1110390",
         "validate",
         "+quit",
     ])
+    .current_dir(Path::new(steamcmd_path).parent().unwrap_or(Path::new("")))
     .stdout(Stdio::piped())
     .stderr(Stdio::piped())
     .stdin(Stdio::null());

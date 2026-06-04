@@ -1,7 +1,7 @@
 ﻿<script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import { formatBytes, copyToClipboard } from "$lib/utils";
-  import { appState, sharedSaves, loadSharedSaves, sharedSettings, loadSharedSettings, serverInfo, serverState, refreshServerStatus } from "$lib/stores.svelte";
+  import { appState, sharedSaves, loadSharedSaves, sharedSettings, loadSharedSettings, serverInfo, serverState, serverLogs, refreshServerStatus, clearServerLogs } from "$lib/stores.svelte";
   import { toastStore } from "../stores/toast.svelte";
   import { createPoller } from "../utils/polling.svelte";
   import SaveSelector from "../components/SaveSelector.svelte";
@@ -29,9 +29,7 @@
   let cachedSaveName = "";
   let cachedSaveId = "";
 
-  // 限制 snapshot 获取次数，避免启动阶段每 2s 全量拉取
-  let snapshotRetries = 0;
-  const MAX_SNAPSHOT_RETRIES = 5;
+  let parsedExistingLogsForCode = false;
 
   // Non-reactive variables for internal state tracking
   let prevNetDown = 0;
@@ -144,8 +142,7 @@
 
   async function refreshStatus() {
     try {
-      // 使用共享的刷新函数
-      await refreshServerStatus();
+      const newLines = await refreshServerStatus();
 
       if (serverState.status === "运行中") {
         // 记录当前运行的存档 ID
@@ -154,15 +151,12 @@
         }
         fetchPublicIp();
         fetchServerPort();
-        // 仅在尚未解析到联机码且未超过重试次数时获取输出
-        if (!serverInfo.codeParsed && snapshotRetries < MAX_SNAPSHOT_RETRIES) {
-          snapshotRetries++;
-          try {
-            const snap: any = await invoke("get_server_snapshot", { fromIndex: 0 });
-            if (snap.output && snap.output.length > 0) {
-              parseServerCode(snap.output);
-            }
-          } catch (e) { console.error("获取服务器快照失败:", e); }
+        if (!serverInfo.codeParsed) {
+          parseServerCode(newLines);
+        }
+        if (!serverInfo.codeParsed && !parsedExistingLogsForCode) {
+          parsedExistingLogsForCode = true;
+          parseServerCode(serverLogs.map((log) => log.text));
         }
       } else if (serverState.status !== "启动中") {
         // 服务器完全停止后清除信息
@@ -171,7 +165,7 @@
         serverInfo.port = 0;
         serverInfo.runningSaveId = "";
         serverInfo.codeParsed = false;
-        snapshotRetries = 0;
+        parsedExistingLogsForCode = false;
       }
     } catch (e) { console.error("刷新服务器状态失败:", e); }
   }
@@ -210,6 +204,9 @@
 
   async function startServer() {
     serverState.loading = "starting";
+    clearServerLogs();
+    serverInfo.codeParsed = false;
+    parsedExistingLogsForCode = false;
     try {
       await invoke("start_server", {
         saveId: selectedSaveId || null,
@@ -217,8 +214,6 @@
       });
       // 记录本次启动的存档 ID
       serverInfo.runningSaveId = selectedSaveId;
-      serverInfo.codeParsed = false;
-      snapshotRetries = 0;
     } catch (e: any) {
       alert(e);
     }
@@ -239,6 +234,8 @@
 
   async function restartServer() {
     serverState.loading = "restarting";
+    serverInfo.codeParsed = false;
+    parsedExistingLogsForCode = false;
     try {
       await invoke("restart_server", {
         saveId: selectedSaveId || null,

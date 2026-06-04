@@ -6,7 +6,7 @@
 
 **清新、轻量、便携的 Unturned 专用服务器管理工具**
 
-基于 **Tauri v2 + Svelte 5 + Rust** 构建，把服务端启动、RCON、存档、创意工坊模组、插件、更新、日志和定时任务集中到一个现代化桌面面板里。
+基于 **Tauri v2 + Svelte 5 + Rust** 构建，把服务端启动、本地命令控制、RCON、存档、创意工坊模组、插件、更新、日志和定时任务集中到一个现代化桌面面板里。
 
 ![Tauri](https://img.shields.io/badge/Tauri-v2-24C8DB?style=for-the-badge&logo=tauri&logoColor=white)
 ![Svelte](https://img.shields.io/badge/Svelte-5-FF3E00?style=for-the-badge&logo=svelte&logoColor=white)
@@ -77,25 +77,24 @@
 
 | 模块 | 能力 |
 | --- | --- |
-| 仪表盘 | 查看服务器状态、PID、运行时间、CPU、内存、网络流量，并可快速启动、停止、重启服务器 |
-| 服务器控制 | 一键启动、停止、重启、强制停止，支持实时输出、日志搜索、局域网/互联网模式切换 |
-| RCON 控制台 | 连接 Rocket RCON、发送命令、轮询响应，服务器启动后可自动连接 |
+| 仪表盘 | 查看服务器状态、PID、运行时间、CPU、内存、网络流量，并可通过本地命令快速启动、停止、重启服务器 |
+| 服务器控制 | 一键启动、停止、重启、强制停止，支持本地命令输入、实时输出、日志搜索、局域网/互联网模式切换 |
+| RCON 控制台 | 作为额外远程功能连接 Rocket RCON、发送命令、轮询响应，服务器启动后可自动连接 |
 | 存档配置 | 管理 `Commands.dat`、Rocket RCON、PvE、作弊、GSLT、地图、端口和最大玩家数 |
 | 创意工坊模组 | 维护 `WorkshopDownloadConfig.json`，管理模组 ID、备注、缓存下载、更新监控和关服提示 |
 | 插件管理 | 查看 Rocket 插件目录，保存插件备注，快速打开插件配置目录 |
 | 日志中心 | 查看软件日志、操作日志和游戏日志，支持日期切换、分类筛选和搜索 |
-| 服务端更新 | 调用 SteamCMD 更新 Unturned 服务端，并显示更新输出 |
+| 服务端更新 | 调用 SteamCMD 更新 Unturned 服务端，显示 SteamCMD 自更新和服务端校验输出 |
 | 定时任务 | 创建每日、每周、间隔型自动重启任务，支持提前提醒 |
-| 首次引导 | 自动检测/下载 SteamCMD，安装 Rocket 模块，初始化存档和 RCON |
+| 首次引导 | 自动检测/下载 SteamCMD，安装 Rocket 模块，初始化存档、RCON 和本地命令 Bridge |
 
 ## 最近更新
 
-- 设置页新增 GitHub 更新检测，自动检查新版本并显示更新日志。
-- 仪表盘新增服务器运行时信息卡片（当前存档、启动方式、公网 IP:端口、联机码）。
-- RCON 连接性能优化 — 预连接 + 心跳保活 + 去重。
-- 优化服务器停止/重启响应速度。
-- 安全加固与质量改善，代码性能优化。
-- 新增 VitePress 文档网站。
+- v2.1.0 将服务器控制主路径切换为本地命令 Bridge，启动、停止、重启和定时提醒不再依赖 RCON。
+- 服务器页面新增本地命令输入栏，命令会写入本地队列并由 Rocket Bridge 插件在服务器内执行。
+- 设置页新增运行环境检测与修复入口，可检查 SteamCMD、服务端目录、Rocket.Unturned 和 Bridge DLL。
+- 更新检测会同时显示本地版本与云端版本，GitHub Release 日志安全渲染。
+- 优化 SteamCMD 更新流程、自动重启日志续接、启动期间页面卡顿和重启延时问题。
 
 ## 技术栈
 
@@ -137,7 +136,7 @@ pnpm tauri build
 
 ```text
 src-tauri/target/release/unturned-server-manager.exe
-src-tauri/target/release/bundle/nsis/Unturned Server Manager_2.0.0_x64-setup.exe
+src-tauri/target/release/bundle/nsis/Unturned Server Manager_2.1.0_x64-setup.exe
 ```
 
 ## 便携版
@@ -161,7 +160,7 @@ backups/     备份数据
 
 打包后的桌面管理界面不会启动可被公网访问的 Web 服务，别人不能通过 `服务器IP:1420` 打开这个软件界面。开发模式和预览模式固定监听 `127.0.0.1`，只允许本机访问。
 
-需要区分的是 Unturned 游戏端口和 Rocket RCON 端口：游戏端口通常需要按开服需求放行；RCON 是管理端口，不建议对公网开放。建议在 Windows 防火墙或云服务器安全组中只放行游戏端口，阻止 RCON 端口的公网入站访问，并使用强随机 RCON 密码。
+需要区分的是 Unturned 游戏端口、Rocket RCON 端口和本地命令 Bridge：游戏端口通常需要按开服需求放行；RCON 是额外远程管理端口，不建议对公网开放；本地命令 Bridge 通过服务器存档目录内的本地队列文件工作，不监听公网端口。建议在 Windows 防火墙或云服务器安全组中只放行游戏端口，阻止 RCON 端口的公网入站访问，并使用强随机 RCON 密码。
 
 ## 项目结构
 
@@ -183,7 +182,7 @@ src/
 
 src-tauri/
   src/commands/           Tauri 命令
-  src/services/           配置、日志、进程、RCON、调度和系统监控服务
+  src/services/           配置、日志、进程、本地命令、RCON、调度和系统监控服务
   src/models/             数据模型
   tauri.conf.json         Tauri 应用配置
 ```

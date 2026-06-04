@@ -39,8 +39,7 @@ pub struct PluginInfo {
 }
 
 fn validate_save_id(id: &str) -> Result<(), String> {
-    crate::services::config_service::validate_id(id)
-        .map_err(|_| "存档 ID 包含非法字符".to_string())
+    crate::services::config_service::validate_id(id).map_err(|_| "存档 ID 包含非法字符".to_string())
 }
 
 fn resolve_save_dir(
