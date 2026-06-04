@@ -145,10 +145,8 @@
       onpointerdown={startWindowDrag}
       ondblclick={onTitlebarDoubleClick}
     >
-      <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-gradient-to-br from-[var(--accent)] to-[var(--action)] shadow-[var(--shadow-glow)]">
-        <svg class="h-4 w-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
-        </svg>
+      <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md overflow-hidden shadow-[var(--shadow-glow)]">
+        <img src="/logo.png" alt="Logo" class="h-7 w-7 object-contain" />
       </div>
       <div class="min-w-0">
         <p class="truncate text-xs font-semibold text-[var(--text-primary)] sm:text-sm">Unturned 服务器管理工具</p>

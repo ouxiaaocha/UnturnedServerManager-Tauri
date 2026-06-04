@@ -121,5 +121,6 @@ export default defineConfig({
     ['meta', { property: 'og:type', content: 'website' }],
     ['meta', { property: 'og:title', content: 'Unturned Server Manager' }],
     ['meta', { property: 'og:description', content: '清新、轻量、便携的 Unturned 专用服务器管理工具' }],
+    ['link', { rel: 'icon', type: 'image/x-icon', href: '/favicon.ico' }],
   ],
 })
