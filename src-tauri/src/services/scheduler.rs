@@ -78,13 +78,13 @@ pub fn start_scheduler(
                     let task_announced = announced.entry(task.id.clone()).or_default();
                     for &announce_at in &task.announce_minutes {
                         if mins == announce_at && !task_announced.contains(&announce_at) {
-                            send_announce(&rcon, &config, &log, announce_at);
+                            send_announce(&rcon, &config, &log, announce_at, task.server_id.as_deref());
                             task_announced.push(announce_at);
                         }
                     }
 
                     if mins == 0 {
-                        execute_restart(&process, &rcon, &config, &log);
+                        execute_restart(&process, &rcon, &config, &log, task.server_id.as_deref());
                         announced.remove(&task.id);
                     }
                 } else {
@@ -106,6 +106,35 @@ fn load_tasks(config: &Arc<Mutex<ConfigService>>) -> Vec<ScheduleTask> {
         schedule.tasks
     } else {
         vec![]
+    }
+}
+
+/// 根据 server_id 查找服务器配置，返回 (host, port, password)
+fn find_rcon_config(
+    config: &Arc<Mutex<ConfigService>>,
+    server_id: Option<&str>,
+) -> Option<(String, u16, String)> {
+    let cfg = config.lock().unwrap_or_else(|e| e.into_inner());
+    let servers = cfg.load_servers_config();
+    let profile = if let Some(id) = server_id {
+        servers.servers.iter().find(|s| s.id == id)
+    } else {
+        servers.servers.first()
+    };
+    profile.map(|p| (p.rcon.host.clone(), p.rcon.port, p.rcon.password.clone()))
+}
+
+/// 根据 server_id 查找服务器配置并 clone profile
+fn find_server_profile(
+    config: &Arc<Mutex<ConfigService>>,
+    server_id: Option<&str>,
+) -> Option<crate::models::config::ServerProfile> {
+    let cfg = config.lock().unwrap_or_else(|e| e.into_inner());
+    let servers = cfg.load_servers_config();
+    if let Some(id) = server_id {
+        servers.servers.iter().find(|s| s.id == id).cloned()
+    } else {
+        servers.servers.first().cloned()
     }
 }
 
@@ -184,6 +213,7 @@ mod tests {
             interval_hours: Some(hours),
             weekday: None,
             announce_minutes: vec![30, 10, 5, 1],
+            server_id: None,
         }
     }
 
@@ -200,18 +230,12 @@ fn send_announce(
     config: &Arc<Mutex<ConfigService>>,
     log: &Arc<Mutex<LogService>>,
     minutes: u32,
+    server_id: Option<&str>,
 ) {
     let msg = format!("say 服务器将在 {} 分钟后重启", minutes);
 
     // 先获取 RCON 配置，避免在持有 rcon 锁时再获取 config 锁
-    let rcon_config = {
-        let cfg = config.lock().unwrap_or_else(|e| e.into_inner());
-        let servers = cfg.load_servers_config();
-        servers
-            .servers
-            .first()
-            .map(|p| (p.rcon.host.clone(), p.rcon.port, p.rcon.password.clone()))
-    };
+    let rcon_config = find_rcon_config(config, server_id);
 
     let mut client = rcon.lock().unwrap_or_else(|e| e.into_inner());
     if !client.is_connected() {
@@ -235,6 +259,7 @@ fn execute_restart(
     rcon: &Arc<Mutex<RconClient>>,
     config: &Arc<Mutex<ConfigService>>,
     log: &Arc<Mutex<LogService>>,
+    server_id: Option<&str>,
 ) {
     {
         let ls = log.lock().unwrap_or_else(|e| e.into_inner());
@@ -242,14 +267,7 @@ fn execute_restart(
     }
 
     // 先获取 RCON 配置，避免在持有 rcon 锁时再获取 config 锁
-    let rcon_config = {
-        let cfg = config.lock().unwrap_or_else(|e| e.into_inner());
-        let servers = cfg.load_servers_config();
-        servers
-            .servers
-            .first()
-            .map(|p| (p.rcon.host.clone(), p.rcon.port, p.rcon.password.clone()))
-    };
+    let rcon_config = find_rcon_config(config, server_id);
 
     // 通过 RCON 优雅关闭
     {
@@ -291,11 +309,7 @@ fn execute_restart(
     std::thread::sleep(Duration::from_secs(2));
 
     // 重新启动服务器
-    let profile = {
-        let cfg = config.lock().unwrap_or_else(|e| e.into_inner());
-        let servers = cfg.load_servers_config();
-        servers.servers.first().cloned()
-    };
+    let profile = find_server_profile(config, server_id);
     if let Some(profile) = profile {
         {
             let mut pm = process.lock().unwrap_or_else(|e| e.into_inner());

@@ -44,7 +44,26 @@ pub(crate) fn validate_id(id: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn machine_key() -> &'static [u8] {
+/// 获取或生成机器绑定的随机 salt（16 字节，存储在 config/machine_salt.bin）
+fn get_or_create_salt(config_dir: &Path) -> Vec<u8> {
+    let salt_path = config_dir.join("machine_salt.bin");
+
+    // 尝试读取已有 salt
+    if let Ok(salt) = fs::read(&salt_path) {
+        if salt.len() >= 16 {
+            return salt[..16].to_vec();
+        }
+    }
+
+    // 生成新 salt 并持久化
+    let mut salt = vec![0u8; 16];
+    OsRng.fill_bytes(&mut salt);
+    let _ = fs::write(&salt_path, &salt);
+    salt
+}
+
+/// 旧版密钥派生（仅 COMPUTERNAME + USERNAME），用于解密旧格式
+fn legacy_machine_key() -> &'static [u8] {
     static KEY: OnceLock<Vec<u8>> = OnceLock::new();
     KEY.get_or_init(|| {
         let mut hasher = Sha256::new();
@@ -59,8 +78,22 @@ fn machine_key() -> &'static [u8] {
     })
 }
 
-fn encode_password(plain: &str) -> String {
-    let key = machine_key();
+/// 新版密钥派生（加入随机 salt），用于 enc2: 格式
+fn machine_key_with_salt(salt: &[u8]) -> Vec<u8> {
+    let mut hasher = Sha256::new();
+    hasher.update(b"UnturnedSM-v2-");
+    if let Ok(hostname) = std::env::var("COMPUTERNAME") {
+        hasher.update(hostname.as_bytes());
+    }
+    if let Ok(username) = std::env::var("USERNAME") {
+        hasher.update(username.as_bytes());
+    }
+    hasher.update(salt);
+    hasher.finalize().to_vec()
+}
+
+fn encode_password(plain: &str, salt: &[u8]) -> String {
+    let key = machine_key_with_salt(salt);
     let cipher = Aes256Gcm::new_from_slice(&key).unwrap();
     let mut nonce_bytes = [0u8; 12];
     OsRng.fill_bytes(&mut nonce_bytes);
@@ -75,35 +108,39 @@ fn encode_password(plain: &str) -> String {
     }
 }
 
-fn decode_password(stored: &str) -> String {
+/// 解密密码，支持 enc2:（新格式）、enc:（旧 AES-GCM 固定 nonce）、b64:（XOR）
+/// 返回 (明文, 是否需要迁移)
+fn decode_password(stored: &str, salt: &[u8]) -> (String, bool) {
+    // enc2: 新格式（随机 nonce + salt 派生密钥）
     if let Some(enc_part) = stored.strip_prefix("enc2:") {
         if let Ok(decoded) = BASE64.decode(enc_part) {
             if decoded.len() >= 13 {
                 let (nonce_bytes, ciphertext) = decoded.split_at(12);
-                let key = machine_key();
+                let key = machine_key_with_salt(salt);
                 if let Ok(cipher) = Aes256Gcm::new_from_slice(&key) {
                     let nonce = Nonce::from_slice(nonce_bytes);
                     if let Ok(plaintext) = cipher.decrypt(nonce, ciphertext) {
-                        return String::from_utf8(plaintext).unwrap_or_else(|_| stored.to_string());
+                        return (String::from_utf8(plaintext).unwrap_or_else(|_| stored.to_string()), false);
                     }
                 }
             }
         }
     }
-    // Backward compatibility: previous AES-GCM format used a fixed zero nonce.
+    // enc: 旧格式（固定零 nonce，legacy 密钥）— 需要迁移到 enc2:
     if let Some(enc_part) = stored.strip_prefix("enc:") {
         if let Ok(decoded) = BASE64.decode(enc_part) {
-            let key = machine_key();
+            let key = legacy_machine_key();
             if let Ok(cipher) = Aes256Gcm::new_from_slice(&key) {
                 let nonce_bytes = [0u8; 12];
                 let nonce = Nonce::from_slice(&nonce_bytes);
                 if let Ok(plaintext) = cipher.decrypt(nonce, decoded.as_slice()) {
-                    return String::from_utf8(plaintext).unwrap_or_else(|_| stored.to_string());
+                    let plain = String::from_utf8(plaintext).unwrap_or_else(|_| stored.to_string());
+                    return (plain, true); // 需要迁移到 enc2:
                 }
             }
         }
     }
-    // Backward compatibility: old XOR-encoded passwords
+    // b64: 旧 XOR 编码 — 需要迁移到 enc2:
     const XOR_KEY: &[u8] = b"UnturnedSM2024!@";
     if let Some(b64_part) = stored.strip_prefix("b64:") {
         if let Ok(decoded) = BASE64.decode(b64_part) {
@@ -112,11 +149,12 @@ fn decode_password(stored: &str) -> String {
                 .enumerate()
                 .map(|(i, b)| b ^ XOR_KEY[i % XOR_KEY.len()])
                 .collect();
-            return String::from_utf8(decrypted).unwrap_or_else(|_| stored.to_string());
+            let plain = String::from_utf8(decrypted).unwrap_or_else(|_| stored.to_string());
+            return (plain, true); // 需要迁移到 enc2:
         }
     }
-    // Return as-is if not encoded
-    stored.to_string()
+    // 未编码，直接返回
+    (stored.to_string(), true) // 也需要加密迁移
 }
 
 /// 配置文件管理服务，支持内存缓存、AES-256-GCM 密码加密和原子写入
@@ -160,6 +198,10 @@ impl ConfigService {
         self.base_dir.join("logs")
     }
 
+    fn get_salt(&self) -> Vec<u8> {
+        get_or_create_salt(&self.config_dir())
+    }
+
     pub fn load_servers_config(&self) -> ServersConfig {
         if let Some(config) = self
             .servers_cache
@@ -171,12 +213,22 @@ impl ConfigService {
         }
 
         let path = self.config_dir().join("servers.json");
+        let salt = self.get_salt();
         let config = if path.exists() {
             let content = fs::read_to_string(&path).unwrap_or_default();
             let mut config: ServersConfig = serde_json::from_str(&content).unwrap_or_default();
-            // Decode passwords
+            // 解密密码，检测是否需要迁移
+            let mut needs_migration = false;
             for server in &mut config.servers {
-                server.rcon.password = decode_password(&server.rcon.password);
+                let (plain, migrate) = decode_password(&server.rcon.password, &salt);
+                server.rcon.password = plain;
+                if migrate {
+                    needs_migration = true;
+                }
+            }
+            // 自动迁移旧格式密码到 enc2:
+            if needs_migration && !config.servers.is_empty() {
+                let _ = self.save_servers_config(&config);
             }
             config
         } else {
@@ -192,10 +244,11 @@ impl ConfigService {
 
     pub fn save_servers_config(&self, config: &ServersConfig) -> Result<(), String> {
         let path = self.config_dir().join("servers.json");
+        let salt = self.get_salt();
         // Encode passwords before saving
         let mut config_to_save = config.clone();
         for server in &mut config_to_save.servers {
-            server.rcon.password = encode_password(&server.rcon.password);
+            server.rcon.password = encode_password(&server.rcon.password, &salt);
         }
         let content = serde_json::to_string_pretty(&config_to_save)
             .map_err(|e| format!("序列化失败: {}", e))?;
@@ -281,47 +334,63 @@ impl ConfigService {
 
         let content = fs::read_to_string(&path).map_err(|e| format!("读取失败: {}", e))?;
 
-        let mut new_content = content;
+        // 定位 RCON 元素边界，在元素内部替换属性，避免误匹配注释或其他元素中的同名属性
+        let rcon_start = content.find("<RCON ").or_else(|| content.find("<RCON\t"))
+            .or_else(|| content.find("<RCON\n"));
+        let new_content = if let Some(start) = rcon_start {
+            // 找到 RCON 元素的结束位置（以 /> 或 > 结尾）
+            let rcon_region = &content[start..];
+            if let Some(end_offset) = rcon_region.find('>') {
+                let rcon_end = start + end_offset + 1;
+                let mut element = content[start..rcon_end].to_string();
 
-        // Replace Port
-        if let Some(start) = new_content.find("Port=\"") {
-            let after = start + 6;
-            if let Some(end) = new_content[after..].find('"') {
-                new_content = format!(
-                    "{}{}{}",
-                    &new_content[..after],
-                    port,
-                    &new_content[after + end..]
-                );
-            }
-        }
+                // 替换 Port 属性
+                if let Some(attr_start) = element.find("Port=\"") {
+                    let val_start = attr_start + 6;
+                    if let Some(val_end) = element[val_start..].find('"') {
+                        element = format!(
+                            "{}{}{}",
+                            &element[..val_start],
+                            port,
+                            &element[val_start + val_end..]
+                        );
+                    }
+                }
 
-        // Replace Password with XML-escaped value
-        let escaped_password = Self::xml_escape(password);
-        if let Some(start) = new_content.find("Password=\"") {
-            let after = start + 10;
-            if let Some(end) = new_content[after..].find('"') {
-                new_content = format!(
-                    "{}{}{}",
-                    &new_content[..after],
-                    escaped_password,
-                    &new_content[after + end..]
-                );
-            }
-        }
+                // 替换 Password 属性
+                let escaped_password = Self::xml_escape(password);
+                if let Some(attr_start) = element.find("Password=\"") {
+                    let val_start = attr_start + 10;
+                    if let Some(val_end) = element[val_start..].find('"') {
+                        element = format!(
+                            "{}{}{}",
+                            &element[..val_start],
+                            escaped_password,
+                            &element[val_start + val_end..]
+                        );
+                    }
+                }
 
-        // Ensure Enabled="true"
-        if let Some(start) = new_content.find("Enabled=\"") {
-            let after = start + 9;
-            if let Some(end) = new_content[after..].find('"') {
-                new_content = format!(
-                    "{}{}{}",
-                    &new_content[..after],
-                    "true",
-                    &new_content[after + end..]
-                );
+                // 确保 Enabled="true"
+                if let Some(attr_start) = element.find("Enabled=\"") {
+                    let val_start = attr_start + 9;
+                    if let Some(val_end) = element[val_start..].find('"') {
+                        element = format!(
+                            "{}{}{}",
+                            &element[..val_start],
+                            "true",
+                            &element[val_start + val_end..]
+                        );
+                    }
+                }
+
+                format!("{}{}{}", &content[..start], element, &content[rcon_end..])
+            } else {
+                content
             }
-        }
+        } else {
+            content
+        };
 
         atomic_write(&path, &new_content)
     }
@@ -408,12 +477,15 @@ mod tests {
 
     #[test]
     fn encoded_passwords_use_unique_ciphertext_for_same_plaintext() {
-        let first = encode_password("same-secret");
-        let second = encode_password("same-secret");
+        let salt = vec![0u8; 16];
+        let first = encode_password("same-secret", &salt);
+        let second = encode_password("same-secret", &salt);
 
         assert_ne!(first, second);
-        assert_eq!(decode_password(&first), "same-secret");
-        assert_eq!(decode_password(&second), "same-secret");
+        let (plain1, _) = decode_password(&first, &salt);
+        let (plain2, _) = decode_password(&second, &salt);
+        assert_eq!(plain1, "same-secret");
+        assert_eq!(plain2, "same-secret");
     }
 
     #[test]

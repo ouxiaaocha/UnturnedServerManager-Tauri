@@ -20,6 +20,9 @@ pub struct ScheduleTask {
     pub weekday: Option<u8>,
     /// 重启前发送公告的分钟数列表
     pub announce_minutes: Vec<u32>,
+    /// 指定操作的服务器 ID，为空时默认使用第一个服务器
+    #[serde(default)]
+    pub server_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

@@ -62,7 +62,9 @@ export function createPoller(options: PollerOptions) {
   function setupVisibilityListener() {
     const onVisibilityChange = () => {
       if (typeof document !== "undefined" && !document.hidden) {
-        start();
+        // 页面恢复可见时，重置定时器以使用更短的活跃间隔，但不立即触发轮询
+        if (pollTimer) clearTimeout(pollTimer);
+        pollTimer = setTimeout(() => pollLoop(pollToken), nextPollDelay());
       }
     };
     document.addEventListener("visibilitychange", onVisibilityChange);

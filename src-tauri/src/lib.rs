@@ -1,4 +1,5 @@
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::AtomicBool;
 use tauri::Manager;
 
 mod models;
@@ -36,6 +37,7 @@ pub fn run() {
     let active_rcon = ActiveRcon::from_config(&config_arc.lock().unwrap());
     let active_rcon_arc = Arc::new(Mutex::new(active_rcon));
     let auto_update_arc = Arc::new(Mutex::new(AutoUpdateState::default()));
+    let auto_update_stop = Arc::new(AtomicBool::new(false));
 
     // 启动后台调度器
     scheduler::start_scheduler(
@@ -52,6 +54,7 @@ pub fn run() {
     let monitor_log = Arc::clone(&log_arc);
     let monitor_active_rcon = Arc::clone(&active_rcon_arc);
     let monitor_auto_update = Arc::clone(&auto_update_arc);
+    let monitor_stop = Arc::clone(&auto_update_stop);
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -70,6 +73,7 @@ pub fn run() {
                 Arc::clone(&monitor_log),
                 Arc::clone(&monitor_active_rcon),
                 Arc::clone(&monitor_auto_update),
+                monitor_stop,
             );
             Ok(())
         })
@@ -80,6 +84,7 @@ pub fn run() {
         .manage(system_arc)
         .manage(active_rcon_arc)
         .manage(auto_update_arc)
+        .manage(auto_update_stop)
         .invoke_handler(tauri::generate_handler![
             commands::server::get_server_status,
             commands::server::get_server_output,

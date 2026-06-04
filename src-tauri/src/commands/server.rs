@@ -1,5 +1,6 @@
 use serde::Serialize;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::{Emitter, State};
@@ -305,24 +306,14 @@ pub fn start_server_inner(
     Ok("服务器已启动".to_string())
 }
 
-#[tauri::command(async)]
-pub async fn stop_server(
-    process: State<'_, Arc<Mutex<ProcessManager>>>,
-    rcon: State<'_, Arc<Mutex<RconClient>>>,
-    active_rcon: State<'_, Arc<Mutex<ActiveRcon>>>,
-    auto_update: State<'_, Arc<Mutex<AutoUpdateState>>>,
-    log: State<'_, Arc<Mutex<LogService>>>,
-) -> Result<String, String> {
-    {
-        let mut state = auto_update.lock().unwrap_or_else(|e| e.into_inner());
-        state.mark_expected_stop();
-    }
-
-    {
-        let ls = log.lock().unwrap_or_else(|e| e.into_inner());
-        ls.log_operation("停止服务器");
-    }
-
+/// 通过 RCON 优雅关闭服务器：先 save，再 shutdown，然后渐进式轮询等待进程退出。
+/// 超时后自动强制停止。返回 Ok("stopped") 或 Ok("forced") 或 Err。
+async fn graceful_shutdown(
+    process: &Arc<Mutex<ProcessManager>>,
+    rcon: &Arc<Mutex<RconClient>>,
+    active_rcon: &Arc<Mutex<ActiveRcon>>,
+    log: &Arc<Mutex<LogService>>,
+) -> Result<&'static str, String> {
     // 尝试通过 RCON 优雅关闭
     let shutdown_sent = {
         let mut rcon_client = rcon.lock().unwrap_or_else(|e| e.into_inner());
@@ -355,7 +346,7 @@ pub async fn stop_server(
             pm.is_running()
         };
         if !is_running {
-            return Ok("服务器已停止".to_string());
+            return Ok("stopped");
         }
     }
 
@@ -366,8 +357,44 @@ pub async fn stop_server(
     }
     let mut pm = process.lock().unwrap_or_else(|e| e.into_inner());
     pm.force_stop()?;
-    Ok("服务器已强制停止".to_string())
+    Ok("forced")
 }
+
+#[tauri::command(async)]
+pub async fn stop_server(
+    process: State<'_, Arc<Mutex<ProcessManager>>>,
+    rcon: State<'_, Arc<Mutex<RconClient>>>,
+    active_rcon: State<'_, Arc<Mutex<ActiveRcon>>>,
+    auto_update: State<'_, Arc<Mutex<AutoUpdateState>>>,
+    log: State<'_, Arc<Mutex<LogService>>>,
+) -> Result<String, String> {
+    {
+        let mut state = auto_update.lock().unwrap_or_else(|e| e.into_inner());
+        state.mark_expected_stop();
+    }
+
+    {
+        let ls = log.lock().unwrap_or_else(|e| e.into_inner());
+        ls.log_operation("停止服务器");
+    }
+
+    let result = graceful_shutdown(
+        process.inner(),
+        rcon.inner(),
+        active_rcon.inner(),
+        log.inner(),
+    )
+    .await?;
+
+    Ok(if result == "forced" {
+        "服务器已强制停止".to_string()
+    } else {
+        "服务器已停止".to_string()
+    })
+}
+
+/// 自动更新监控的停止信号，应用退出时设为 true
+pub type AutoUpdateStopSignal = Arc<AtomicBool>;
 
 pub fn start_auto_update_monitor(
     app: tauri::AppHandle,
@@ -377,114 +404,121 @@ pub fn start_auto_update_monitor(
     log: Arc<Mutex<LogService>>,
     active_rcon: Arc<Mutex<ActiveRcon>>,
     auto_update: Arc<Mutex<AutoUpdateState>>,
+    stop_signal: AutoUpdateStopSignal,
 ) {
-    std::thread::spawn(move || loop {
-        std::thread::sleep(Duration::from_secs(5));
+    std::thread::spawn(move || {
+        while !stop_signal.load(Ordering::Relaxed) {
+            std::thread::sleep(Duration::from_secs(5));
 
-        let enabled = {
-            let cfg = config.lock().unwrap_or_else(|e| e.into_inner());
-            cfg.load_app_settings().auto_update_hosting
-        };
+            if stop_signal.load(Ordering::Relaxed) {
+                break;
+            }
 
-        if !enabled {
-            let mut state = auto_update.lock().unwrap_or_else(|e| e.into_inner());
-            state.update_in_progress = false;
-            state.stopped_since = None;
-            continue;
-        }
+            let enabled = {
+                let cfg = config.lock().unwrap_or_else(|e| e.into_inner());
+                cfg.load_app_settings().auto_update_hosting
+            };
 
-        let running = {
-            let mut pm = process.lock().unwrap_or_else(|e| e.into_inner());
-            pm.is_running()
-        };
-
-        let session = {
-            let mut state = auto_update.lock().unwrap_or_else(|e| e.into_inner());
-
-            if running {
-                state.enabled_running_seen = true;
+            if !enabled {
+                let mut state = auto_update.lock().unwrap_or_else(|e| e.into_inner());
+                state.update_in_progress = false;
                 state.stopped_since = None;
                 continue;
             }
 
-            if state.update_in_progress || !state.enabled_running_seen {
-                continue;
-            }
+            let running = {
+                let mut pm = process.lock().unwrap_or_else(|e| e.into_inner());
+                pm.is_running()
+            };
 
-            if state.expected_stop {
-                state.expected_stop = false;
+            let session = {
+                let mut state = auto_update.lock().unwrap_or_else(|e| e.into_inner());
+
+                if running {
+                    state.enabled_running_seen = true;
+                    state.stopped_since = None;
+                    continue;
+                }
+
+                if state.update_in_progress || !state.enabled_running_seen {
+                    continue;
+                }
+
+                if state.expected_stop {
+                    state.expected_stop = false;
+                    state.enabled_running_seen = false;
+                    state.stopped_since = None;
+                    continue;
+                }
+
+                let stopped_since = state.stopped_since.get_or_insert_with(Instant::now);
+                if stopped_since.elapsed() < Duration::from_secs(10) {
+                    continue;
+                }
+
+                let save_id = state.last_save_id.clone();
+                let launch_mode = state.last_launch_mode.clone();
+                state.update_in_progress = true;
                 state.enabled_running_seen = false;
                 state.stopped_since = None;
-                continue;
+                (save_id, launch_mode)
+            };
+
+            let (save_id, launch_mode) = session;
+            let app_for_update = app.clone();
+            let _ = app_for_update.emit(
+                "update-output",
+                "[系统] 检测到服务器进程已退出，自动更新托管开始执行 SteamCMD 更新...",
+            );
+            {
+                let ls = log.lock().unwrap_or_else(|e| e.into_inner());
+                ls.log_operation("[自动更新托管] 检测到服务器退出，开始更新");
             }
 
-            let stopped_since = state.stopped_since.get_or_insert_with(Instant::now);
-            if stopped_since.elapsed() < Duration::from_secs(10) {
-                continue;
-            }
+            let update_result = run_update_blocking(
+                &app_for_update,
+                &config,
+                &log,
+                "[自动更新托管] 开始更新服务端",
+            );
 
-            let save_id = state.last_save_id.clone();
-            let launch_mode = state.last_launch_mode.clone();
-            state.update_in_progress = true;
-            state.enabled_running_seen = false;
-            state.stopped_since = None;
-            (save_id, launch_mode)
-        };
-
-        let (save_id, launch_mode) = session;
-        let app_for_update = app.clone();
-        let _ = app_for_update.emit(
-            "update-output",
-            "[系统] 检测到服务器进程已退出，自动更新托管开始执行 SteamCMD 更新...",
-        );
-        {
-            let ls = log.lock().unwrap_or_else(|e| e.into_inner());
-            ls.log_operation("[自动更新托管] 检测到服务器退出，开始更新");
-        }
-
-        let update_result = run_update_blocking(
-            &app_for_update,
-            &config,
-            &log,
-            "[自动更新托管] 开始更新服务端",
-        );
-
-        match update_result {
-            Ok(_) => {
-                let _ = app_for_update.emit(
-                    "update-output",
-                    "[系统] 自动更新完成，正在重新启动服务器...",
-                );
-                if let Err(e) = start_server_inner(
-                    app_for_update.clone(),
-                    &process,
-                    &rcon,
-                    &config,
-                    &log,
-                    &active_rcon,
-                    &auto_update,
-                    save_id,
-                    launch_mode,
-                ) {
-                    let ls = log.lock().unwrap_or_else(|e| e.into_inner());
-                    ls.log_operation(&format!("[ERROR] 自动更新后启动服务器失败: {}", e));
+            match update_result {
+                Ok(_) => {
                     let _ = app_for_update.emit(
                         "update-output",
-                        &format!("[ERROR] 自动更新后启动服务器失败: {}", e),
+                        "[系统] 自动更新完成，正在重新启动服务器...",
+                    );
+                    if let Err(e) = start_server_inner(
+                        app_for_update.clone(),
+                        &process,
+                        &rcon,
+                        &config,
+                        &log,
+                        &active_rcon,
+                        &auto_update,
+                        save_id,
+                        launch_mode,
+                    ) {
+                        let ls = log.lock().unwrap_or_else(|e| e.into_inner());
+                        ls.log_operation(&format!("[ERROR] 自动更新后启动服务器失败: {}", e));
+                        let _ = app_for_update.emit(
+                            "update-output",
+                            &format!("[ERROR] 自动更新后启动服务器失败: {}", e),
+                        );
+                        let mut state = auto_update.lock().unwrap_or_else(|e| e.into_inner());
+                        state.update_in_progress = false;
+                    }
+                }
+                Err(e) => {
+                    let ls = log.lock().unwrap_or_else(|e| e.into_inner());
+                    ls.log_operation(&format!("[ERROR] 自动更新托管失败: {}", e));
+                    let _ = app_for_update.emit(
+                        "update-output",
+                        &format!("[ERROR] 自动更新托管失败: {}", e),
                     );
                     let mut state = auto_update.lock().unwrap_or_else(|e| e.into_inner());
                     state.update_in_progress = false;
                 }
-            }
-            Err(e) => {
-                let ls = log.lock().unwrap_or_else(|e| e.into_inner());
-                ls.log_operation(&format!("[ERROR] 自动更新托管失败: {}", e));
-                let _ = app_for_update.emit(
-                    "update-output",
-                    &format!("[ERROR] 自动更新托管失败: {}", e),
-                );
-                let mut state = auto_update.lock().unwrap_or_else(|e| e.into_inner());
-                state.update_in_progress = false;
             }
         }
     });
@@ -598,49 +632,13 @@ pub async fn restart_server(
         ls.log_operation("重启服务器");
     }
 
-    // 通过当前会话的 RCON 优雅关闭
-    let should_send_shutdown = {
-        let mut rcon_client = rcon.lock().unwrap_or_else(|e| e.into_inner());
-        if !rcon_client.is_connected() {
-            let ar = active_rcon.lock().unwrap_or_else(|e| e.into_inner());
-            let _ = rcon_client.connect(&ar.host, ar.port, &ar.password);
-        }
-
-        if rcon_client.is_connected() {
-            let _ = rcon_client.send_command("save");
-            true
-        } else {
-            false
-        }
-    };
-
-    if should_send_shutdown {
-        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-        let mut rcon_client = rcon.lock().unwrap_or_else(|e| e.into_inner());
-        let _ = rcon_client.send_command("shutdown");
-        rcon_client.disconnect();
-    }
-
-    // 渐进式轮询等待进程退出（与 stop_server 相同策略）
-    for i in 0..44 {
-        let ms = if i < 20 { 100 } else if i < 30 { 200 } else { 500 };
-        tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
-        let is_running = {
-            let mut pm = process.lock().unwrap_or_else(|e| e.into_inner());
-            pm.is_running()
-        };
-        if !is_running {
-            break;
-        }
-    }
-
-    // 仍在运行则强制停止
-    {
-        let mut pm = process.lock().unwrap_or_else(|e| e.into_inner());
-        if pm.is_running() {
-            pm.force_stop()?;
-        }
-    }
+    graceful_shutdown(
+        process.inner(),
+        rcon.inner(),
+        active_rcon.inner(),
+        log.inner(),
+    )
+    .await?;
 
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 

@@ -24,14 +24,14 @@ export const appState = $state({
 
 // Shared saves list (loaded once, reused by Dashboard & Server)
 export const sharedSaves = $state<any[]>([]);
-export let sharedSavesLoaded = false;
+export const sharedSavesState = $state({ loaded: false });
 
 export async function loadSharedSaves() {
-  if (sharedSavesLoaded) return;
+  if (sharedSavesState.loaded) return;
   try {
     const saves = await invoke("list_server_saves");
     sharedSaves.splice(0, sharedSaves.length, ...(saves as any[]));
-    sharedSavesLoaded = true;
+    sharedSavesState.loaded = true;
   } catch (e) { console.error("加载存档列表失败:", e); }
 }
 

@@ -97,7 +97,10 @@ fn do_download_steamcmd_inner(
 
     let total = response.content_length().unwrap_or(0);
     let mut downloaded: u64 = 0;
-    let mut bytes = Vec::new();
+
+    // 流式写入磁盘，避免将整个文件读入内存
+    let mut out_file = fs::File::create(&zip_path)
+        .map_err(|e| format!("创建文件失败: {}", e))?;
 
     let mut buffer = [0u8; 65536];
     loop {
@@ -107,7 +110,8 @@ fn do_download_steamcmd_inner(
         if n == 0 {
             break;
         }
-        bytes.extend_from_slice(&buffer[..n]);
+        std::io::Write::write_all(&mut out_file, &buffer[..n])
+            .map_err(|e| format!("写入失败: {}", e))?;
         downloaded += n as u64;
         if let Some(pct) = downloaded.saturating_mul(100).checked_div(total) {
             emit(
@@ -121,9 +125,9 @@ fn do_download_steamcmd_inner(
             );
         }
     }
+    drop(out_file);
 
     emit(app, "[系统] 下载完成，正在解压...");
-    fs::write(&zip_path, &bytes).map_err(|e| format!("写入失败: {}", e))?;
 
     // 使用 zip crate 解压（安全，避免 PowerShell 命令注入风险）
     {
