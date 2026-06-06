@@ -1,60 +1,57 @@
-# 创意工坊模组
+<script setup>
+import iconWorkshop from '/icon-workshop.svg'
+</script>
 
-创意工坊模组页面用于管理 Unturned 服务器的 Steam 创意工坊模组，包括添加、删除、更新模组等操作。
+<div class="feature-header">
+  <img :src="iconWorkshop" alt="创意工坊" />
+  <h1>创意工坊模组</h1>
+</div>
 
-<p align="center">
-  <img src="/workshop.png" width="90%" alt="创意工坊模组配置界面" />
-</p>
+<div class="feature-screenshot">
+  <img src="/workshop.png" alt="创意工坊模组配置界面" />
+</div>
 
-## 功能特性
+创意工坊模组页面管理 Unturned 服务器的 Steam Workshop 模组，维护 `WorkshopDownloadConfig.json`。
 
-### 模组管理
+## 模组管理
 
-- **添加模组**：输入创意工坊模组 ID 即可添加
+- **添加模组**：输入创意工坊模组 ID
 - **删除模组**：移除不需要的模组
-- **批量操作**：支持批量添加或删除模组
+- **批量操作**：逗号分隔批量添加
 
-### 模组备注
+## 模组备注
 
-为每个模组添加自定义备注，方便识别和管理：
+为每个模组添加自定义备注：
 
 - 模组名称
-- 模组用途说明
+- 用途说明
 - 版本信息
 
-### 缓存下载
+## 缓存下载
 
-- 支持缓存下载模组文件
+- 缓存下载模组文件
 - 减少服务器启动时的下载时间
-- 支持更新监控，检测模组是否有新版本
+- 更新监控检测新版本
 
-### 配置文件
+## 添加模组流程
 
-管理 `WorkshopDownloadConfig.json` 文件：
-
-- 自动维护模组 ID 列表
-- 保存模组备注信息
-- 支持导入/导出配置
-
-## 使用流程
-
-### 添加模组
-
-1. 在 Steam 创意工坊找到想要的模组
+1. 在 Steam 创意工坊找到目标模组
 2. 复制模组 ID（URL 中的数字部分）
-3. 在创意工坊模组页面点击"添加模组"
-4. 粘贴模组 ID 并确认
-
-### 更新模组
-
-1. 创意工坊模组页面会显示模组的更新状态
-2. 点击"更新"按钮下载最新版本
-3. 重启服务器以应用更新
+3. 点击"添加模组"，粘贴 ID
+4. 确认添加
 
 ::: tip 提示
-模组 ID 可以在 Steam 创意工坊模组页面的 URL 中找到，例如：`https://steamcommunity.com/sharedfiles/filedetails/?id=1234567890` 中的 `1234567890` 就是模组 ID。
+模组 ID 在 URL 中，如 `https://steamcommunity.com/sharedfiles/filedetails/?id=1234567890` 里的 `1234567890`。
 :::
+
+## 高级配置
+
+- 缓存时间、重试次数
+- 关服倒计时
+- 忽略子项 ID
+- 缓存下载开关
+- 监控更新开关
 
 ## 关服提示
 
-当服务器关闭时，创意工坊模组页面会显示关服提示信息，提醒玩家服务器已关闭。
+服务器关闭时显示关服提示，提醒玩家服务器已关闭。

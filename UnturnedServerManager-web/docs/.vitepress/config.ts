@@ -5,12 +5,11 @@ export default defineConfig({
   title: 'Unturned Server Manager',
   description: '清新、轻量、便携的 Unturned 专用服务器管理工具',
 
-  // GitHub Pages 部署路径（自定义域名使用根路径）
   base: '/',
 
-  // 主题配置
   themeConfig: {
-    // 导航栏
+    logo: '/logo-small.svg',
+
     nav: [
       { text: '首页', link: '/' },
       { text: '使用指南', link: '/guide/' },
@@ -19,7 +18,6 @@ export default defineConfig({
       { text: '更新日志', link: '/changelog' },
     ],
 
-    // 侧边栏
     sidebar: {
       '/guide/': [
         {
@@ -51,18 +49,15 @@ export default defineConfig({
       ],
     },
 
-    // 社交链接
     socialLinks: [
       { icon: 'github', link: 'https://github.com/ouxiaaocha/UnturnedServerManager-Tauri' },
     ],
 
-    // 页脚
     footer: {
       message: '基于 Tauri v2 + Svelte 5 + Rust 构建',
-      copyright: '© 2024 Unturned Server Manager',
+      copyright: '© 2024-2026 Unturned Server Manager',
     },
 
-    // 搜索
     search: {
       provider: 'local',
       options: {
@@ -77,47 +72,36 @@ export default defineConfig({
       },
     },
 
-    // 编辑链接
     editLink: {
       pattern: 'https://github.com/ouxiaaocha/UnturnedServerManager-Tauri/edit/main/UnturnedServerManager-web/docs/:path',
       text: '在 GitHub 上编辑此页面',
     },
 
-    // 最后更新时间
     lastUpdated: {
       text: '最后更新于',
     },
 
-    // 文档页脚导航
     docFooter: {
       prev: '上一页',
       next: '下一页',
     },
 
-    // 大纲标题
     outlineTitle: '页面导航',
     outline: [2, 3],
 
-    // 返回顶部
     returnToTopLabel: '回到顶部',
-
-    // 侧边栏菜单标签
     sidebarMenuLabel: '菜单',
-
-    // 深色模式切换
     darkModeSwitchLabel: '主题',
     lightModeSwitchTitle: '切换到浅色模式',
     darkModeSwitchTitle: '切换到深色模式',
   },
 
-  // Markdown 配置
   markdown: {
     lineNumbers: true,
   },
 
-  // 头部信息
   head: [
-    ['meta', { name: 'theme-color', content: '#43aa8b' }],
+    ['meta', { name: 'theme-color', content: '#4cada8' }],
     ['meta', { property: 'og:type', content: 'website' }],
     ['meta', { property: 'og:title', content: 'Unturned Server Manager' }],
     ['meta', { property: 'og:description', content: '清新、轻量、便携的 Unturned 专用服务器管理工具' }],

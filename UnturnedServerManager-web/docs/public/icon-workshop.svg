@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none">
+  <circle cx="24" cy="24" r="22" fill="#e8f5f2"/>
+  <!-- Puzzle pieces -->
+  <path d="M18 14v-3a3 3 0 013-3 3 3 0 013 3v3h3v-3a3 3 0 016 0 3 3 0 01-3 3h-3v6h3a3 3 0 010 6 3 3 0 01-3-3v-3h-6v3a3 3 0 01-6 0 3 3 0 013-3h3v-6h-3a3 3 0 01-3-3z" stroke="#4cada8" stroke-width="2" fill="white"/>
+  <!-- Steam icon hint -->
+  <circle cx="34" cy="14" r="3" stroke="#4cada8" stroke-width="1.5" fill="#4cada8" opacity="0.15"/>
+  <path d="M33 14.5a1.5 1.5 0 012.5-.5" stroke="#4cada8" stroke-width="1" fill="none"/>
+</svg>

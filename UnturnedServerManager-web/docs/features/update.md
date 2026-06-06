@@ -1,74 +1,59 @@
-# 服务端更新
+<script setup>
+import iconUpdate from '/icon-update.svg'
+</script>
 
-服务端更新页面用于通过 SteamCMD 更新 Unturned 服务器到最新版本。
+<div class="feature-header">
+  <img :src="iconUpdate" alt="服务端更新" />
+  <h1>服务端更新</h1>
+</div>
 
-<p align="center">
-  <img src="/update.png" width="90%" alt="服务端更新界面" />
-</p>
+<div class="feature-screenshot">
+  <img src="/update.png" alt="服务端更新界面" />
+</div>
 
-## 功能说明
+服务端更新页面通过 SteamCMD 更新 Unturned 服务端到最新版本。
 
-### 更新流程
+## 更新流程
 
-1. 点击"更新"按钮启动 SteamCMD
-2. SteamCMD 会先检查并更新自身
-3. SteamCMD 执行 `app_update 1110390 validate`
-4. 更新过程中显示实时输出日志
-5. 更新完成后校验服务端安装标记并提示结果
+1. 点击"开始更新"启动 SteamCMD
+2. SteamCMD 先检查并更新自身
+3. 执行 `app_update 1110390 validate`
+4. 实时显示更新输出日志
+5. 更新完成后校验并提示结果
 
-### 更新输出
+## 更新输出
 
-- 实时显示 SteamCMD 的执行输出
-- 显示 SteamCMD 自更新输出
-- 显示下载进度和速度
-- 显示服务端校验进度
-- 显示更新完成状态
+- 实时显示 SteamCMD 执行输出
+- SteamCMD 自更新进度
+- 下载进度和速度
+- 服务端校验进度
+- 按关键词着色：错误红、系统蓝、完成绿
 
 ## SteamCMD
 
-SteamCMD 是 Valve 提供的命令行工具，用于下载和更新 Steam 游戏服务器。
+SteamCMD 是 Valve 的命令行工具，用于下载和更新 Steam 游戏服务器。
 
 ### 自动安装
 
-Unturned Server Manager 首次引导会自动下载和安装 SteamCMD。如果未安装，更新页面会提示你进行安装。
+首次引导会自动下载和安装 SteamCMD。
 
 ### 手动安装
 
-如果自动安装失败，可以手动安装：
+自动安装失败时可手动操作：
 
 1. 从 [SteamCMD 官方页面](https://developer.valvesoftware.com/wiki/SteamCMD) 下载
 2. 解压到任意目录
 3. 在设置中配置 SteamCMD 路径
-
-## 更新策略
-
-### 何时更新
-
-- Unturned 发布新版本后
-- 服务器出现版本不兼容问题时
-- 定期检查更新
-
-### 更新注意事项
 
 ::: warning 服务器状态
 更新前请确保服务器已停止。SteamCMD 无法更新正在运行的服务器文件。
 :::
 
 ::: tip 备份配置
-更新不会覆盖你的服务器配置和存档数据，但建议在重要更新前备份配置。
+更新不会覆盖配置和存档数据，但建议在重要更新前备份。
 :::
 
 ## 常见问题
 
-### 更新失败
-
-- 检查网络连接
-- 确认 SteamCMD 路径正确
-- 确认 Unturned 服务端目录正确
-- 查看更新输出中的错误信息
-
-### 更新后服务器无法启动
-
-- 检查是否有新的配置格式变更
-- 查看服务器日志中的错误信息
-- 尝试重新安装 Rocket 模块
+- **更新失败**：检查网络连接、SteamCMD 路径、服务端目录
+- **更新后无法启动**：检查配置格式变更、日志错误、重新安装 Rocket

@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none">
+  <circle cx="24" cy="24" r="22" fill="#e8f5f2"/>
+  <!-- Document/log -->
+  <rect x="10" y="8" width="28" height="32" rx="3" stroke="#4cada8" stroke-width="2" fill="white"/>
+  <!-- Folded corner -->
+  <path d="M34 8v6h-6" stroke="#4cada8" stroke-width="1.5" fill="#4cada8" opacity="0.1"/>
+  <path d="M28 8l6 6" stroke="#4cada8" stroke-width="1" fill="none"/>
+  <!-- Log lines with different colors -->
+  <rect x="14" y="18" width="20" height="1.2" rx="0.5" fill="#52c41a" opacity="0.5"/>
+  <rect x="14" y="22" width="16" height="1.2" rx="0.5" fill="#4cada8" opacity="0.4"/>
+  <rect x="14" y="26" width="22" height="1.2" rx="0.5" fill="#faad14" opacity="0.5"/>
+  <rect x="14" y="30" width="14" height="1.2" rx="0.5" fill="#ff4d4f" opacity="0.4"/>
+  <!-- Search magnifier -->
+  <circle cx="34" cy="34" r="4" stroke="#4cada8" stroke-width="1.5" fill="none"/>
+  <line x1="37" y1="37" x2="40" y2="40" stroke="#4cada8" stroke-width="1.5" stroke-linecap="round"/>
+</svg>

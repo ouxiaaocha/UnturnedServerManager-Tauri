@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none">
+  <circle cx="24" cy="24" r="22" fill="#e8f5f2"/>
+  <!-- Server tower -->
+  <rect x="16" y="8" width="16" height="30" rx="3" stroke="#4cada8" stroke-width="2" fill="white"/>
+  <!-- Drive bays -->
+  <rect x="19" y="12" width="10" height="3" rx="1" fill="#4cada8" opacity="0.3"/>
+  <rect x="19" y="18" width="10" height="3" rx="1" fill="#4cada8" opacity="0.3"/>
+  <rect x="19" y="24" width="10" height="3" rx="1" fill="#4cada8" opacity="0.3"/>
+  <!-- Power indicator -->
+  <circle cx="29" cy="33" r="2" fill="#52c41a"/>
+  <!-- Vent lines -->
+  <line x1="19" y1="29" x2="25" y2="29" stroke="#4cada8" stroke-width="0.8"/>
+  <line x1="19" y1="31" x2="25" y2="31" stroke="#4cada8" stroke-width="0.8"/>
+  <!-- Play button overlay -->
+  <circle cx="24" cy="20" r="4" fill="#4cada8" opacity="0.15"/>
+  <path d="M22 18l4 2-4 2V18z" fill="#4cada8"/>
+</svg>
