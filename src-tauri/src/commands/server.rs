@@ -579,24 +579,29 @@ pub fn start_auto_update_monitor(
     });
 }
 
-/// 获取当前电脑的公网 IP 地址（5 秒超时）
-#[tauri::command]
-pub fn get_public_ip() -> Result<String, String> {
-    let client = reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(5))
-        .build()
-        .map_err(|e| format!("创建HTTP客户端失败: {}", e))?;
-    let resp = client
-        .get("https://api.ipify.org?format=json")
-        .send()
-        .map_err(|e| format!("获取公网IP失败: {}", e))?;
-    let body = resp.text().map_err(|e| format!("读取IP响应失败: {}", e))?;
-    let json: serde_json::Value =
-        serde_json::from_str(&body).map_err(|e| format!("解析IP响应失败: {}", e))?;
-    json["ip"]
-        .as_str()
-        .map(|s| s.to_string())
-        .ok_or("响应中未找到IP字段".to_string())
+/// 获取当前电脑的公网 IP 地址（5 秒超时）。
+/// 用 spawn_blocking 执行阻塞网络请求，避免占用 Tauri 命令线程。
+#[tauri::command(async)]
+pub async fn get_public_ip() -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(5))
+            .build()
+            .map_err(|e| format!("创建HTTP客户端失败: {}", e))?;
+        let resp = client
+            .get("https://api.ipify.org?format=json")
+            .send()
+            .map_err(|e| format!("获取公网IP失败: {}", e))?;
+        let body = resp.text().map_err(|e| format!("读取IP响应失败: {}", e))?;
+        let json: serde_json::Value =
+            serde_json::from_str(&body).map_err(|e| format!("解析IP响应失败: {}", e))?;
+        json["ip"]
+            .as_str()
+            .map(|s| s.to_string())
+            .ok_or("响应中未找到IP字段".to_string())
+    })
+    .await
+    .map_err(|e| format!("获取公网IP任务失败: {}", e))?
 }
 
 /// 从存档的 Commands.dat 中读取游戏端口

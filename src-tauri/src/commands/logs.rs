@@ -30,17 +30,15 @@ fn validate_date(date: &str) -> Result<(), String> {
     Ok(())
 }
 
-#[tauri::command]
-pub fn read_log_file(
-    config: State<'_, Arc<Mutex<ConfigService>>>,
+fn read_log_file_blocking(
+    config: Arc<Mutex<ConfigService>>,
     category: String,
     date: String,
 ) -> Result<Vec<String>, String> {
-    validate_category(&category)?;
-    validate_date(&date)?;
-
-    let cfg = config.lock().unwrap_or_else(|e| e.into_inner());
-    let log_dir = cfg.logs_dir();
+    let log_dir = {
+        let cfg = config.lock().unwrap_or_else(|e| e.into_inner());
+        cfg.logs_dir()
+    };
     let file_path = log_dir.join(&category).join(format!("{}.log", date));
 
     // 确保解析后的路径仍在日志目录下（防止路径穿越）
@@ -76,18 +74,26 @@ pub fn read_log_file(
     Ok(lines)
 }
 
-#[tauri::command]
-pub fn list_log_dates(
+#[tauri::command(async)]
+pub async fn read_log_file(
     config: State<'_, Arc<Mutex<ConfigService>>>,
     category: String,
-) -> Vec<String> {
-    if validate_category(&category).is_err() {
-        return vec![];
-    }
+    date: String,
+) -> Result<Vec<String>, String> {
+    validate_category(&category)?;
+    validate_date(&date)?;
 
-    let cfg = config.lock().unwrap_or_else(|e| e.into_inner());
-    let log_dir = cfg.logs_dir().join(&category);
+    let config = config.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || read_log_file_blocking(config, category, date))
+        .await
+        .map_err(|e| format!("读取日志任务失败: {}", e))?
+}
 
+fn list_log_dates_blocking(config: Arc<Mutex<ConfigService>>, category: String) -> Vec<String> {
+    let log_dir = {
+        let cfg = config.lock().unwrap_or_else(|e| e.into_inner());
+        cfg.logs_dir().join(&category)
+    };
     if !log_dir.exists() {
         return vec![];
     }
@@ -114,4 +120,21 @@ pub fn list_log_dates(
     dates.sort();
     dates.reverse();
     dates
+}
+
+#[tauri::command(async)]
+pub async fn list_log_dates(
+    config: State<'_, Arc<Mutex<ConfigService>>>,
+    category: String,
+) -> Result<Vec<String>, String> {
+    if validate_category(&category).is_err() {
+        return Ok(vec![]);
+    }
+
+    let config = config.inner().clone();
+    let dates =
+        tauri::async_runtime::spawn_blocking(move || list_log_dates_blocking(config, category))
+            .await
+            .map_err(|e| format!("读取日志日期任务失败: {}", e))?;
+    Ok(dates)
 }

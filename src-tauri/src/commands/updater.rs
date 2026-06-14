@@ -72,8 +72,7 @@ fn is_newer_version(latest: &str, current: &str) -> bool {
 ///
 /// 通过 GitHub API 查询最新的 Release，对比版本号判断是否有更新。
 /// 网络超时或请求失败时返回 Err，前端显示"检测更新失败"。
-#[tauri::command]
-pub fn check_for_updates() -> Result<UpdateInfo, String> {
+fn check_for_updates_blocking() -> Result<UpdateInfo, String> {
     let current = env!("CARGO_PKG_VERSION");
     let url = "https://api.github.com/repos/ouxiaaocha/UnturnedServerManager-Tauri/releases/latest";
 
@@ -124,6 +123,13 @@ pub fn check_for_updates() -> Result<UpdateInfo, String> {
         html_url,
         published_at,
     })
+}
+
+#[tauri::command(async)]
+pub async fn check_for_updates() -> Result<UpdateInfo, String> {
+    tauri::async_runtime::spawn_blocking(check_for_updates_blocking)
+        .await
+        .map_err(|e| format!("检查更新任务失败: {}", e))?
 }
 
 #[cfg(test)]

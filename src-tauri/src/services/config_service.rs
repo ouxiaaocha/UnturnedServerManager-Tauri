@@ -78,7 +78,14 @@ fn legacy_machine_key() -> &'static [u8] {
     })
 }
 
-/// 新版密钥派生（加入随机 salt），用于 enc2: 格式
+/// 新版密钥派生（加入随机 salt），用于 enc2: 格式。
+///
+/// 密钥 = SHA256("UnturnedSM-v2-" + COMPUTERNAME + USERNAME + 随机 salt)。
+///
+/// 安全边界：此机制仅防止 servers.json 被拷贝到**其他机器**后明文泄露。
+/// 因密钥材料（环境变量 COMPUTERNAME/USERNAME + 同目录 machine_salt.bin）对
+/// 本机任何进程都可读，它**不能**抵御本机攻击者。此外 RCON 密码在
+/// Commands.dat / Rocket.config.xml 中仍以明文存在（游戏本身要求），用户应知晓。
 fn machine_key_with_salt(salt: &[u8]) -> Vec<u8> {
     let mut hasher = Sha256::new();
     hasher.update(b"UnturnedSM-v2-");
