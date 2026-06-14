@@ -1,4 +1,6 @@
 <script lang="ts">
+  import SelectCustom from './SelectCustom.svelte';
+
   let {
     saves = [],
     value = $bindable(""),
@@ -10,18 +12,24 @@
     onChange?: () => void;
     placeholder?: string;
   } = $props();
+
+  // 转换为 SelectCustom 需要的格式
+  const options = $derived(
+    saves.map(save => ({
+      value: save.id,
+      label: save.name ? `${save.id} - ${save.name}` : save.id
+    }))
+  );
 </script>
 
 {#if saves.length === 0}
   <span class="text-sm text-[var(--text-muted)]">{placeholder}</span>
 {:else}
-  <select
+  <SelectCustom
     bind:value
+    options={options}
     onchange={onChange}
-    class="bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)] transition-colors cursor-pointer min-w-[200px]"
-  >
-    {#each saves as save (save.id)}
-      <option value={save.id}>{save.id}{save.name ? ` - ${save.name}` : ''}</option>
-    {/each}
-  </select>
+    placeholder="请选择存档"
+    size="md"
+  />
 {/if}
