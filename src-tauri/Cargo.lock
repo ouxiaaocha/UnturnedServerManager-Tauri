@@ -4745,6 +4745,7 @@ dependencies = [
  "aes-gcm",
  "base64 0.22.1",
  "chrono",
+ "quick-xml",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
