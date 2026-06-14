@@ -1,8 +1,10 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
+use quick_xml::events::Event;
+use quick_xml::Reader;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
@@ -36,6 +38,49 @@ pub struct PluginInfo {
     pub name: String,
     pub file_name: String,
     pub path: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub struct GroupPermissionInfo {
+    pub name: String,
+    pub cooldown: u32,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub struct PermissionGroupInfo {
+    pub id: String,
+    pub display_name: String,
+    pub prefix: String,
+    pub suffix: String,
+    pub color: String,
+    pub members: Vec<String>,
+    pub parent_group: Option<String>,
+    pub priority: i32,
+    pub permissions: Vec<GroupPermissionInfo>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub struct PermissionsConfigInfo {
+    pub exists: bool,
+    pub path: String,
+    pub default_group: String,
+    pub groups: Vec<PermissionGroupInfo>,
+}
+
+impl Default for PermissionGroupInfo {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            display_name: String::new(),
+            prefix: String::new(),
+            suffix: String::new(),
+            color: String::new(),
+            members: Vec::new(),
+            parent_group: None,
+            priority: 100,
+            permissions: Vec::new(),
+        }
+    }
 }
 
 fn validate_save_id(id: &str) -> Result<(), String> {
@@ -218,9 +263,331 @@ const MANAGED_COMMANDS: &[&str] = &[
     "GSLT",
 ];
 
-#[tauri::command]
-pub fn list_server_saves(
-    config: State<'_, Arc<Mutex<ConfigService>>>,
+fn permissions_config_path(server_root: &str, server_id: &str) -> PathBuf {
+    Path::new(server_root)
+        .join("Servers")
+        .join(server_id)
+        .join("Rocket")
+        .join("Permissions.config.xml")
+}
+
+fn decode_xml_value(value: &[u8]) -> String {
+    String::from_utf8_lossy(value)
+        .replace("&amp;", "&")
+        .replace("&quot;", "\"")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&apos;", "'")
+}
+
+fn xml_escape(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('"', "&quot;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('\'', "&apos;")
+}
+
+fn event_name(name: &[u8]) -> String {
+    String::from_utf8_lossy(name).to_string()
+}
+
+fn permission_cooldown(event: &quick_xml::events::BytesStart<'_>) -> Result<u32, String> {
+    for attr in event.attributes().with_checks(false) {
+        let attr = attr.map_err(|e| format!("解析 Permission 属性失败: {}", e))?;
+        if attr.key.as_ref() == b"Cooldown" {
+            let value = decode_xml_value(attr.value.as_ref());
+            return value
+                .trim()
+                .parse::<u32>()
+                .map_err(|_| format!("权限冷却时间无效: {}", value));
+        }
+    }
+    Ok(0)
+}
+
+pub(crate) fn parse_permissions_config(
+    content: &str,
+    path: String,
+) -> Result<PermissionsConfigInfo, String> {
+    let mut reader = Reader::from_str(content);
+    reader.config_mut().trim_text(true);
+
+    let mut buf = Vec::new();
+    let mut stack: Vec<String> = Vec::new();
+    let mut default_group = String::new();
+    let mut groups = Vec::new();
+    let mut current_group: Option<PermissionGroupInfo> = None;
+    let mut current_permission: Option<GroupPermissionInfo> = None;
+
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(event)) => {
+                let name = event_name(event.name().as_ref());
+                if name == "Group" {
+                    current_group = Some(PermissionGroupInfo::default());
+                } else if name == "Permission" && current_group.is_some() {
+                    current_permission = Some(GroupPermissionInfo {
+                        name: String::new(),
+                        cooldown: permission_cooldown(&event)?,
+                    });
+                }
+                stack.push(name);
+            }
+            Ok(Event::Empty(event)) => {
+                let name = event_name(event.name().as_ref());
+                if name == "Group" {
+                    groups.push(PermissionGroupInfo::default());
+                } else if name == "Permission" {
+                    if let Some(group) = current_group.as_mut() {
+                        group.permissions.push(GroupPermissionInfo {
+                            name: String::new(),
+                            cooldown: permission_cooldown(&event)?,
+                        });
+                    }
+                }
+            }
+            Ok(Event::Text(event)) => {
+                let value = decode_xml_value(event.as_ref());
+                let current = stack.last().map(String::as_str).unwrap_or_default();
+                if let Some(group) = current_group.as_mut() {
+                    match current {
+                        "Id" => group.id = value,
+                        "DisplayName" => group.display_name = value,
+                        "Prefix" => group.prefix = value,
+                        "Suffix" => group.suffix = value,
+                        "Color" => group.color = value,
+                        "Member" => group.members.push(value),
+                        "ParentGroup" => group.parent_group = Some(value),
+                        "Priority" => {
+                            group.priority = value.trim().parse().unwrap_or(100);
+                        }
+                        "Permission" => {
+                            if let Some(permission) = current_permission.as_mut() {
+                                permission.name = value;
+                            }
+                        }
+                        _ => {}
+                    }
+                } else if current == "DefaultGroup" {
+                    default_group = value;
+                }
+            }
+            Ok(Event::CData(event)) => {
+                let value = String::from_utf8_lossy(event.as_ref()).to_string();
+                if current_group.is_some() {
+                    if stack.last().map(String::as_str) == Some("Permission") {
+                        if let Some(permission) = current_permission.as_mut() {
+                            permission.name = value;
+                        }
+                    }
+                }
+            }
+            Ok(Event::End(event)) => {
+                let name = event_name(event.name().as_ref());
+                if name == "Permission" {
+                    if let (Some(group), Some(permission)) =
+                        (current_group.as_mut(), current_permission.take())
+                    {
+                        group.permissions.push(permission);
+                    }
+                } else if name == "Group" {
+                    if let Some(group) = current_group.take() {
+                        groups.push(group);
+                    }
+                }
+                stack.pop();
+            }
+            Ok(Event::Eof) => break,
+            Err(e) => return Err(format!("解析 Permissions.config.xml 失败: {}", e)),
+            _ => {}
+        }
+        buf.clear();
+    }
+
+    Ok(PermissionsConfigInfo {
+        exists: true,
+        path,
+        default_group,
+        groups,
+    })
+}
+
+fn normalize_permissions_config(
+    mut config: PermissionsConfigInfo,
+) -> Result<PermissionsConfigInfo, String> {
+    config.exists = true;
+    config.default_group = config.default_group.trim().to_string();
+
+    for group in &mut config.groups {
+        group.id = group.id.trim().to_string();
+        group.display_name = group.display_name.trim().to_string();
+        group.color = group.color.trim().to_string();
+        group.members = normalize_unique_list(&group.members);
+        group.parent_group = group
+            .parent_group
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+
+        for permission in &mut group.permissions {
+            permission.name = permission.name.trim().to_string();
+        }
+    }
+
+    validate_permissions_config(&config)?;
+    Ok(config)
+}
+
+fn normalize_unique_list(values: &[String]) -> Vec<String> {
+    let mut seen = HashSet::new();
+    let mut output = Vec::new();
+    for value in values {
+        let trimmed = value.trim();
+        if !trimmed.is_empty() && seen.insert(trimmed.to_string()) {
+            output.push(trimmed.to_string());
+        }
+    }
+    output
+}
+
+pub(crate) fn validate_permissions_config(config: &PermissionsConfigInfo) -> Result<(), String> {
+    if config.groups.is_empty() {
+        return Err("至少需要一个权限组".to_string());
+    }
+    if config.default_group.trim().is_empty() {
+        return Err("默认权限组不能为空".to_string());
+    }
+
+    let mut ids = HashSet::new();
+    for group in &config.groups {
+        if group.id.trim().is_empty() {
+            return Err("权限组 ID 不能为空".to_string());
+        }
+        if !ids.insert(group.id.trim().to_string()) {
+            return Err(format!("权限组 ID 重复: {}", group.id));
+        }
+        for permission in &group.permissions {
+            if permission.name.trim().is_empty() {
+                return Err(format!("权限组 {} 包含空权限名", group.id));
+            }
+        }
+    }
+
+    if !ids.contains(config.default_group.trim()) {
+        return Err(format!("默认权限组不存在: {}", config.default_group));
+    }
+
+    for group in &config.groups {
+        if let Some(parent_group) = group
+            .parent_group
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+        {
+            if parent_group == group.id {
+                return Err(format!("权限组 {} 不能继承自身", group.id));
+            }
+            if !ids.contains(parent_group) {
+                return Err(format!(
+                    "权限组 {} 的父组不存在: {}",
+                    group.id, parent_group
+                ));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn push_text_element(output: &mut String, indent: &str, name: &str, value: &str) {
+    if value.is_empty() {
+        output.push_str(&format!("{indent}<{name} />\n"));
+    } else {
+        output.push_str(&format!("{indent}<{name}>{}</{name}>\n", xml_escape(value)));
+    }
+}
+
+pub(crate) fn render_permissions_config(config: &PermissionsConfigInfo) -> String {
+    let mut output = String::new();
+    output.push_str("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n");
+    output.push_str("<RocketPermissions xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\">\n");
+    push_text_element(&mut output, "  ", "DefaultGroup", &config.default_group);
+    output.push_str("  <Groups>\n");
+
+    for group in &config.groups {
+        output.push_str("    <Group>\n");
+        push_text_element(&mut output, "      ", "Id", &group.id);
+        push_text_element(&mut output, "      ", "DisplayName", &group.display_name);
+        push_text_element(&mut output, "      ", "Prefix", &group.prefix);
+        push_text_element(&mut output, "      ", "Suffix", &group.suffix);
+        push_text_element(&mut output, "      ", "Color", &group.color);
+
+        if group.members.is_empty() {
+            output.push_str("      <Members />\n");
+        } else {
+            output.push_str("      <Members>\n");
+            for member in &group.members {
+                push_text_element(&mut output, "        ", "Member", member);
+            }
+            output.push_str("      </Members>\n");
+        }
+
+        if let Some(parent_group) = group
+            .parent_group
+            .as_deref()
+            .filter(|value| !value.is_empty())
+        {
+            push_text_element(&mut output, "      ", "ParentGroup", parent_group);
+        }
+
+        push_text_element(
+            &mut output,
+            "      ",
+            "Priority",
+            &group.priority.to_string(),
+        );
+
+        if group.permissions.is_empty() {
+            output.push_str("      <Permissions />\n");
+        } else {
+            output.push_str("      <Permissions>\n");
+            for permission in &group.permissions {
+                output.push_str(&format!(
+                    "        <Permission Cooldown=\"{}\">{}</Permission>\n",
+                    permission.cooldown,
+                    xml_escape(&permission.name)
+                ));
+            }
+            output.push_str("      </Permissions>\n");
+        }
+
+        output.push_str("    </Group>\n");
+    }
+
+    output.push_str("  </Groups>\n");
+    output.push_str("</RocketPermissions>\n");
+    output
+}
+
+fn save_permissions_config_to_path(
+    path: &Path,
+    config: PermissionsConfigInfo,
+) -> Result<PermissionsConfigInfo, String> {
+    if !path.exists() {
+        return Err("Permissions.config.xml 不存在".to_string());
+    }
+
+    let normalized = normalize_permissions_config(config)?;
+    let content = render_permissions_config(&normalized);
+    crate::services::config_service::atomic_write(path, &content)?;
+    Ok(normalized)
+}
+
+fn list_server_saves_blocking(
+    config: Arc<Mutex<ConfigService>>,
     server_root: Option<String>,
 ) -> Vec<SaveInfo> {
     let server_root = if let Some(sr) = server_root.filter(|s| !s.is_empty()) {
@@ -285,9 +652,22 @@ pub fn list_server_saves(
     saves
 }
 
-#[tauri::command]
-pub fn read_commands_dat(
+#[tauri::command(async)]
+pub async fn list_server_saves(
     config: State<'_, Arc<Mutex<ConfigService>>>,
+    server_root: Option<String>,
+) -> Result<Vec<SaveInfo>, String> {
+    let config = config.inner().clone();
+    let saves = tauri::async_runtime::spawn_blocking(move || {
+        list_server_saves_blocking(config, server_root)
+    })
+    .await
+    .map_err(|e| format!("读取存档列表任务失败: {}", e))?;
+    Ok(saves)
+}
+
+fn read_commands_dat_blocking(
+    config: Arc<Mutex<ConfigService>>,
     save_id: Option<String>,
 ) -> Result<CommandsDatInfo, String> {
     let (server_root, server_id) = {
@@ -316,6 +696,17 @@ pub fn read_commands_dat(
     let content =
         fs::read_to_string(&path).map_err(|e| format!("读取 Commands.dat 失败: {}", e))?;
     Ok(parse_commands_dat(&content))
+}
+
+#[tauri::command(async)]
+pub async fn read_commands_dat(
+    config: State<'_, Arc<Mutex<ConfigService>>>,
+    save_id: Option<String>,
+) -> Result<CommandsDatInfo, String> {
+    let config = config.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || read_commands_dat_blocking(config, save_id))
+        .await
+        .map_err(|e| format!("读取 Commands.dat 任务失败: {}", e))?
 }
 
 #[tauri::command]
@@ -377,9 +768,72 @@ pub fn save_commands_dat(
     Ok("Commands.dat 已保存".to_string())
 }
 
-#[tauri::command]
-pub fn list_plugins(
+fn read_permissions_config_blocking(
+    config: Arc<Mutex<ConfigService>>,
+    save_id: Option<String>,
+) -> Result<PermissionsConfigInfo, String> {
+    let (server_root, server_id) = {
+        let cfg = config.lock().unwrap_or_else(|e| e.into_inner());
+        resolve_save_dir(&cfg, &save_id)?
+    };
+
+    let path = permissions_config_path(&server_root, &server_id);
+    let path_text = path.to_string_lossy().to_string();
+    if !path.exists() {
+        return Ok(PermissionsConfigInfo {
+            exists: false,
+            path: path_text,
+            default_group: String::new(),
+            groups: Vec::new(),
+        });
+    }
+
+    let content = fs::read_to_string(&path)
+        .map_err(|e| format!("读取 Permissions.config.xml 失败: {}", e))?;
+    parse_permissions_config(&content, path_text)
+}
+
+#[tauri::command(async)]
+pub async fn read_permissions_config(
     config: State<'_, Arc<Mutex<ConfigService>>>,
+    save_id: Option<String>,
+) -> Result<PermissionsConfigInfo, String> {
+    let config = config.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || read_permissions_config_blocking(config, save_id))
+        .await
+        .map_err(|e| format!("读取 Permissions.config.xml 任务失败: {}", e))?
+}
+
+#[tauri::command]
+pub fn save_permissions_config(
+    config: State<'_, Arc<Mutex<ConfigService>>>,
+    log: State<'_, Arc<Mutex<LogService>>>,
+    save_id: Option<String>,
+    permissions_config: PermissionsConfigInfo,
+) -> Result<String, String> {
+    let (server_root, server_id) = {
+        let cfg = config.lock().unwrap_or_else(|e| e.into_inner());
+        resolve_save_dir(&cfg, &save_id)?
+    };
+
+    let path = permissions_config_path(&server_root, &server_id);
+    save_permissions_config_to_path(&path, permissions_config).map_err(|e| {
+        let ls = log.lock().unwrap_or_else(|e| e.into_inner());
+        ls.log_app(&format!(
+            "[ERROR] 保存 Permissions.config.xml 失败 ({}): {}",
+            server_id, e
+        ));
+        format!("保存 Permissions.config.xml 失败: {}", e)
+    })?;
+
+    let ls = log.lock().unwrap_or_else(|e| e.into_inner());
+    ls.log_operation(&format!("保存权限组配置: {}", server_id));
+
+    Ok("权限组配置已保存".to_string())
+}
+
+fn list_plugins_blocking(
+    config: Arc<Mutex<ConfigService>>,
     save_id: Option<String>,
 ) -> Vec<PluginInfo> {
     let (server_root, server_id) = {
@@ -429,6 +883,19 @@ pub fn list_plugins(
     plugins
 }
 
+#[tauri::command(async)]
+pub async fn list_plugins(
+    config: State<'_, Arc<Mutex<ConfigService>>>,
+    save_id: Option<String>,
+) -> Result<Vec<PluginInfo>, String> {
+    let config = config.inner().clone();
+    let plugins =
+        tauri::async_runtime::spawn_blocking(move || list_plugins_blocking(config, save_id))
+            .await
+            .map_err(|e| format!("读取插件列表任务失败: {}", e))?;
+    Ok(plugins)
+}
+
 #[tauri::command]
 pub fn open_plugin_config_dir(
     config: State<'_, Arc<Mutex<ConfigService>>>,
@@ -465,10 +932,20 @@ pub fn open_plugin_config_dir(
     Ok("已打开插件目录".to_string())
 }
 
-#[tauri::command]
-pub fn load_plugin_notes(config: State<'_, Arc<Mutex<ConfigService>>>) -> HashMap<String, String> {
+fn load_plugin_notes_blocking(config: Arc<Mutex<ConfigService>>) -> HashMap<String, String> {
     let cfg = config.lock().unwrap_or_else(|e| e.into_inner());
     cfg.load_plugin_notes()
+}
+
+#[tauri::command(async)]
+pub async fn load_plugin_notes(
+    config: State<'_, Arc<Mutex<ConfigService>>>,
+) -> Result<HashMap<String, String>, String> {
+    let config = config.inner().clone();
+    let notes = tauri::async_runtime::spawn_blocking(move || load_plugin_notes_blocking(config))
+        .await
+        .map_err(|e| format!("读取插件备注任务失败: {}", e))?;
+    Ok(notes)
 }
 
 #[tauri::command]
@@ -519,9 +996,8 @@ pub struct RocketRconInfo {
     pub has_password: bool,
 }
 
-#[tauri::command]
-pub fn read_rocket_rcon_config(
-    config: State<'_, Arc<Mutex<ConfigService>>>,
+fn read_rocket_rcon_config_blocking(
+    config: Arc<Mutex<ConfigService>>,
     save_id: Option<String>,
 ) -> Result<RocketRconInfo, String> {
     let (server_root, server_id) = {
@@ -580,6 +1056,17 @@ pub fn read_rocket_rcon_config(
         password: masked,
         has_password,
     })
+}
+
+#[tauri::command(async)]
+pub async fn read_rocket_rcon_config(
+    config: State<'_, Arc<Mutex<ConfigService>>>,
+    save_id: Option<String>,
+) -> Result<RocketRconInfo, String> {
+    let config = config.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || read_rocket_rcon_config_blocking(config, save_id))
+        .await
+        .map_err(|e| format!("读取 Rocket.config.xml 任务失败: {}", e))?
 }
 
 #[tauri::command]
@@ -644,9 +1131,8 @@ fn workshop_config_path(server_root: &str, server_id: &str) -> PathBuf {
         .join("WorkshopDownloadConfig.json")
 }
 
-#[tauri::command]
-pub fn read_workshop_config(
-    config: State<'_, Arc<Mutex<ConfigService>>>,
+fn read_workshop_config_blocking(
+    config: Arc<Mutex<ConfigService>>,
     save_id: Option<String>,
 ) -> Result<WorkshopDownloadConfig, String> {
     let (server_root, server_id) = {
@@ -726,6 +1212,17 @@ pub fn read_workshop_config(
     Ok(config)
 }
 
+#[tauri::command(async)]
+pub async fn read_workshop_config(
+    config: State<'_, Arc<Mutex<ConfigService>>>,
+    save_id: Option<String>,
+) -> Result<WorkshopDownloadConfig, String> {
+    let config = config.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || read_workshop_config_blocking(config, save_id))
+        .await
+        .map_err(|e| format!("读取 WorkshopDownloadConfig.json 任务失败: {}", e))?
+}
+
 #[tauri::command]
 pub fn save_workshop_config(
     config: State<'_, Arc<Mutex<ConfigService>>>,
@@ -774,10 +1271,7 @@ pub fn save_workshop_config(
     Ok("创意工坊配置已保存".to_string())
 }
 
-#[tauri::command]
-pub fn load_workshop_mod_notes(
-    config: State<'_, Arc<Mutex<ConfigService>>>,
-) -> HashMap<String, String> {
+fn load_workshop_mod_notes_blocking(config: Arc<Mutex<ConfigService>>) -> HashMap<String, String> {
     let cfg = config.lock().unwrap_or_else(|e| e.into_inner());
     let path = cfg.config_dir().join("workshop_mod_notes.json");
     if path.exists() {
@@ -786,6 +1280,18 @@ pub fn load_workshop_mod_notes(
     } else {
         HashMap::new()
     }
+}
+
+#[tauri::command(async)]
+pub async fn load_workshop_mod_notes(
+    config: State<'_, Arc<Mutex<ConfigService>>>,
+) -> Result<HashMap<String, String>, String> {
+    let config = config.inner().clone();
+    let notes =
+        tauri::async_runtime::spawn_blocking(move || load_workshop_mod_notes_blocking(config))
+            .await
+            .map_err(|e| format!("读取模组备注任务失败: {}", e))?;
+    Ok(notes)
 }
 
 #[tauri::command]
@@ -902,5 +1408,180 @@ mod tests {
             validate_workshop_url("https://steamcommunity.com/sharedfiles/filedetails/?id=")
                 .is_err()
         );
+    }
+
+    fn sample_permissions_xml() -> &'static str {
+        r#"<?xml version="1.0" encoding="utf-8"?>
+<RocketPermissions xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <DefaultGroup>default</DefaultGroup>
+  <Groups>
+    <Group>
+      <Id>default</Id>
+      <DisplayName>Guest</DisplayName>
+      <Prefix />
+      <Suffix />
+      <Color>white</Color>
+      <Members />
+      <Priority>100</Priority>
+      <Permissions>
+        <Permission Cooldown="0">p</Permission>
+        <Permission Cooldown="0">compass</Permission>
+        <Permission Cooldown="0">rocket</Permission>
+      </Permissions>
+    </Group>
+    <Group>
+      <Id>vip</Id>
+      <DisplayName>VIP</DisplayName>
+      <Prefix />
+      <Suffix />
+      <Color>FF9900</Color>
+      <Members>
+        <Member>76561198016438091</Member>
+      </Members>
+      <ParentGroup>default</ParentGroup>
+      <Priority>100</Priority>
+      <Permissions>
+        <Permission Cooldown="0">effect</Permission>
+        <Permission Cooldown="120">heal</Permission>
+        <Permission Cooldown="30">v</Permission>
+      </Permissions>
+    </Group>
+  </Groups>
+</RocketPermissions>"#
+    }
+
+    fn sample_permissions_config() -> PermissionsConfigInfo {
+        parse_permissions_config(
+            sample_permissions_xml(),
+            "Permissions.config.xml".to_string(),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn parse_permissions_config_reads_groups_members_and_cooldowns() {
+        let config = sample_permissions_config();
+
+        assert!(config.exists);
+        assert_eq!(config.default_group, "default");
+        assert_eq!(config.groups.len(), 2);
+
+        let default = &config.groups[0];
+        assert_eq!(default.id, "default");
+        assert_eq!(default.display_name, "Guest");
+        assert_eq!(default.prefix, "");
+        assert_eq!(default.suffix, "");
+        assert!(default.members.is_empty());
+        assert_eq!(default.permissions[1].name, "compass");
+        assert_eq!(default.permissions[1].cooldown, 0);
+
+        let vip = &config.groups[1];
+        assert_eq!(vip.parent_group.as_deref(), Some("default"));
+        assert_eq!(vip.members, vec!["76561198016438091"]);
+        assert_eq!(vip.permissions[1].name, "heal");
+        assert_eq!(vip.permissions[1].cooldown, 120);
+    }
+
+    #[test]
+    fn render_permissions_config_round_trips_structured_data() {
+        let config = sample_permissions_config();
+        let rendered = render_permissions_config(&config);
+        let parsed = parse_permissions_config(&rendered, "roundtrip.xml".to_string()).unwrap();
+
+        assert_eq!(parsed.default_group, config.default_group);
+        assert_eq!(parsed.groups, config.groups);
+    }
+
+    #[test]
+    fn save_permissions_config_to_path_requires_existing_file() {
+        let mut path = std::env::temp_dir();
+        path.push(format!(
+            "missing-permissions-{}.xml",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+
+        let err = save_permissions_config_to_path(&path, sample_permissions_config())
+            .expect_err("missing file should fail");
+
+        assert!(err.contains("Permissions.config.xml 不存在"));
+    }
+
+    #[test]
+    fn save_permissions_config_to_path_writes_valid_xml() {
+        let mut path = std::env::temp_dir();
+        path.push(format!(
+            "permissions-write-{}.xml",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::write(&path, sample_permissions_xml()).unwrap();
+
+        let mut config = sample_permissions_config();
+        config.groups[1]
+            .members
+            .push("76561198016438091".to_string());
+        config.groups[1]
+            .members
+            .push("76561198000000000".to_string());
+        config.groups[1].permissions.push(GroupPermissionInfo {
+            name: "vehicle.repair".to_string(),
+            cooldown: 45,
+        });
+
+        save_permissions_config_to_path(&path, config).unwrap();
+        let saved = fs::read_to_string(&path).unwrap();
+        let parsed = parse_permissions_config(&saved, path.to_string_lossy().to_string()).unwrap();
+
+        let vip = parsed
+            .groups
+            .iter()
+            .find(|group| group.id == "vip")
+            .unwrap();
+        assert_eq!(vip.members, vec!["76561198016438091", "76561198000000000"]);
+        assert!(vip
+            .permissions
+            .iter()
+            .any(|permission| permission.name == "vehicle.repair" && permission.cooldown == 45));
+
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn validate_permissions_config_rejects_invalid_relationships() {
+        let mut duplicate = sample_permissions_config();
+        duplicate.groups[1].id = "default".to_string();
+        assert!(validate_permissions_config(&duplicate)
+            .unwrap_err()
+            .contains("重复"));
+
+        let mut missing_default = sample_permissions_config();
+        missing_default.default_group = "missing".to_string();
+        assert!(validate_permissions_config(&missing_default)
+            .unwrap_err()
+            .contains("默认权限组不存在"));
+
+        let mut self_parent = sample_permissions_config();
+        self_parent.groups[1].parent_group = Some("vip".to_string());
+        assert!(validate_permissions_config(&self_parent)
+            .unwrap_err()
+            .contains("不能继承自身"));
+    }
+
+    #[test]
+    fn normalize_permissions_config_rejects_empty_permission_name() {
+        let mut config = sample_permissions_config();
+        config.groups[0].permissions.push(GroupPermissionInfo {
+            name: "  ".to_string(),
+            cooldown: 0,
+        });
+
+        assert!(normalize_permissions_config(config)
+            .unwrap_err()
+            .contains("空权限名"));
     }
 }
