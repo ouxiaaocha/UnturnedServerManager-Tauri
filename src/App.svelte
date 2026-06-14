@@ -4,6 +4,7 @@
   import { invoke } from "@tauri-apps/api/core";
   import { message } from "@tauri-apps/plugin-dialog";
   import { getCurrentWindow } from "@tauri-apps/api/window";
+  import { listen } from "@tauri-apps/api/event";
   import { onMount } from "svelte";
   import DashboardPage from "./lib/pages/Dashboard.svelte";
   import ServerPage from "./lib/pages/Server.svelte";
@@ -16,11 +17,14 @@
   import AboutPage from "./lib/pages/About.svelte";
   import SavePage from "./lib/pages/Save.svelte";
   import Toast from "./lib/components/Toast.svelte";
+  import CloseConfirmDialog from "./lib/components/CloseConfirmDialog.svelte";
+  import { toastStore } from "./lib/stores/toast.svelte";
 
   let currentPage = $state("dashboard");
   let showWizard = $state(false);
   let loaded = $state(false);
   let isMaximized = $state(false);
+  let showCloseDialog = $state(false);
 
   const navItems = [
     { id: "dashboard", label: "仪表盘", icon: "M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" },
@@ -124,15 +128,103 @@
     void toggleWindowMaximize();
   }
 
+  // 监听托盘事件
+  async function setupTrayListeners() {
+    if (!isTauriRuntime()) return () => {}; // 非 Tauri 环境返回空清理函数
+
+    // 托盘菜单导航事件
+    const unlistenNavigate = await listen<string>("navigate", (event) => {
+      currentPage = event.payload;
+    });
+
+    // 自动托管切换
+    const unlistenToggle = await listen("toggle-auto-hosting", async () => {
+      const { toggleAutoUpdateHosting } = await import("./lib/stores.svelte");
+      const result = await toggleAutoUpdateHosting(null);
+      if (result.success) {
+        toastStore.success(result.message);
+        // 重建托盘菜单以更新状态显示
+        try {
+          await invoke("rebuild_tray_menu");
+        } catch (e) {
+          console.error("重建托盘菜单失败:", e);
+        }
+      } else {
+        toastStore.error(result.message);
+      }
+    });
+
+    // 窗口关闭请求
+    const unlistenClose = await listen("close-requested", async () => {
+      await handleCloseRequest();
+    });
+
+    // 返回清理函数
+    return () => {
+      unlistenNavigate();
+      unlistenToggle();
+      unlistenClose();
+    };
+  }
+
+  async function handleCloseRequest() {
+    try {
+      const shouldShow = await invoke<boolean>("should_show_close_dialog");
+
+      if (shouldShow) {
+        showCloseDialog = true;
+      } else {
+        const settings: any = await invoke("get_close_preference");
+        if (settings.closeToTray) {
+          await invoke("hide_window_to_tray");
+        } else {
+          await invoke("quit_app");
+        }
+      }
+    } catch (e) {
+      console.error("处理关闭请求失败:", e);
+    }
+  }
+
+  async function handleCloseConfirm(closeToTray: boolean, remember: boolean) {
+    try {
+      await invoke("save_close_preference", {
+        closeToTray,
+        remember
+      });
+
+      if (closeToTray) {
+        await invoke("hide_window_to_tray");
+      } else {
+        await invoke("quit_app");
+      }
+
+      showCloseDialog = false;
+    } catch (e) {
+      console.error("保存关闭偏好失败:", e);
+      toastStore.error(`操作失败: ${e}`);
+    }
+  }
+
+  function handleCloseCancel() {
+    showCloseDialog = false;
+  }
+
   onMount(() => {
     void checkFirstRun();
     void refreshMaximizedState();
+
+    let cleanupTray: (() => void) | undefined;
+    setupTrayListeners().then(cleanup => {
+      cleanupTray = cleanup;
+    });
 
     const updateMaximizedState = () => void refreshMaximizedState();
     window.addEventListener("resize", updateMaximizedState);
 
     return () => {
       window.removeEventListener("resize", updateMaximizedState);
+      if (cleanupTray) cleanupTray(); // 清理托盘监听器
     };
   });
 </script>
@@ -282,4 +374,9 @@
 {/if}
 
 <Toast />
+<CloseConfirmDialog
+  bind:show={showCloseDialog}
+  onConfirm={handleCloseConfirm}
+  onCancel={handleCloseCancel}
+/>
 </div>

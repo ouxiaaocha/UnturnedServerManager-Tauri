@@ -3,6 +3,32 @@
   import { generatePassword } from "$lib/utils";
   import { toastStore } from "../stores/toast.svelte";
   import { listenInstallerProgress } from "../utils/installer";
+  import Select from "../components/Select.svelte";
+  import SelectCustom from "../components/SelectCustom.svelte";
+
+  type PermissionEntry = {
+    name: string;
+    cooldown: number;
+  };
+
+  type PermissionGroup = {
+    id: string;
+    display_name: string;
+    prefix: string;
+    suffix: string;
+    color: string;
+    members: string[];
+    parent_group: string | null;
+    priority: number;
+    permissions: PermissionEntry[];
+  };
+
+  type PermissionsConfig = {
+    exists: boolean;
+    path: string;
+    default_group: string;
+    groups: PermissionGroup[];
+  };
 
   let activeTab = $state("save");
   let saves = $state<any[]>([]);
@@ -37,6 +63,17 @@
   let newModId = $state("");
   let newModNote = $state("");
   let ignoreChildrenInput = $state("");
+
+  let permissionsConfig = $state<PermissionsConfig | null>(null);
+  let permissionsLoading = $state(false);
+  let permissionsSaving = $state(false);
+  let selectedPermissionGroupId = $state("");
+  let newMemberInput = $state("");
+  let newPermissionName = $state("");
+  let newPermissionCooldown = $state(0);
+  let selectedPermissionGroup = $derived(
+    permissionsConfig?.groups.find((group) => group.id === selectedPermissionGroupId) ?? null
+  );
 
   let showInitPanel = $state(false);
   let newSaveName = $state("Server");
@@ -246,6 +283,318 @@
     if (gen === loadGeneration) workshopLoading = false;
   }
 
+  async function loadPermissionsConfig() {
+    if (!selectedSaveId) return;
+    const gen = ++loadGeneration;
+    permissionsLoading = true;
+    try {
+      const config = await invoke("read_permissions_config", { saveId: selectedSaveId }) as PermissionsConfig;
+      if (gen !== loadGeneration) return;
+      permissionsConfig = config;
+      if (config.exists && config.groups.length > 0) {
+        const defaultGroup = config.groups.find((group) => group.id === config.default_group);
+        selectedPermissionGroupId = defaultGroup?.id ?? config.groups[0].id;
+      } else {
+        selectedPermissionGroupId = "";
+      }
+      newMemberInput = "";
+      newPermissionName = "";
+      newPermissionCooldown = 0;
+    } catch (e: any) {
+      console.error("加载权限组配置失败:", e);
+      alert(e);
+    }
+    if (gen === loadGeneration) permissionsLoading = false;
+  }
+
+  function uniqueGroupId(base: string) {
+    if (!permissionsConfig) return base;
+    const normalizedBase = (base || "group").trim().replace(/\s+/g, "_") || "group";
+    const existing = new Set(permissionsConfig.groups.map((group) => group.id));
+    if (!existing.has(normalizedBase)) return normalizedBase;
+    let index = 2;
+    while (existing.has(`${normalizedBase}_${index}`)) index += 1;
+    return `${normalizedBase}_${index}`;
+  }
+
+  function getSelectedPermissionGroup() {
+    return permissionsConfig?.groups.find((group) => group.id === selectedPermissionGroupId) ?? null;
+  }
+
+  function groupColorStyle(color: string) {
+    const value = color.trim();
+    if (!value) return "background: transparent";
+    if (/^[0-9a-fA-F]{6}$/.test(value)) return `background: #${value}`;
+    return `background: ${value}`;
+  }
+
+  const namedColorHex: Record<string, string> = {
+    black: "#000000",
+    blue: "#2563eb",
+    cyan: "#06b6d4",
+    gray: "#6b7280",
+    green: "#16a34a",
+    grey: "#6b7280",
+    magenta: "#d946ef",
+    orange: "#f97316",
+    pink: "#ec4899",
+    purple: "#9333ea",
+    red: "#dc2626",
+    white: "#ffffff",
+    yellow: "#eab308",
+  };
+
+  function colorPickerValue(color: string) {
+    const value = color.trim();
+    if (/^[0-9a-fA-F]{6}$/.test(value)) return `#${value}`;
+    if (/^#[0-9a-fA-F]{6}$/.test(value)) return value;
+    return namedColorHex[value.toLowerCase()] ?? "#ffffff";
+  }
+
+  function setGroupColorFromPicker(groupId: string, value: string) {
+    replacePermissionGroup(groupId, (group) => {
+      group.color = value.replace("#", "").toUpperCase();
+    });
+  }
+
+  function replacePermissionGroup(groupId: string, updater: (group: PermissionGroup) => void) {
+    if (!permissionsConfig) return;
+    const index = permissionsConfig.groups.findIndex((group) => group.id === groupId);
+    if (index === -1) return;
+    const groups = permissionsConfig.groups.map((group) => ({
+      ...group,
+      members: [...group.members],
+      permissions: group.permissions.map((permission) => ({ ...permission })),
+    }));
+    updater(groups[index]);
+    permissionsConfig = { ...permissionsConfig, groups };
+  }
+
+  function addPermissionGroup() {
+    if (!permissionsConfig?.exists) return;
+    const id = uniqueGroupId("new_group");
+    const group: PermissionGroup = {
+      id,
+      display_name: "New Group",
+      prefix: "",
+      suffix: "",
+      color: "white",
+      members: [],
+      parent_group: permissionsConfig.default_group || null,
+      priority: 100,
+      permissions: [],
+    };
+    const defaultGroup = permissionsConfig.default_group || id;
+    permissionsConfig = {
+      ...permissionsConfig,
+      default_group: defaultGroup,
+      groups: [...permissionsConfig.groups, group],
+    };
+    selectedPermissionGroupId = id;
+  }
+
+  function duplicatePermissionGroup(group: PermissionGroup) {
+    if (!permissionsConfig?.exists) return;
+    const id = uniqueGroupId(`${group.id}_copy`);
+    const clone: PermissionGroup = {
+      ...group,
+      id,
+      display_name: `${group.display_name || group.id} Copy`,
+      members: [...group.members],
+      permissions: group.permissions.map((permission) => ({ ...permission })),
+    };
+    permissionsConfig = { ...permissionsConfig, groups: [...permissionsConfig.groups, clone] };
+    selectedPermissionGroupId = id;
+  }
+
+  function removePermissionGroup(group: PermissionGroup) {
+    if (!permissionsConfig) return;
+    if (group.id === permissionsConfig.default_group) {
+      alert("不能删除默认权限组，请先切换默认组");
+      return;
+    }
+    const child = permissionsConfig.groups.find((item) => item.parent_group === group.id);
+    if (child) {
+      alert(`权限组 ${child.id} 正在继承该组，请先解除父组引用`);
+      return;
+    }
+    if (!confirm(`删除权限组 ${group.id}？`)) return;
+
+    const groups = permissionsConfig.groups.filter((item) => item.id !== group.id);
+    permissionsConfig = { ...permissionsConfig, groups };
+    selectedPermissionGroupId = groups.find((item) => item.id === permissionsConfig?.default_group)?.id ?? groups[0]?.id ?? "";
+  }
+
+  function renameSelectedPermissionGroup(value: string) {
+    if (!permissionsConfig) return;
+    const oldId = selectedPermissionGroupId;
+    replacePermissionGroup(oldId, (group) => {
+      group.id = value;
+    });
+    const nextId = value;
+    const groups = permissionsConfig.groups.map((group) => ({
+      ...group,
+      parent_group: group.parent_group === oldId ? nextId : group.parent_group,
+    }));
+    permissionsConfig = {
+      ...permissionsConfig,
+      default_group: permissionsConfig.default_group === oldId ? nextId : permissionsConfig.default_group,
+      groups,
+    };
+    selectedPermissionGroupId = nextId;
+  }
+
+  function normalizeInputList(values: string[]) {
+    const seen = new Set<string>();
+    const output: string[] = [];
+    for (const value of values) {
+      const trimmed = value.trim();
+      if (trimmed && !seen.has(trimmed)) {
+        seen.add(trimmed);
+        output.push(trimmed);
+      }
+    }
+    return output;
+  }
+
+  function addMembersToSelectedGroup() {
+    const group = getSelectedPermissionGroup();
+    if (!group || !newMemberInput.trim()) return;
+    const existing = new Set(group.members.map((member) => member.trim()).filter(Boolean));
+    const incoming = normalizeInputList(newMemberInput.split(/[,\s]+/));
+    const fresh = incoming.filter((member) => !existing.has(member));
+    const duplicateCount = incoming.length - fresh.length;
+    if (duplicateCount > 0) {
+      toastStore.info(`已跳过 ${duplicateCount} 个重复 SteamID64`);
+    }
+    if (fresh.length === 0) {
+      newMemberInput = "";
+      return;
+    }
+    const members = [...normalizeInputList(group.members), ...fresh];
+    replacePermissionGroup(group.id, (draft) => {
+      draft.members = members;
+    });
+    newMemberInput = "";
+  }
+
+  function updateMember(groupId: string, index: number, value: string) {
+    replacePermissionGroup(groupId, (group) => {
+      group.members[index] = value;
+    });
+  }
+
+  function removeMember(groupId: string, index: number) {
+    replacePermissionGroup(groupId, (group) => {
+      group.members.splice(index, 1);
+    });
+  }
+
+  function normalizeMembersForGroup(groupId: string) {
+    const group = permissionsConfig?.groups.find((item) => item.id === groupId);
+    if (!group) return;
+    const normalized = normalizeInputList(group.members);
+    if (normalized.length !== group.members.filter((member) => member.trim()).length) {
+      toastStore.info("已移除重复或空的 SteamID64");
+      replacePermissionGroup(groupId, (draft) => {
+        draft.members = normalized;
+      });
+    }
+  }
+
+  function addPermissionToSelectedGroup() {
+    const group = getSelectedPermissionGroup();
+    if (!group) return;
+    if (!newPermissionName.trim()) {
+      alert("请输入权限名");
+      return;
+    }
+    replacePermissionGroup(group.id, (draft) => {
+      draft.permissions.push({
+        name: newPermissionName.trim(),
+        cooldown: Math.max(0, Number(newPermissionCooldown) || 0),
+      });
+    });
+    newPermissionName = "";
+    newPermissionCooldown = 0;
+  }
+
+  function updatePermission(groupId: string, index: number, patch: Partial<PermissionEntry>) {
+    replacePermissionGroup(groupId, (group) => {
+      group.permissions[index] = { ...group.permissions[index], ...patch };
+    });
+  }
+
+  function removePermission(groupId: string, index: number) {
+    replacePermissionGroup(groupId, (group) => {
+      group.permissions.splice(index, 1);
+    });
+  }
+
+  function normalizedPermissionsPayload() {
+    if (!permissionsConfig) throw new Error("权限组配置未加载");
+    const groups = permissionsConfig.groups.map((group) => ({
+      ...group,
+      id: group.id.trim(),
+      display_name: group.display_name.trim(),
+      color: group.color.trim(),
+      members: normalizeInputList(group.members),
+      parent_group: group.parent_group?.trim() || null,
+      priority: Number(group.priority) || 0,
+      permissions: group.permissions.map((permission) => ({
+        name: permission.name.trim(),
+        cooldown: Math.max(0, Number(permission.cooldown) || 0),
+      })),
+    }));
+    const payload = {
+      ...permissionsConfig,
+      default_group: permissionsConfig.default_group.trim(),
+      groups,
+    };
+    validatePermissionsPayload(payload);
+    return payload;
+  }
+
+  function validatePermissionsPayload(config: PermissionsConfig) {
+    if (!config.exists) throw new Error("Permissions.config.xml 不存在");
+    if (config.groups.length === 0) throw new Error("至少需要一个权限组");
+    if (!config.default_group) throw new Error("默认权限组不能为空");
+
+    const ids = new Set<string>();
+    for (const group of config.groups) {
+      if (!group.id) throw new Error("权限组 ID 不能为空");
+      if (ids.has(group.id)) throw new Error(`权限组 ID 重复: ${group.id}`);
+      ids.add(group.id);
+      for (const permission of group.permissions) {
+        if (!permission.name) throw new Error(`权限组 ${group.id} 包含空权限名`);
+      }
+    }
+    if (!ids.has(config.default_group)) throw new Error(`默认权限组不存在: ${config.default_group}`);
+
+    for (const group of config.groups) {
+      if (!group.parent_group) continue;
+      if (group.parent_group === group.id) throw new Error(`权限组 ${group.id} 不能继承自身`);
+      if (!ids.has(group.parent_group)) throw new Error(`权限组 ${group.id} 的父组不存在: ${group.parent_group}`);
+    }
+  }
+
+  async function savePermissionsConfig() {
+    if (!selectedSaveId || !permissionsConfig) return;
+    permissionsSaving = true;
+    try {
+      const payload = normalizedPermissionsPayload();
+      await invoke("save_permissions_config", {
+        saveId: selectedSaveId,
+        permissionsConfig: payload,
+      });
+      permissionsConfig = payload;
+      toastStore.success("权限组配置已保存");
+    } catch (e: any) {
+      alert(e);
+    }
+    permissionsSaving = false;
+  }
+
   function parseWorkshopIdList(value: string, label: string): number[] {
     if (!value.trim()) return [];
     const parts = value.split(/[,\s]+/).map((s: string) => s.trim()).filter(Boolean);
@@ -379,6 +728,9 @@
     if (activeTab === "workshop") {
       await loadWorkshopConfig();
     }
+    if (activeTab === "permissions") {
+      await loadPermissionsConfig();
+    }
   }
 
   async function onTabChange(tab: string) {
@@ -389,10 +741,23 @@
     if (tab === "workshop") {
       await loadWorkshopConfig();
     }
+    if (tab === "permissions") {
+      await loadPermissionsConfig();
+    }
   }
 
   $effect(() => {
     loadSaves();
+  });
+
+  // 组件卸载时清理定时器，防止内存泄露
+  $effect(() => {
+    return () => {
+      if (noteSaveTimer) {
+        clearTimeout(noteSaveTimer);
+        noteSaveTimer = undefined;
+      }
+    };
   });
 </script>
 
@@ -400,7 +765,7 @@
   <div class="flex flex-wrap items-center justify-between gap-3 mb-6">
     <div>
       <h1 class="text-2xl font-bold text-[var(--text-primary)]">存档管理</h1>
-      <p class="text-sm text-[var(--text-muted)] mt-1">存档配置、模组与插件</p>
+      <p class="text-sm text-[var(--text-muted)] mt-1">存档配置、模组、插件与权限组</p>
     </div>
   </div>
 
@@ -411,15 +776,16 @@
       {#if saves.length === 0}
         <span class="text-sm text-[var(--text-muted)]">未找到存档</span>
       {:else}
-        <select
+        <SelectCustom
           bind:value={selectedSaveId}
+          options={saves.map(save => ({
+            value: save.id,
+            label: `${save.id}${save.name ? ` - ${save.name}` : ''}`
+          }))}
           onchange={onSaveChange}
-          class="bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)] transition-colors cursor-pointer min-w-[200px]"
-        >
-          {#each saves as save (save.id)}
-            <option value={save.id}>{save.id}{save.name ? ` - ${save.name}` : ''}</option>
-          {/each}
-        </select>
+          size="sm"
+          class="min-w-[200px]"
+        />
       {/if}
       <button
         class="px-4 py-2 bg-gradient-to-r from-[var(--accent)] to-cyan-600 hover:from-cyan-500 hover:to-[var(--accent)] text-[var(--text-primary)] text-sm font-medium rounded-lg transition-all cursor-pointer flex items-center gap-2"
@@ -542,6 +908,13 @@
     >
       插件管理
     </button>
+    <button
+      class="px-4 py-2 rounded-lg text-sm font-medium transition-all cursor-pointer
+        {activeTab === 'permissions' ? 'bg-[var(--accent-subtle)] text-[var(--accent-light)] border border-[var(--border-accent)]' : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-card)] border border-transparent'}"
+      onclick={() => onTabChange('permissions')}
+    >
+      权限组管理
+    </button>
   </div>
 
   {#if activeTab === 'save'}
@@ -597,14 +970,18 @@
           </div>
 
           <div>
-            <span class="block text-xs text-[var(--text-muted)] mb-2 uppercase tracking-wider">视角</span>
-            <select bind:value={cmdPerspective}
-              class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)] transition-colors cursor-pointer">
-              <option value="First">第一人称</option>
-              <option value="Third">第三人称</option>
-              <option value="Both">两者皆可</option>
-              <option value="Vehicle">载具</option>
-            </select>
+            <label for="cmd-perspective" class="block text-xs text-[var(--text-muted)] mb-2 uppercase tracking-wider">视角</label>
+            <SelectCustom
+              bind:value={cmdPerspective}
+              options={[
+                { value: 'First', label: '第一人称' },
+                { value: 'Third', label: '第三人称' },
+                { value: 'Both', label: '两者皆可' },
+                { value: 'Vehicle', label: '载具' }
+              ]}
+              size="md"
+              fullWidth
+            />
           </div>
 
           <div class="md:col-span-2">
@@ -669,19 +1046,21 @@
                 <button type="button"
                   class="p-1.5 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors cursor-pointer"
                   onclick={() => showRconPassword = !showRconPassword}
+                  aria-label={showRconPassword ? "隐藏密码" : "显示密码"}
                 >
                   {#if showRconPassword}
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.542 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" /></svg>
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.542 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" /></svg>
                   {:else}
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
                   {/if}
                 </button>
                 <button type="button"
                   class="p-1.5 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors cursor-pointer"
                   onclick={() => rconPassword = generatePassword()}
+                  aria-label="生成随机密码"
                   title="生成随机密码"
                 >
-                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" /></svg>
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" /></svg>
                 </button>
               </div>
             </div>
@@ -908,7 +1287,373 @@
       {/if}
     </div>
 
-  {:else}
+  {:else if activeTab === 'permissions'}
+    <!-- Permissions Tab -->
+    {#if permissionsLoading}
+      <div class="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-6">
+        <div class="flex items-center justify-center py-10">
+          <div class="w-8 h-8 border-2 border-[var(--accent)] border-t-transparent rounded-full animate-spin"></div>
+        </div>
+      </div>
+    {:else if permissionsConfig && !permissionsConfig.exists}
+      <div class="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-6">
+        <div class="flex flex-col items-center justify-center py-12 text-center">
+          <div class="mb-4 flex h-12 w-12 items-center justify-center rounded-lg bg-[var(--warning-glow)] text-[var(--warning)]">
+            <svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" d="M12 9v4m0 4h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+            </svg>
+          </div>
+          <h2 class="text-base font-semibold text-[var(--text-primary)]">Permissions.config.xml 不存在</h2>
+          <p class="mt-2 max-w-2xl text-sm text-[var(--text-secondary)]">当前存档没有 Rocket 权限配置文件，软件不会自动创建该文件。</p>
+          <p class="mt-3 max-w-full break-all rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2 font-mono text-xs text-[var(--text-muted)]">{permissionsConfig.path}</p>
+        </div>
+      </div>
+    {:else if permissionsConfig}
+      <div class="mb-5 flex flex-col gap-3 rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div class="min-w-0">
+          <h2 class="text-base font-semibold text-[var(--text-primary)] flex items-center gap-2">
+            <svg class="w-5 h-5 text-[var(--accent-light)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" d="M12 3 4 6v6c0 5 3.4 8.7 8 9 4.6-.3 8-4 8-9V6l-8-3z" />
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" d="M9 12l2 2 4-4" />
+            </svg>
+            权限组管理
+          </h2>
+          <p class="mt-1 truncate font-mono text-xs text-[var(--text-muted)]">{permissionsConfig.path}</p>
+        </div>
+        <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <label class="flex items-center gap-2 text-sm text-[var(--text-secondary)]">
+            <span class="whitespace-nowrap">默认组</span>
+            <SelectCustom
+              value={permissionsConfig.default_group}
+              options={permissionsConfig.groups.map(g => ({ value: g.id, label: g.id }))}
+              onchange={(val) => permissionsConfig = { ...permissionsConfig!, default_group: val }}
+              size="sm"
+              class="min-w-[160px]"
+            />
+          </label>
+          <button
+            class="px-5 py-2 bg-gradient-to-r from-[var(--accent)] to-blue-600 hover:from-blue-500 hover:to-[var(--accent)] text-[var(--text-primary)] text-sm font-medium rounded-lg transition-all cursor-pointer flex items-center justify-center gap-2 whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed"
+            onclick={savePermissionsConfig}
+            disabled={permissionsSaving || permissionsLoading || !selectedSaveId}
+          >
+            {#if permissionsSaving}
+              <div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+              保存中...
+            {:else}
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+              </svg>
+              保存权限组
+            {/if}
+          </button>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(260px,320px)_minmax(0,1fr)]">
+        <aside class="rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-4">
+          <div class="mb-4 flex items-center justify-between gap-3">
+            <div>
+              <h3 class="text-sm font-semibold text-[var(--text-primary)]">权限组</h3>
+              <p class="text-xs text-[var(--text-muted)]">{permissionsConfig.groups.length} 个组</p>
+            </div>
+            <button
+              class="flex items-center gap-2 rounded-lg bg-[var(--accent-subtle)] px-3 py-2 text-sm font-medium text-[var(--accent-light)] transition-all hover:border-[var(--accent)]"
+              onclick={addPermissionGroup}
+            >
+              <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+              </svg>
+              新增
+            </button>
+          </div>
+
+          {#if permissionsConfig.groups.length === 0}
+            <div class="rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-8 text-center">
+              <p class="text-sm text-[var(--text-muted)]">暂无权限组</p>
+            </div>
+          {:else}
+            <div class="max-h-[620px] space-y-2 overflow-y-auto pr-1">
+              {#each permissionsConfig.groups as group, index (index)}
+                <div class="flex items-center gap-2 rounded-lg border p-2 transition-all {selectedPermissionGroupId === group.id ? 'border-[var(--border-accent)] bg-[var(--accent-subtle)]' : 'border-[var(--border)] bg-[var(--bg-primary)] hover:border-[var(--border-hover)]'}">
+                  <button
+                    class="flex min-w-0 flex-1 items-center gap-3 text-left"
+                    onclick={() => selectedPermissionGroupId = group.id}
+                  >
+                    <span class="h-8 w-2 shrink-0 rounded-full border border-[var(--border)]" style={groupColorStyle(group.color)}></span>
+                    <span class="min-w-0 flex-1">
+                      <span class="block truncate text-sm font-medium text-[var(--text-primary)]">{group.id || "未命名组"}</span>
+                      <span class="block truncate text-xs text-[var(--text-muted)]">{group.display_name || "无显示名"} · {group.permissions.length} 权限</span>
+                    </span>
+                    {#if permissionsConfig.default_group === group.id}
+                      <span class="rounded-md bg-[var(--success-glow)] px-2 py-0.5 text-[10px] font-medium text-[var(--success)]">默认</span>
+                    {/if}
+                  </button>
+                  <button
+                    class="rounded-md p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-card)] hover:text-[var(--text-primary)]"
+                    onclick={() => duplicatePermissionGroup(group)}
+                    title="复制权限组"
+                  >
+                    <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M8 8h10v10H8z" />
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M6 16H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1" />
+                    </svg>
+                  </button>
+                  <button
+                    class="rounded-md p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--danger-glow)] hover:text-[var(--danger)] disabled:opacity-35"
+                    onclick={() => removePermissionGroup(group)}
+                    disabled={permissionsConfig.default_group === group.id}
+                    title="删除权限组"
+                  >
+                    <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M19 7 18.1 19.1A2 2 0 0 1 16.1 21H7.9a2 2 0 0 1-2-1.9L5 7m5 4v6m4-6v6M4 7h16m-5 0V4H9v3" />
+                    </svg>
+                  </button>
+                </div>
+              {/each}
+            </div>
+          {/if}
+        </aside>
+
+        <section class="min-w-0 space-y-5">
+          {#if selectedPermissionGroup}
+            <div class="rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-5">
+              <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+                <h3 class="text-sm font-semibold text-[var(--text-primary)]">组信息</h3>
+                <button
+                  class="rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-secondary)] transition-all hover:border-[var(--accent)] hover:text-[var(--text-primary)]"
+                  onclick={() => permissionsConfig = { ...permissionsConfig!, default_group: selectedPermissionGroup!.id }}
+                  disabled={permissionsConfig.default_group === selectedPermissionGroup.id}
+                >
+                  设为默认组
+                </button>
+              </div>
+              <div class="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-4">
+                <div>
+                  <span class="block text-xs text-[var(--text-muted)] mb-1.5">组 ID</span>
+                  <input
+                    type="text"
+                    value={selectedPermissionGroup.id}
+                    oninput={(e) => renameSelectedPermissionGroup((e.target as HTMLInputElement).value)}
+                    class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)] transition-colors"
+                  />
+                </div>
+                <div>
+                  <span class="block text-xs text-[var(--text-muted)] mb-1.5">显示名称</span>
+                  <input
+                    type="text"
+                    value={selectedPermissionGroup.display_name}
+                    oninput={(e) => replacePermissionGroup(selectedPermissionGroup!.id, (group) => group.display_name = (e.target as HTMLInputElement).value)}
+                    class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)] transition-colors"
+                  />
+                </div>
+                <div>
+                  <span class="block text-xs text-[var(--text-muted)] mb-1.5">前缀</span>
+                  <input
+                    type="text"
+                    value={selectedPermissionGroup.prefix}
+                    oninput={(e) => replacePermissionGroup(selectedPermissionGroup!.id, (group) => group.prefix = (e.target as HTMLInputElement).value)}
+                    class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)] transition-colors"
+                  />
+                </div>
+                <div>
+                  <span class="block text-xs text-[var(--text-muted)] mb-1.5">后缀</span>
+                  <input
+                    type="text"
+                    value={selectedPermissionGroup.suffix}
+                    oninput={(e) => replacePermissionGroup(selectedPermissionGroup!.id, (group) => group.suffix = (e.target as HTMLInputElement).value)}
+                    class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)] transition-colors"
+                  />
+                </div>
+                <div>
+                  <span class="block text-xs text-[var(--text-muted)] mb-1.5">颜色</span>
+                  <div class="flex gap-2">
+                    <label class="relative h-10 w-10 shrink-0 cursor-pointer overflow-hidden rounded-lg border border-[var(--border)] shadow-[var(--shadow-sm)]" title="打开调色板">
+                      <span class="absolute inset-0" style={groupColorStyle(selectedPermissionGroup.color)}></span>
+                      <input
+                        type="color"
+                        value={colorPickerValue(selectedPermissionGroup.color)}
+                        oninput={(e) => setGroupColorFromPicker(selectedPermissionGroup!.id, (e.target as HTMLInputElement).value)}
+                        class="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                        aria-label="选择权限组颜色"
+                      />
+                    </label>
+                    <input
+                      type="text"
+                      value={selectedPermissionGroup.color}
+                      oninput={(e) => replacePermissionGroup(selectedPermissionGroup!.id, (group) => group.color = (e.target as HTMLInputElement).value)}
+                      placeholder="点击色块选择颜色"
+                      class="min-w-0 flex-1 bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <span class="block text-xs text-[var(--text-muted)] mb-1.5">优先级</span>
+                  <input
+                    type="number"
+                    min="0"
+                    value={selectedPermissionGroup.priority}
+                    oninput={(e) => replacePermissionGroup(selectedPermissionGroup!.id, (group) => group.priority = Math.max(0, Number((e.target as HTMLInputElement).value) || 0))}
+                    class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)] transition-colors"
+                  />
+                </div>
+                <div class="min-w-0">
+                  <label for="parent-group" class="block text-xs text-[var(--text-muted)] mb-1.5">父组</label>
+                  <SelectCustom
+                    value={selectedPermissionGroup.parent_group ?? ""}
+                    options={[
+                      { value: '', label: '无父组' },
+                      ...permissionsConfig.groups
+                        .filter((group) => group.id !== selectedPermissionGroup?.id)
+                        .map(g => ({
+                          value: g.id,
+                          label: g.display_name ? `${g.id} - ${g.display_name}` : g.id
+                        }))
+                    ]}
+                    onchange={(val) => replacePermissionGroup(selectedPermissionGroup!.id, (group) => group.parent_group = val || null)}
+                    size="md"
+                    fullWidth
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div class="rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-5">
+              <div class="mb-4 flex flex-wrap items-end justify-between gap-3">
+                <div>
+                  <h3 class="text-sm font-semibold text-[var(--text-primary)]">成员</h3>
+                  <p class="text-xs text-[var(--text-muted)]">{selectedPermissionGroup.members.length} 个 SteamID64</p>
+                </div>
+                <div class="flex flex-1 flex-col gap-2 sm:max-w-2xl sm:flex-row">
+                  <input
+                    type="text"
+                    bind:value={newMemberInput}
+                    placeholder="SteamID64，多个用空格或逗号分隔，重复会跳过"
+                    class="min-w-0 flex-1 bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors"
+                    onkeydown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        addMembersToSelectedGroup();
+                      }
+                    }}
+                  />
+                  <button
+                    class="px-4 py-2 bg-[var(--accent-subtle)] text-[var(--accent-light)] text-sm font-medium rounded-lg transition-all cursor-pointer"
+                    onclick={addMembersToSelectedGroup}
+                  >
+                    添加成员
+                  </button>
+                </div>
+              </div>
+
+              {#if selectedPermissionGroup.members.length === 0}
+                <div class="rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-8 text-center text-sm text-[var(--text-muted)]">暂无成员</div>
+              {:else}
+                <div class="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-2">
+                  {#each selectedPermissionGroup.members as member, index (index)}
+                    <div class="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] p-2">
+                      <input
+                        type="text"
+                        value={member}
+                        oninput={(e) => updateMember(selectedPermissionGroup!.id, index, (e.target as HTMLInputElement).value)}
+                        onblur={() => normalizeMembersForGroup(selectedPermissionGroup!.id)}
+                        class="min-w-0 flex-1 bg-transparent px-2 py-1 font-mono text-xs text-[var(--text-primary)] focus:outline-none"
+                      />
+                      <button
+                        class="rounded-md p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--danger-glow)] hover:text-[var(--danger)]"
+                        onclick={() => removeMember(selectedPermissionGroup!.id, index)}
+                        title="移除成员"
+                      >
+                        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M6 6l12 12M18 6 6 18" />
+                        </svg>
+                      </button>
+                    </div>
+                  {/each}
+                </div>
+              {/if}
+            </div>
+
+            <div class="rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-5">
+              <div class="mb-4 flex flex-wrap items-end justify-between gap-3">
+                <div>
+                  <h3 class="text-sm font-semibold text-[var(--text-primary)]">权限</h3>
+                  <p class="text-xs text-[var(--text-muted)]">{selectedPermissionGroup.permissions.length} 条权限</p>
+                </div>
+                <div class="grid flex-1 grid-cols-1 gap-2 sm:max-w-2xl sm:grid-cols-[minmax(180px,1fr)_150px_auto]">
+                  <input
+                    type="text"
+                    bind:value={newPermissionName}
+                    placeholder="权限名，例如 rocket 或 heal"
+                    class="min-w-0 bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors"
+                    onkeydown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        addPermissionToSelectedGroup();
+                      }
+                    }}
+                  />
+                  <div class="relative">
+                    <input
+                      type="number"
+                      min="0"
+                      bind:value={newPermissionCooldown}
+                      aria-label="冷却时间，单位秒"
+                      placeholder="冷却时间"
+                      class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2 pr-9 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)] transition-colors"
+                    />
+                    <span class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[var(--text-muted)]">秒</span>
+                  </div>
+                  <button
+                    class="px-4 py-2 bg-[var(--accent-subtle)] text-[var(--accent-light)] text-sm font-medium rounded-lg transition-all cursor-pointer whitespace-nowrap"
+                    onclick={addPermissionToSelectedGroup}
+                  >
+                    添加权限
+                  </button>
+                </div>
+              </div>
+
+              {#if selectedPermissionGroup.permissions.length === 0}
+                <div class="rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-8 text-center text-sm text-[var(--text-muted)]">暂无权限</div>
+              {:else}
+                <div class="space-y-2">
+                  {#each selectedPermissionGroup.permissions as permission, index (index)}
+                    <div class="grid grid-cols-1 gap-2 rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] p-2 sm:grid-cols-[minmax(180px,1fr)_150px_auto]">
+                      <input
+                        type="text"
+                        value={permission.name}
+                        oninput={(e) => updatePermission(selectedPermissionGroup!.id, index, { name: (e.target as HTMLInputElement).value })}
+                        class="min-w-0 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)] transition-colors"
+                      />
+                      <div class="relative">
+                        <input
+                          type="number"
+                          min="0"
+                          value={permission.cooldown}
+                          aria-label="冷却时间，单位秒"
+                          oninput={(e) => updatePermission(selectedPermissionGroup!.id, index, { cooldown: Math.max(0, Number((e.target as HTMLInputElement).value) || 0) })}
+                          class="w-full bg-[var(--bg-card)] border border-[var(--border)] rounded-lg px-3 py-2 pr-9 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)] transition-colors"
+                        />
+                        <span class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[var(--text-muted)]">秒</span>
+                      </div>
+                      <button
+                        class="rounded-lg px-3 py-2 text-sm text-[var(--text-muted)] transition-colors hover:bg-[var(--danger-glow)] hover:text-[var(--danger)]"
+                        onclick={() => removePermission(selectedPermissionGroup!.id, index)}
+                      >
+                        删除
+                      </button>
+                    </div>
+                  {/each}
+                </div>
+              {/if}
+            </div>
+          {:else}
+            <div class="rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-4 py-12 text-center text-sm text-[var(--text-muted)]">请选择或新增一个权限组</div>
+          {/if}
+        </section>
+      </div>
+    {/if}
+
+  {:else if activeTab === 'plugins'}
     <!-- Plugins Tab -->
     <div class="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-6">
       <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
@@ -973,6 +1718,5 @@
     </div>
   {/if}
 </div>
-
 
 

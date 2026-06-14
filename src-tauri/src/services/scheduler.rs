@@ -63,6 +63,14 @@ pub fn start_scheduler(
                 continue;
             }
 
+            // 每小时清理一次不在当前任务列表中的孤儿条目，防止内存泄露
+            if current_minute == 0 {
+                let active_ids: std::collections::HashSet<String> = tasks.iter()
+                    .map(|t| t.id.clone())
+                    .collect();
+                announced.retain(|id, _| active_ids.contains(id));
+            }
+
             // weekday: 0=周日
             let weekday = now.weekday().num_days_from_sunday() as u8;
 

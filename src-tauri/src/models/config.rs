@@ -12,6 +12,10 @@ pub struct AppSettings {
     pub auto_start_last_server: bool,
     #[serde(rename = "autoUpdateHosting")]
     pub auto_update_hosting: bool,
+    #[serde(rename = "closeToTray")]
+    pub close_to_tray: bool,
+    #[serde(rename = "closeActionRemembered")]
+    pub close_action_remembered: bool,
 }
 
 impl Default for AppSettings {
@@ -19,9 +23,11 @@ impl Default for AppSettings {
         Self {
             language: "zh-CN".to_string(),
             theme: "Dark".to_string(),
-            log_retention_days: 30,
+            log_retention_days: 15,
             auto_start_last_server: false,
             auto_update_hosting: false,
+            close_to_tray: false,
+            close_action_remembered: false,
         }
     }
 }

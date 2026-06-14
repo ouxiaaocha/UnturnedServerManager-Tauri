@@ -1,6 +1,7 @@
 ﻿<script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
+  import { onDestroy } from "svelte";
 
   let updating = $state(false);
   let output: string[] = $state([]);
@@ -40,6 +41,14 @@
     }
     updating = false;
   }
+
+  // 组件卸载时清理监听器，防止内存泄露
+  onDestroy(() => {
+    if (unlisten) {
+      unlisten();
+      unlisten = undefined;
+    }
+  });
 </script>
 
 <div class="flex flex-col gap-5">
