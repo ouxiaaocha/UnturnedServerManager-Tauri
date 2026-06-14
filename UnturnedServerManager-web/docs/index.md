@@ -30,15 +30,15 @@ features:
     link: /features/server
   - icon: <img src='/icon-rcon.svg' />
     title: RCON 远程管理
-    details: RCON 作为额外远程功能保留，可连接 Rocket RCON 发送命令并接收响应。
+    details: 优化的 RCON 连接管理，心跳保活机制，可连接 Rocket RCON 发送命令并接收响应。
     link: /features/rcon
   - icon: <img src='/icon-workshop.svg' />
     title: 创意工坊模组
-    details: 维护 WorkshopDownloadConfig.json，管理模组 ID、备注、缓存下载、更新监控和关服提示。
+    details: 维护 WorkshopDownloadConfig.json，管理模组 ID、备注、缓存下载，支持快速跳转 Steam 工作坊。
     link: /features/workshop
   - icon: <img src='/icon-schedule.svg' />
     title: 定时任务
-    details: 创建每日、每周、间隔型自动重启任务，支持提前提醒，保障服务器稳定运行。
+    details: 创建每日、每周、间隔型自动重启任务，支持提前提醒，智能清理过期任务记录。
     link: /features/schedule
   - icon: <img src='/icon-logs.svg' />
     title: 日志中心
@@ -46,19 +46,19 @@ features:
     link: /features/logs
   - icon: <img src='/icon-save.svg' />
     title: 存档配置
-    details: 管理 Commands.dat、Rocket RCON、PvE、作弊、GSLT、地图、端口和最大玩家数等配置。
+    details: 标签页布局，管理 Commands.dat、Rocket RCON、PvE、作弊、GSLT、地图、端口和最大玩家数。
     link: /features/save
   - icon: <img src='/icon-plugins.svg' />
-    title: 插件管理
-    details: 查看 Rocket 插件目录，保存插件备注，快速打开插件配置目录。
+    title: 插件与权限
+    details: 查看 Rocket 插件目录，保存插件备注，编辑权限配置，快速打开插件配置目录。
     link: /features/plugins
   - icon: <img src='/icon-update.svg' />
     title: 服务端更新
     details: 调用 SteamCMD 更新 Unturned 服务端，实时显示 SteamCMD 自更新、服务端校验和安装输出。
     link: /features/update
   - icon: <img src='/icon-wizard.svg' />
-    title: 首次引导
-    details: 自动检测/下载 SteamCMD，安装 Rocket 模块，初始化存档、RCON 和本地命令 Bridge，开箱即用。
+    title: 窗口管理
+    details: 支持最小化到托盘、托盘菜单快速导航、关闭行为自定义，便捷的后台管理体验。
     link: /features/wizard
 ---
 

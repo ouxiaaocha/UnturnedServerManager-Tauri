@@ -79,16 +79,53 @@
 | --- | --- |
 | 仪表盘 | 查看服务器状态、PID、运行时间、CPU、内存、网络流量，并可通过本地命令快速启动、停止、重启服务器 |
 | 服务器控制 | 一键启动、停止、重启、强制停止，支持本地命令输入、实时输出、日志搜索、局域网/互联网模式切换 |
-| RCON 控制台 | 作为额外远程功能连接 Rocket RCON、发送命令、轮询响应，服务器启动后可自动连接 |
-| 存档配置 | 管理 `Commands.dat`、Rocket RCON、PvE、作弊、GSLT、地图、端口和最大玩家数 |
-| 创意工坊模组 | 维护 `WorkshopDownloadConfig.json`，管理模组 ID、备注、缓存下载、更新监控和关服提示 |
+| RCON 控制台 | 作为额外远程功能连接 Rocket RCON、发送命令、轮询响应，优化的连接管理和心跳保活机制 |
+| 存档配置 | 标签页布局，管理 `Commands.dat`、Rocket RCON、PvE、作弊、GSLT、地图、端口和最大玩家数 |
+| 创意工坊模组 | 维护 `WorkshopDownloadConfig.json`，管理模组 ID、备注、缓存下载、更新监控，快速跳转 Steam 工作坊 |
 | 插件管理 | 查看 Rocket 插件目录，保存插件备注，快速打开插件配置目录 |
+| 权限管理 | 编辑 `Permissions.config.xml`，管理权限组和 SteamID 权限配置 |
 | 日志中心 | 查看软件日志、操作日志和游戏日志，支持日期切换、分类筛选和搜索 |
 | 服务端更新 | 调用 SteamCMD 更新 Unturned 服务端，显示 SteamCMD 自更新和服务端校验输出 |
-| 定时任务 | 创建每日、每周、间隔型自动重启任务，支持提前提醒 |
+| 定时任务 | 创建每日、每周、间隔型自动重启任务，支持提前提醒，智能清理过期任务 |
+| 窗口管理 | 支持最小化到托盘、托盘菜单快速导航、关闭行为自定义 |
 | 首次引导 | 自动检测/下载 SteamCMD，安装 Rocket 模块，初始化存档、RCON 和本地命令 Bridge |
 
 ## 最近更新
+
+### v2.2.0 (2026-06-15)
+
+**🐛 稳定性改进**
+- 修复长时间运行内存泄露问题，可 7×24 小时稳定运行
+  - 修复前端 Tauri 事件监听器泄露（App.svelte）
+  - 修复页面切换时定时器未清理（Save.svelte、Update.svelte）
+  - 优化 RCON 响应缓冲区，降低内存峰值 50%
+  - 调度器自动清理孤儿任务记录
+- 日志保留天数优化：默认从 30 天降至 15 天，减少磁盘占用
+
+**🎨 UI/UX 优化**
+- 新增通用 UI 组件库：Button、Card、Select、SelectCustom
+- 重构存档管理页面，采用标签页布局
+  - 基础配置 | 插件管理 | 工作坊 | 权限管理 | RCON 配置
+- 新增工作坊模组管理：模组列表、Steam 工作坊跳转、模组备注
+- 新增权限管理界面：权限列表编辑、SteamID 权限配置
+- 优化所有页面的布局、样式和交互体验
+
+**⚙️ 新增功能**
+- 窗口管理：最小化到托盘、托盘菜单、关闭行为自定义
+- 托盘菜单：快速导航、自动托管切换、窗口显示/隐藏
+- 关闭确认对话框：支持记住用户选择
+
+**🚀 性能优化**
+- 优化 RCON 缓冲区：上限从 1000 降至 500 条，批次从 500 降至 250
+- 单条响应长度限制 1000 字符，防止超长日志占用内存
+- 优化轮询机制的生命周期管理
+- 改进异步任务调度和错误处理
+
+**🔒 安全增强**
+- 增强日志文件路径验证，防止路径穿越攻击
+- 优化子进程环境变量清理，防止敏感信息泄露
+
+### v2.1.0
 
 - v2.1.0 将服务器控制主路径切换为本地命令 Bridge，启动、停止、重启和定时提醒不再依赖 RCON。
 - 服务器页面新增本地命令输入栏，命令会写入本地队列并由 Rocket Bridge 插件在服务器内执行。
@@ -166,23 +203,53 @@ backups/     备份数据
 
 ```text
 src/
-  App.svelte              主壳层、窗口栏与导航
-  app.css                 全局主题与响应式样式
+  App.svelte              主壳层、窗口栏、导航与托盘事件
+  app.css                 全局主题、CSS 变量与响应式样式
+  lib/components/
+    Button.svelte         通用按钮组件
+    Card.svelte           卡片容器组件
+    Select.svelte         原生下拉选择组件
+    SelectCustom.svelte   自定义下拉选择组件
+    CloseConfirmDialog    关闭确认对话框
+    LogPanel.svelte       日志面板组件
+    SaveSelector.svelte   存档选择器组件
+    Toast.svelte          通知提示组件
   lib/pages/
     Dashboard.svelte      仪表盘
     Server.svelte         服务器控制
     Rcon.svelte           RCON 控制台
-    Save.svelte           存档、创意工坊模组与插件
+    Save.svelte           存档、创意工坊模组、插件与权限
     Schedule.svelte       定时任务
     Update.svelte         服务端更新
     Logs.svelte           日志中心
     Settings.svelte       设置
     Wizard.svelte         首次引导
     About.svelte          关于
+  lib/stores.svelte.ts    全局状态管理
+  lib/utils.ts            工具函数
+  lib/utils/
+    polling.svelte.ts     轮询工具类
+    composables.svelte.ts 组合式函数（useClickOutside）
 
 src-tauri/
-  src/commands/           Tauri 命令
-  src/services/           配置、日志、进程、本地命令、RCON、调度和系统监控服务
+  src/commands/
+    server.rs             服务器控制命令
+    rcon.rs               RCON 命令
+    save.rs               存档配置命令
+    logs.rs               日志命令
+    schedule.rs           定时任务命令
+    update.rs             更新命令
+    system.rs             系统监控命令
+    config.rs             配置命令
+    window.rs             窗口管理命令
+  src/services/
+    config_service.rs     配置服务
+    log_service.rs        日志服务
+    process.rs            进程管理服务
+    rcon_client.rs        RCON 客户端服务
+    scheduler.rs          调度服务
+    system_monitor.rs     系统监控服务
+    local_command_bridge.rs 本地命令桥接
   src/models/             数据模型
   tauri.conf.json         Tauri 应用配置
 ```
