@@ -1,7 +1,7 @@
 ﻿<script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import { formatBytes, copyToClipboard } from "$lib/utils";
-  import { appState, sharedSaves, loadSharedSaves, sharedSettings, loadSharedSettings, serverInfo, serverState, serverLogs, refreshServerStatus, clearServerLogs } from "$lib/stores.svelte";
+  import { appState, sharedSaves, loadSharedSaves, sharedSettings, loadSharedSettings, toggleAutoUpdateHosting, serverInfo, serverState, serverLogs, refreshServerStatus, clearServerLogs } from "$lib/stores.svelte";
   import { toastStore } from "../stores/toast.svelte";
   import { createPoller } from "../utils/polling.svelte";
   import SaveSelector from "../components/SaveSelector.svelte";
@@ -64,19 +64,13 @@
     }
   }
 
-  async function toggleAutoUpdateHosting() {
-    const nextEnabled = !sharedSettings.autoUpdateHosting;
+  async function handleToggleAutoUpdate() {
     autoUpdateSaving = true;
     autoUpdateMessage = "";
-    try {
-      const settings: any = await invoke("set_auto_update_hosting", {
-        enabled: nextEnabled,
-        saveId: selectedSaveId || null,
-      });
-      sharedSettings.autoUpdateHosting = !!settings.autoUpdateHosting;
-      autoUpdateMessage = sharedSettings.autoUpdateHosting ? "托管已开启" : "托管已关闭";
-    } catch (e: any) {
-      autoUpdateMessage = `设置失败: ${e}`;
+    const result = await toggleAutoUpdateHosting(selectedSaveId || null);
+    autoUpdateMessage = result.message;
+    if (!result.success) {
+      toastStore.error(result.message);
     }
     autoUpdateSaving = false;
   }
@@ -215,7 +209,7 @@
       // 记录本次启动的存档 ID
       serverInfo.runningSaveId = selectedSaveId;
     } catch (e: any) {
-      alert(e);
+      toastStore.error(`${e}`);
     }
     serverState.loading = "";
     await refreshStatus();
@@ -226,7 +220,7 @@
     try {
       await invoke("stop_server");
     } catch (e: any) {
-      alert(e);
+      toastStore.error(`${e}`);
     }
     serverState.loading = "";
     await refreshStatus();
@@ -242,7 +236,7 @@
         launchMode: appState.launchMode,
       });
     } catch (e: any) {
-      alert(e);
+      toastStore.error(`${e}`);
     }
     serverState.loading = "";
     await refreshStatus();
@@ -523,7 +517,7 @@
           role="switch"
           aria-checked={sharedSettings.autoUpdateHosting}
           class="relative h-7 w-12 rounded-full border transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed {sharedSettings.autoUpdateHosting ? 'bg-[var(--success)] border-[var(--success)]' : 'bg-[var(--bg-primary)] border-[var(--border)]'}"
-          onclick={toggleAutoUpdateHosting}
+          onclick={handleToggleAutoUpdate}
           disabled={autoUpdateSaving}
           title="自动更新托管"
         >
@@ -542,8 +536,11 @@
         disabled={status === '运行中' || loading !== ''}
       >
         {#if loading === 'starting'}
-          <div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-          启动中...
+          <div role="status" aria-live="polite" class="flex items-center gap-2">
+            <div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" aria-hidden="true"></div>
+            <span>启动中...</span>
+            <span class="sr-only">正在启动服务器</span>
+          </div>
         {:else}
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
@@ -559,8 +556,11 @@
         disabled={status !== '运行中' || loading !== ''}
       >
         {#if loading === 'stopping'}
-          <div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-          停止中...
+          <div role="status" aria-live="polite" class="flex items-center gap-2">
+            <div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" aria-hidden="true"></div>
+            <span>停止中...</span>
+            <span class="sr-only">正在停止服务器</span>
+          </div>
         {:else}
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -576,8 +576,11 @@
         disabled={status !== '运行中' || loading !== ''}
       >
         {#if loading === 'restarting'}
-          <div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-          重启中...
+          <div role="status" aria-live="polite" class="flex items-center gap-2">
+            <div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" aria-hidden="true"></div>
+            <span>重启中...</span>
+            <span class="sr-only">正在重启服务器</span>
+          </div>
         {:else}
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />

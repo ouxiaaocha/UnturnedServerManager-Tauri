@@ -1,6 +1,7 @@
 ﻿<script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import { toastStore } from "../stores/toast.svelte";
+  import SelectCustom from "../components/SelectCustom.svelte";
 
   interface ScheduleTask {
     id: string;
@@ -105,19 +106,26 @@
       <div class="flex gap-5 items-end flex-wrap">
         <div>
           <span class="block text-xs text-[var(--text-muted)] mb-2 uppercase tracking-wider">类型</span>
-          <select bind:value={newType}
-            class="bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm text-[var(--text-primary)] focus:border-[var(--accent)] transition-colors duration-[var(--transition-normal)] cursor-pointer">
-            <option value="daily">每日定时</option>
-            <option value="interval">固定间隔</option>
-            <option value="weekly">每周定时</option>
-          </select>
+          <SelectCustom
+            bind:value={newType}
+            options={[
+              { value: "daily", label: "每日定时" },
+              { value: "interval", label: "固定间隔" },
+              { value: "weekly", label: "每周定时" }
+            ]}
+            size="sm"
+            class="min-w-[140px]"
+          />
         </div>
 
         {#if newType === "daily" || newType === "weekly"}
           <div>
             <span class="block text-xs text-[var(--text-muted)] mb-2 uppercase tracking-wider">时间</span>
-            <input type="time" bind:value={newTime}
-              class="bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm text-[var(--text-primary)] focus:border-[var(--accent)] transition-colors duration-[var(--transition-normal)]" />
+            <div class="relative inline-block min-w-[140px]">
+              <input type="time" bind:value={newTime}
+                class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg pl-4 pr-4 py-2.5 text-sm text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/20 focus:border-[var(--accent)] transition-all cursor-pointer appearance-none hover:border-[var(--border-hover)] hover:bg-[var(--bg-card)]"
+                style="box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);" />
+            </div>
           </div>
         {/if}
 
@@ -132,12 +140,12 @@
         {#if newType === "weekly"}
           <div>
             <span class="block text-xs text-[var(--text-muted)] mb-2 uppercase tracking-wider">星期</span>
-            <select bind:value={newWeekday}
-              class="bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm text-[var(--text-primary)] focus:border-[var(--accent)] transition-colors duration-[var(--transition-normal)] cursor-pointer">
-              {#each weekdays as day, i}
-                <option value={i}>{day}</option>
-              {/each}
-            </select>
+            <SelectCustom
+              bind:value={newWeekday}
+              options={weekdays.map((day, i) => ({ value: i, label: day }))}
+              size="sm"
+              class="min-w-[120px]"
+            />
           </div>
         {/if}
 
@@ -203,6 +211,3 @@
   </div>
 
 </div>
-
-
-

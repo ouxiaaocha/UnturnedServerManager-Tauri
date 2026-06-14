@@ -1,6 +1,7 @@
 ﻿<script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import { highlightText, classifyLogLevel } from "$lib/utils";
+  import SelectCustom from "../components/SelectCustom.svelte";
 
   let category = $state("app");
   let dates: string[] = $state([]);
@@ -89,14 +90,12 @@
     </div>
 
     {#if dates.length > 0}
-      <select
+      <SelectCustom
         bind:value={selectedDate}
-        class="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg px-4 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)] transition-colors duration-[var(--transition-normal)] cursor-pointer"
-      >
-        {#each dates as d}
-          <option value={d}>{d}</option>
-        {/each}
-      </select>
+        options={dates.map(d => ({ value: d, label: d }))}
+        size="sm"
+        class="min-w-[160px]"
+      />
     {/if}
 
     <button
@@ -165,5 +164,3 @@
     </div>
   </div>
 </div>
-
-

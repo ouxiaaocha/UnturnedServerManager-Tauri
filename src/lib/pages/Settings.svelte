@@ -1,8 +1,10 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { open as openDialog } from "@tauri-apps/plugin-dialog";
   import { open as openShell } from "@tauri-apps/plugin-shell";
   import { toastStore } from "../stores/toast.svelte";
+  import { escapeHtml } from "$lib/utils";
 
   declare const __APP_VERSION__: string;
 
@@ -36,6 +38,10 @@
   let environmentTotalCount = $derived(requiredEnvironmentItems.length);
   let steamConnectivityItem = $derived(environmentReport?.items?.find((item) => item.key === "steamcmd_connectivity"));
 
+  // --- 窗口行为配置状态 ---
+  let closeToTray = $state(false);
+  let closeActionRemembered = $state(false);
+
   // --- 更新检测状态 ---
   type CheckStatus = "idle" | "checking" | "has_update" | "up_to_date" | "error";
   let checkStatus = $state<CheckStatus>("idle");
@@ -51,6 +57,11 @@
         steamCmdPath = s.steamCmdPath || "";
         serverRoot = s.serverRoot || "";
       }
+
+      const appSettings: any = await invoke("get_app_settings");
+      closeToTray = appSettings.closeToTray || false;
+      closeActionRemembered = appSettings.closeActionRemembered || false;
+
       await checkEnvironment(false);
     } catch (e) { console.error("加载配置失败:", e); }
   }
@@ -166,16 +177,38 @@
     }
   }
 
-  function escapeHtml(text: string): string {
-    return text
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#39;");
+  async function saveClosePreference() {
+    try {
+      await invoke("save_close_preference", {
+        closeToTray,
+        remember: closeActionRemembered
+      });
+      toastStore.success("关闭行为已保存");
+    } catch (e: any) {
+      toastStore.error(`保存失败: ${e}`);
+    }
   }
 
-  /** 简单 markdown 转 HTML，先转义再渲染少量安全格式 */
+  async function resetClosePreference() {
+    try {
+      await invoke("save_close_preference", {
+        closeToTray: false,
+        remember: false
+      });
+      closeToTray = false;
+      closeActionRemembered = false;
+      toastStore.success("已重置关闭行为");
+    } catch (e: any) {
+      toastStore.error(`重置失败: ${e}`);
+    }
+  }
+
+  /**
+   * 简单 markdown 转 HTML，结果通过 {@html} 注入。
+   * 安全约束：必须先 escapeHtml（转义 & < > " '）再做下面的格式替换。
+   * 顺序颠倒、或在 escapeHtml 之前新增任何替换，都会引入 XSS。
+   * 链接 href 仅允许 https?://。updateInfo.body 来自 GitHub release（半可信来源）。
+   */
   function renderMarkdown(text: string): string {
     if (!text) return "";
     return escapeHtml(text)
@@ -192,10 +225,11 @@
       .replace(/\n/g, "<br/>");
   }
 
-  $effect(() => { loadConfig(); });
-
-  // 页面加载时自动检测更新
-  $effect(() => { checkUpdate(); });
+  onMount(() => {
+    loadConfig();
+    // 页面加载时自动检测更新
+    checkUpdate();
+  });
 </script>
 
 <div class="flex flex-col gap-5">
@@ -276,6 +310,60 @@
               class="w-full border-0 bg-transparent p-0 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none"
             />
             <span class="mt-2 block text-[11px] text-[var(--danger)]">需包含 Unturned.exe，路径避免中文</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] shadow-[var(--shadow-sm)]">
+        <div class="border-b border-[var(--border)] bg-[var(--bg-secondary)]/70 px-5 py-4">
+          <h2 class="text-base font-bold text-[var(--text-primary)]">窗口行为</h2>
+          <p class="mt-1 text-xs text-[var(--text-muted)]">配置窗口关闭和系统托盘行为</p>
+        </div>
+        <div class="p-5 space-y-4">
+          <div class="rounded-xl border border-[var(--border)] bg-[var(--bg-primary)]/70 p-4">
+            <div class="flex items-start justify-between gap-4">
+              <div class="flex-1">
+                <p class="font-semibold text-[var(--text-primary)]">点击关闭按钮时</p>
+                <p class="mt-1 text-xs text-[var(--text-muted)]">
+                  {closeToTray ? "最小化到系统托盘" : "退出程序"}
+                </p>
+              </div>
+              <label class="relative inline-flex cursor-pointer items-center">
+                <input
+                  type="checkbox"
+                  bind:checked={closeToTray}
+                  onchange={saveClosePreference}
+                  class="peer sr-only"
+                />
+                <div class="peer h-6 w-11 rounded-full bg-[var(--bg-elevated)] after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-[var(--border)] after:bg-white after:transition-all after:content-[''] peer-checked:bg-[var(--accent)] peer-checked:after:translate-x-full peer-focus:ring-2 peer-focus:ring-[var(--accent)]"></div>
+              </label>
+            </div>
+          </div>
+
+          {#if closeActionRemembered}
+            <div class="rounded-xl border border-[var(--border-accent)] bg-[var(--accent-subtle)] p-4">
+              <div class="flex items-start gap-3">
+                <svg class="h-5 w-5 shrink-0 text-[var(--accent)]" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <div class="flex-1">
+                  <p class="text-sm font-medium text-[var(--accent-light)]">已记住关闭行为</p>
+                  <p class="mt-1 text-xs text-[var(--text-muted)]">关闭窗口时不会再显示确认对话框</p>
+                </div>
+              </div>
+              <button
+                onclick={resetClosePreference}
+                class="mt-3 rounded-lg border border-[var(--border)] bg-white px-3 py-1.5 text-xs font-medium text-[var(--text-secondary)] transition-all hover:border-[var(--accent)] hover:text-[var(--accent-light)]"
+              >
+                重置为首次设置
+              </button>
+            </div>
+          {/if}
+
+          <div class="rounded-xl border border-dashed border-[var(--border-hover)] bg-[var(--bg-primary)]/60 p-4">
+            <p class="text-xs text-[var(--text-muted)]">
+              提示：应用最小化到系统托盘后，可通过点击托盘图标或右键菜单重新打开窗口
+            </p>
           </div>
         </div>
       </section>

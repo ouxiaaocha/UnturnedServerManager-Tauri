@@ -1,27 +1,28 @@
 ﻿<script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import { rconLogs, addRconLog, addRconLogs } from "$lib/stores.svelte";
-  import { highlightText, scrollToBottom as scrollBottom } from "$lib/utils";
+  import { highlightText } from "$lib/utils";
+  import { createLogFilter, createAutoScroll } from "$lib/utils/composables.svelte";
 
   let connected = $state(false);
   let command = $state("");
   let connecting = $state(false);
-  let logContainer: HTMLDivElement | undefined = $state();
-  let logSearch = $state("");
-  let normalizedLogSearch = $derived(logSearch.trim().toLowerCase());
-  let filteredLogs = $derived(
-    normalizedLogSearch
-      ? rconLogs.filter((log) => log.text.toLowerCase().includes(normalizedLogSearch))
-      : rconLogs
-  );
+
+  // 使用日志过滤 composable
+  const logFilter = createLogFilter(rconLogs);
+  let filteredLogs = $derived(logFilter.filteredLogs);
+
+  // 使用自动滚动 composable
+  const autoScroller = createAutoScroll();
 
   function scrollToBottom() {
-    scrollBottom(logContainer);
+    autoScroller.scrollToBottom();
   }
 
-  async function checkStatus() {
+  async function checkStatus(token = pollGeneration) {
     try {
       const status = await invoke("rcon_status") as boolean;
+      if (token !== pollGeneration) return;
       if (connected && !status) {
         addRconLog("连接已断开（服务器可能已关闭）", "error");
         scrollToBottom();
@@ -30,10 +31,11 @@
     } catch { connected = false; }
   }
 
-  async function pollResponses() {
+  async function pollResponses(token = pollGeneration) {
     if (!connected) return;
     try {
       const lines = await invoke("rcon_poll") as string[];
+      if (token !== pollGeneration) return;
       if (lines.length > 0) {
         // Rocket RCON 服务器对每条命令发送 2 条响应（执行日志 + 结果），
         // 且通过 Broadcast 发送给所有客户端，导致每条消息出现两次。
@@ -66,7 +68,11 @@
   }
 
   async function disconnect() {
-    await invoke("rcon_disconnect");
+    try {
+      await invoke("rcon_disconnect");
+    } catch (e: any) {
+      addRconLog(`断开时出错: ${e}`, "error");
+    }
     connected = false;
     addRconLog("已断开连接", "system");
     scrollToBottom();
@@ -94,30 +100,32 @@
 
   let pollTimer: ReturnType<typeof setTimeout> | undefined;
   let statusTimer: ReturnType<typeof setTimeout> | undefined;
-  let effectAlive = true;
+  let pollGeneration = 0;
 
-  function schedulePoll() {
+  function schedulePoll(token: number) {
     pollTimer = setTimeout(async () => {
-      await pollResponses();
-      if (effectAlive) schedulePoll();
+      if (token !== pollGeneration) return;
+      await pollResponses(token);
+      if (token === pollGeneration) schedulePoll(token);
     }, 2000);
   }
 
-  function scheduleStatusCheck() {
+  function scheduleStatusCheck(token: number) {
     statusTimer = setTimeout(async () => {
-      await checkStatus();
-      if (effectAlive) scheduleStatusCheck();
+      if (token !== pollGeneration) return;
+      await checkStatus(token);
+      if (token === pollGeneration) scheduleStatusCheck(token);
     }, 10000);
   }
 
   $effect(() => {
-    effectAlive = true;
-    checkStatus();
-    schedulePoll();
-    scheduleStatusCheck();
+    const token = ++pollGeneration;
+    checkStatus(token);
+    schedulePoll(token);
+    scheduleStatusCheck(token);
 
     return () => {
-      effectAlive = false;
+      pollGeneration += 1;
       clearTimeout(pollTimer);
       clearTimeout(statusTimer);
     };
@@ -187,7 +195,7 @@
           </svg>
           <input
             type="text"
-            bind:value={logSearch}
+            bind:value={logFilter.searchText}
             placeholder="搜索日志..."
             class="w-full sm:w-44 bg-[var(--bg-primary)] border border-[var(--border)] rounded-md pl-8 pr-2 py-1 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors"
           />
@@ -200,25 +208,25 @@
         </button>
       </div>
     </div>
-    <div bind:this={logContainer} class="flex-1 overflow-y-auto p-4 font-mono text-xs leading-6">
+    <div bind:this={autoScroller.container} class="flex-1 overflow-y-auto p-4 font-mono text-xs leading-6">
       {#if rconLogs.length === 0}
         <div class="flex items-center justify-center h-full text-[var(--text-muted)]">
           <p class="italic">连接后发送命令...</p>
         </div>
       {:else}
-        {#if logSearch && filteredLogs.length === 0}
+        {#if logFilter.searchText && filteredLogs.length === 0}
           <div class="flex items-center justify-center h-full text-[var(--text-muted)]">
             <p class="italic">未找到匹配内容</p>
           </div>
         {:else}
-          {#if logSearch}
+          {#if logFilter.searchText}
             <div class="pb-2 mb-2 border-b border-[var(--border)] text-[var(--text-muted)]">
               找到 {filteredLogs.length} 条匹配
             </div>
           {/if}
           {#each filteredLogs as r}
             <p class="py-0.5 {r.type === 'error' ? 'text-[var(--danger)]' : r.type === 'command' ? 'text-[var(--text-primary)] font-medium' : r.type === 'system' ? 'text-[var(--accent-light)]' : r.type === 'info' ? 'text-[var(--success)]' : 'text-[var(--text-secondary)]'}">
-              {@html highlightText(r.text, logSearch)}
+              {@html highlightText(r.text, logFilter.searchText)}
             </p>
           {/each}
         {/if}

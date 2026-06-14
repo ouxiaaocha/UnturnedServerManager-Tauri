@@ -1,8 +1,14 @@
 ﻿<script lang="ts">
+  import { onDestroy } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
-  import { listen } from "@tauri-apps/api/event";
   import { open } from "@tauri-apps/plugin-dialog";
   import { generatePassword } from "$lib/utils";
+  import { listenInstallerProgress } from "../utils/installer";
+  import SelectCustom from "../components/SelectCustom.svelte";
+
+  // 持有当前挂起的 installer-progress 解绑函数，组件销毁或重新开始时兜底解绑，
+  // 避免下载/安装进行中切换页面导致监听器泄漏。
+  let pendingUnlisten: (() => void) | null = null;
 
   let step = $state(0);
   let steamCmdPath = $state("");
@@ -79,29 +85,32 @@
   }
 
   async function autoDownloadSteamcmd() {
+    pendingUnlisten?.();
     downloadingS = true;
     downloadLogs = [];
     downloadMsg = "正在下载...";
     error = "";
     lastFailedAction = "";
-    const unlisten = await listen<string>("installer-progress", (event) => {
-      const msg = event.payload;
-      if (msg.startsWith("DONE:")) {
-        steamCmdPath = msg.slice(5);
+    const unlisten = await listenInstallerProgress({
+      onDone: (path) => {
+        steamCmdPath = path;
         downloadMsg = "下载完成！";
-        unlisten();
         downloadingS = false;
-      } else if (msg.startsWith("ERROR:")) {
-        error = msg.slice(6);
+        pendingUnlisten = null;
+      },
+      onError: (msg) => {
+        error = msg;
         downloadMsg = "下载失败";
         lastFailedAction = "steamcmd";
-        unlisten();
         downloadingS = false;
-      } else {
+        pendingUnlisten = null;
+      },
+      onProgress: (msg) => {
         appendLog(msg);
         downloadMsg = msg;
-      }
+      },
     });
+    pendingUnlisten = unlisten;
     try {
       await invoke("download_steamcmd");
     } catch (e: any) {
@@ -109,34 +118,38 @@
       downloadMsg = "启动失败";
       lastFailedAction = "steamcmd";
       unlisten();
+      pendingUnlisten = null;
       downloadingS = false;
     }
   }
 
   async function autoDownloadServer() {
+    pendingUnlisten?.();
     downloadingS = true;
     downloadLogs = [];
     downloadMsg = "正在下载...";
     error = "";
     lastFailedAction = "";
-    const unlisten = await listen<string>("installer-progress", (event) => {
-      const msg = event.payload;
-      if (msg.startsWith("DONE:")) {
-        serverRoot = msg.slice(5);
+    const unlisten = await listenInstallerProgress({
+      onDone: (path) => {
+        serverRoot = path;
         downloadMsg = "下载完成！";
-        unlisten();
         downloadingS = false;
-      } else if (msg.startsWith("ERROR:")) {
-        error = msg.slice(6);
+        pendingUnlisten = null;
+      },
+      onError: (msg) => {
+        error = msg;
         downloadMsg = "下载失败";
         lastFailedAction = "server";
-        unlisten();
         downloadingS = false;
-      } else {
+        pendingUnlisten = null;
+      },
+      onProgress: (msg) => {
         appendLog(msg);
         downloadMsg = msg;
-      }
+      },
     });
+    pendingUnlisten = unlisten;
     try {
       await invoke("download_server", { steamcmdPath: steamCmdPath });
     } catch (e: any) {
@@ -144,6 +157,7 @@
       downloadMsg = "启动失败";
       lastFailedAction = "server";
       unlisten();
+      pendingUnlisten = null;
       downloadingS = false;
     }
   }
@@ -190,27 +204,30 @@
   }
 
   async function installRocketModule() {
+    pendingUnlisten?.();
     rocketInstalling = true;
     downloadLogs = [];
     downloadMsg = "正在安装...";
     error = "";
     lastFailedAction = "";
-    const unlisten = await listen<string>("installer-progress", (event) => {
-      const msg = event.payload;
-      if (msg.startsWith("DONE:")) {
+    const unlisten = await listenInstallerProgress({
+      onDone: () => {
         rocketInstalled = true;
         rocketInstalling = false;
-        unlisten();
-      } else if (msg.startsWith("ERROR:")) {
-        error = msg.slice(6);
+        pendingUnlisten = null;
+      },
+      onError: (msg) => {
+        error = msg;
         lastFailedAction = "rocket";
         rocketInstalling = false;
-        unlisten();
-      } else {
+        pendingUnlisten = null;
+      },
+      onProgress: (msg) => {
         appendLog(msg);
         downloadMsg = msg;
-      }
+      },
     });
+    pendingUnlisten = unlisten;
     try {
       await invoke("install_rocket_module", { serverRoot });
     } catch (e: any) {
@@ -218,35 +235,39 @@
       lastFailedAction = "rocket";
       rocketInstalling = false;
       unlisten();
+      pendingUnlisten = null;
     }
   }
 
   async function startSaveInit() {
+    pendingUnlisten?.();
     saveInitRunning = true;
     saveInitDone = false;
     downloadLogs = [];
     downloadMsg = "正在初始化...";
     error = "";
     lastFailedAction = "";
-    const unlisten = await listen<string>("installer-progress", (event) => {
-      const msg = event.payload;
-      if (msg.startsWith("DONE:")) {
+    const unlisten = await listenInstallerProgress({
+      onDone: (payload) => {
         saveInitDone = true;
-        serverId = msg.slice(5);
+        serverId = payload;
         saveInitRunning = false;
-        unlisten();
+        pendingUnlisten = null;
         // 初始化成功后重新检测存档和 Rocket 状态
         checkExistingSaves();
-      } else if (msg.startsWith("ERROR:")) {
-        error = msg.slice(6);
+      },
+      onError: (msg) => {
+        error = msg;
         lastFailedAction = "save";
         saveInitRunning = false;
-        unlisten();
-      } else {
+        pendingUnlisten = null;
+      },
+      onProgress: (msg) => {
         appendLog(msg);
         downloadMsg = msg;
-      }
+      },
     });
+    pendingUnlisten = unlisten;
     try {
       // 如果已有存档则用选中的 ID，否则用新建的名称
       const initName = existingSaves.length > 0 && selectedSaveId ? selectedSaveId : saveName;
@@ -256,6 +277,7 @@
       lastFailedAction = "save";
       saveInitRunning = false;
       unlisten();
+      pendingUnlisten = null;
     }
   }
 
@@ -267,6 +289,10 @@
       case "save": startSaveInit(); break;
     }
   }
+
+  onDestroy(() => {
+    pendingUnlisten?.();
+  });
 
   function validateStep(): boolean {
     error = "";
@@ -355,46 +381,105 @@
   }
 
   const stepLabels = ["欢迎", "SteamCMD", "服务端", "Rocket", "存档", "RCON"];
+  const stepIcons = [
+    // 欢迎
+    '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-4 0a2 2 0 110-4 2 2 0 010 4z" />',
+    // SteamCMD
+    '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />',
+    // 服务端
+    '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />',
+    // Rocket
+    '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />',
+    // 存档
+    '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1M5 19h14a2 2 0 002-2v-5a2 2 0 00-2-2H9a2 2 0 00-2 2v5a2 2 0 01-2 2z" />',
+    // RCON
+    '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />',
+  ];
 </script>
 
 <div class="flex h-full items-center justify-center bg-[var(--bg-primary)] p-4">
   <div class="w-full max-w-[680px] bg-[var(--bg-card)] border border-[var(--border)] rounded-2xl p-5 shadow-[var(--shadow-lg)] max-h-[92vh] overflow-y-auto sm:p-8">
     <!-- Step Indicator -->
-    <div class="mb-8 grid grid-cols-3 justify-items-center gap-4 sm:mb-10 sm:flex sm:items-start sm:justify-center sm:gap-3">
-      {#each [0, 1, 2, 3, 4, 5] as i}
-        <div class="flex items-center gap-3">
-          <div class="flex flex-col items-center gap-1.5">
-            <div class="w-8 h-8 rounded-full transition-all duration-[var(--transition-slow)] flex items-center justify-center text-xs font-semibold
-              {i === step ? 'bg-[var(--accent)] text-[var(--text-primary)] shadow-lg shadow-[var(--accent-glow)]' : i < step ? 'bg-[var(--success)] text-[var(--text-primary)]' : 'bg-[var(--bg-elevated)] text-[var(--text-muted)] border border-[var(--border)]'}">
-              {#if i < step}
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
-                </svg>
-              {:else}{i + 1}{/if}
-            </div>
-            <span class="text-[10px] {i === step ? 'text-[var(--accent-light)]' : 'text-[var(--text-muted)]'}">{stepLabels[i]}</span>
-          </div>
-          {#if i < 5}
-            <div class="hidden sm:block w-12 h-0.5 {i < step ? 'bg-[var(--success)]' : 'bg-[var(--border)]'} transition-colors duration-[var(--transition-slow)] mb-5"></div>
-          {/if}
+    <div class="mb-8 sm:mb-10">
+      <!-- 进度条 -->
+      <div class="relative mb-6">
+        <div class="absolute top-4 left-0 right-0 h-0.5 bg-[var(--border)]"></div>
+        <div class="absolute top-4 left-0 h-0.5 bg-gradient-to-r from-[var(--accent)] to-cyan-500 transition-all duration-500" style="width: {step / 5 * 100}%"></div>
+        <div class="relative flex justify-between">
+          {#each [0, 1, 2, 3, 4, 5] as i}
+            <button
+              type="button"
+              class="flex flex-col items-center gap-2 group cursor-default"
+              tabindex="-1"
+            >
+              <div class="w-8 h-8 rounded-full transition-all duration-300 flex items-center justify-center relative z-10
+                {i === step
+                  ? 'bg-[var(--accent)] text-white shadow-lg shadow-[var(--accent-glow)] ring-4 ring-[var(--accent-subtle)]'
+                  : i < step
+                    ? 'bg-[var(--success)] text-white'
+                    : 'bg-[var(--bg-card)] text-[var(--text-muted)] border-2 border-[var(--border)]'
+                }"
+              >
+                {#if i < step}
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
+                  </svg>
+                {:else}
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    {@html stepIcons[i]}
+                  </svg>
+                {/if}
+              </div>
+              <span class="text-[10px] font-medium transition-colors duration-300 hidden sm:block
+                {i === step ? 'text-[var(--accent-light)]' : i < step ? 'text-[var(--success)]' : 'text-[var(--text-muted)]'}"
+              >{stepLabels[i]}</span>
+            </button>
+          {/each}
         </div>
-      {/each}
+      </div>
+
+      <!-- 当前步骤标题提示 -->
+      <div class="flex items-center justify-center gap-2 text-xs text-[var(--text-muted)]">
+        <span>步骤 {step + 1} / {stepLabels.length}</span>
+        <span class="text-[var(--border)]">|</span>
+        <span class="text-[var(--text-secondary)] font-medium">{stepLabels[step]}</span>
+      </div>
     </div>
 
     <!-- Step 0: Welcome -->
     {#if step === 0}
       <div class="text-center py-4">
         <div class="w-16 h-16 mx-auto mb-5 rounded-2xl bg-gradient-to-br from-[var(--accent)] to-[var(--action)] flex items-center justify-center shadow-lg shadow-[var(--accent-glow)]">
-          <svg class="w-8 h-8 text-[var(--text-primary)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
           </svg>
         </div>
         <h2 class="text-xl font-bold text-[var(--text-primary)] mb-2">欢迎使用</h2>
-        <p class="text-sm text-[var(--text-secondary)] mb-1">Unturned 服务器管理工具</p>
-        <p class="text-xs text-[var(--text-muted)] mt-6 leading-6">
-          首次运行需要配置 SteamCMD 和服务端路径。<br/>
-          如果没有 SteamCMD 和服务端，可使用自动下载功能一键安装。
-        </p>
+        <p class="text-sm text-[var(--text-secondary)] mb-6">Unturned 服务器管理工具</p>
+
+        <!-- 步骤预览卡片 -->
+        <div class="grid grid-cols-1 gap-2.5 text-left max-w-md mx-auto mb-4">
+          {#each [
+            { icon: stepIcons[1], label: '配置 SteamCMD', desc: '设置或自动下载 SteamCMD' },
+            { icon: stepIcons[2], label: '配置服务端', desc: '设置或自动下载 Unturned 服务端' },
+            { icon: stepIcons[3], label: '安装 Rocket', desc: '安装 Rocket 插件框架' },
+            { icon: stepIcons[4], label: '初始化存档', desc: '创建或选择服务器存档' },
+            { icon: stepIcons[5], label: '配置 RCON', desc: '设置远程控制端口和密码' },
+          ] as item, i}
+            <div class="flex items-center gap-3 px-4 py-2.5 rounded-lg bg-[var(--bg-primary)] border border-[var(--border)]">
+              <div class="w-7 h-7 rounded-lg bg-[var(--accent-subtle)] flex items-center justify-center flex-shrink-0">
+                <svg class="w-3.5 h-3.5 text-[var(--accent-light)]" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  {@html item.icon}
+                </svg>
+              </div>
+              <div class="flex-1 min-w-0">
+                <p class="text-sm font-medium text-[var(--text-primary)]">{item.label}</p>
+                <p class="text-xs text-[var(--text-muted)] truncate">{item.desc}</p>
+              </div>
+              <span class="text-xs text-[var(--text-muted)] flex-shrink-0">{i + 1}/5</span>
+            </div>
+          {/each}
+        </div>
       </div>
 
     <!-- Step 1: SteamCMD -->
@@ -402,6 +487,17 @@
       <div>
         <h2 class="text-lg font-bold text-[var(--text-primary)] mb-2">SteamCMD 路径</h2>
         <p class="text-xs text-[var(--text-muted)] mb-5">请指定 steamcmd.exe 路径。如果没有安装，可使用自动下载功能。</p>
+
+        <!-- 网络提示 -->
+        <div class="flex items-start gap-3 p-3.5 mb-5 bg-[var(--warning-glow)] border border-[var(--warning)]/30 rounded-lg">
+          <svg class="w-5 h-5 text-[var(--warning)] flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+          <div>
+            <p class="text-sm font-medium text-[var(--warning)]">网络提示</p>
+            <p class="text-xs text-[var(--text-secondary)] mt-0.5">使用自动下载功能需要良好的网络连接。下载过程中请勿关闭软件或断开网络，否则可能导致下载失败。</p>
+          </div>
+        </div>
         <input type="text" bind:value={steamCmdPath}
           placeholder="C:\SteamCMD\steamcmd.exe" readonly
           class="w-full bg-[var(--bg-primary)] border rounded-lg px-4 py-3 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] mb-2 focus:border-[var(--accent)] transition-colors duration-[var(--transition-normal)] {steamCmdPath ? 'border-[var(--success)]' : 'border-[var(--border)]'}" />
@@ -456,6 +552,17 @@
       <div>
         <h2 class="text-lg font-bold text-[var(--text-primary)] mb-2">服务端目录</h2>
         <p class="text-xs text-[var(--text-muted)] mb-5">请指定 Unturned 服务端根目录（包含 Unturned.exe）。如果没有安装，可使用自动下载功能。</p>
+
+        <!-- 网络提示 -->
+        <div class="flex items-start gap-3 p-3.5 mb-5 bg-[var(--warning-glow)] border border-[var(--warning)]/30 rounded-lg">
+          <svg class="w-5 h-5 text-[var(--warning)] flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+          <div>
+            <p class="text-sm font-medium text-[var(--warning)]">网络提示</p>
+            <p class="text-xs text-[var(--text-secondary)] mt-0.5">使用自动下载功能需要良好的网络连接。服务端文件较大，下载过程中请勿关闭软件或断开网络。</p>
+          </div>
+        </div>
         <input type="text" bind:value={serverRoot}
           placeholder="C:\SteamCMD\steamapps\common\U3DS" readonly
           class="w-full bg-[var(--bg-primary)] border rounded-lg px-4 py-3 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] mb-2 focus:border-[var(--accent)] transition-colors duration-[var(--transition-normal)] {serverRoot ? 'border-[var(--success)]' : 'border-[var(--border)]'}" />
@@ -518,12 +625,13 @@
         {#if existingSaves.length > 1}
           <div class="mb-4">
             <span class="block text-xs text-[var(--text-muted)] mb-2">选择存档</span>
-            <select bind:value={configSaveId}
-              class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-3 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)] transition-colors cursor-pointer">
-              {#each existingSaves as save}
-                <option value={save.id}>{save.id}{save.name ? ` - ${save.name}` : ''}</option>
-              {/each}
-            </select>
+            <SelectCustom
+              bind:value={configSaveId}
+              options={existingSaves.map(s => ({ value: s.id, label: s.name ? `${s.id} - ${s.name}` : s.id }))}
+              placeholder="请选择存档"
+              size="md"
+              fullWidth
+            />
           </div>
         {/if}
 
@@ -703,12 +811,14 @@
           {#if existingSaves.length > 1}
             <div class="mb-4">
               <span class="block text-xs text-[var(--text-muted)] mb-2">选择存档</span>
-              <select bind:value={selectedSaveId} onchange={checkSelectedSaveRocket}
-                class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-3 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)] transition-colors cursor-pointer">
-                {#each existingSaves as save}
-                  <option value={save.id}>{save.id}{save.name ? ` - ${save.name}` : ''}</option>
-                {/each}
-              </select>
+              <SelectCustom
+                bind:value={selectedSaveId}
+                options={existingSaves.map(s => ({ value: s.id, label: s.name ? `${s.id} - ${s.name}` : s.id }))}
+                onchange={() => checkSelectedSaveRocket()}
+                placeholder="请选择存档"
+                size="md"
+                fullWidth
+              />
             </div>
           {/if}
 
@@ -785,29 +895,29 @@
     {/if}
 
     <!-- Navigation -->
-    <div class="flex flex-wrap justify-between gap-3 mt-8">
+    <div class="flex items-center justify-between gap-3 mt-8 pt-5 border-t border-[var(--border)]">
       <button
-        class="px-5 py-2.5 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors disabled:invisible cursor-pointer flex items-center gap-1"
+        class="px-5 py-2.5 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors disabled:invisible cursor-pointer flex items-center gap-1 rounded-lg hover:bg-[var(--bg-elevated)]"
         onclick={prev} disabled={step === 0}>
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 17l-5-5m0 0l5-5m-5 5h12" />
         </svg>上一步
       </button>
       {#if step < 5}
-        <button class="px-6 py-2.5 bg-gradient-to-r from-[var(--accent)] to-cyan-600 hover:from-cyan-500 hover:to-[var(--accent)] text-[var(--text-primary)] text-sm font-medium rounded-lg transition-all cursor-pointer flex items-center gap-2"
+        <button class="px-6 py-2.5 bg-gradient-to-r from-[var(--accent)] to-cyan-600 hover:from-cyan-500 hover:to-[var(--accent)] text-white text-sm font-medium rounded-lg transition-all cursor-pointer flex items-center gap-2 shadow-md shadow-[var(--accent-glow)]"
           onclick={next}>
           {step === 0 ? '开始配置' : '下一步'}
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6" />
           </svg>
         </button>
       {:else}
-        <button class="px-6 py-2.5 bg-gradient-to-r from-[var(--success)] to-emerald-600 hover:from-emerald-500 hover:to-[var(--success)] text-[var(--text-primary)] text-sm font-medium rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2 shadow-lg shadow-[var(--success-glow)]"
+        <button class="px-6 py-2.5 bg-gradient-to-r from-[var(--success)] to-emerald-600 hover:from-emerald-500 hover:to-[var(--success)] text-white text-sm font-medium rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2 shadow-lg shadow-[var(--success-glow)]"
           onclick={finish} disabled={saving}>
           {#if saving}
-            <div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>保存中...
+            <div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" aria-hidden="true"></div>保存中...
           {:else}
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
             </svg>完成
           {/if}

@@ -1,8 +1,9 @@
 ﻿<script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
-  import { highlightText, scrollToBottom as scrollBottom } from "$lib/utils";
-  import { appState, sharedSaves, loadSharedSaves, sharedSettings, loadSharedSettings, serverState, serverLogs, refreshServerStatus, clearServerLogs } from "$lib/stores.svelte";
+  import { highlightText } from "$lib/utils";
+  import { appState, sharedSaves, loadSharedSaves, sharedSettings, loadSharedSettings, toggleAutoUpdateHosting, serverState, serverLogs, refreshServerStatus, clearServerLogs } from "$lib/stores.svelte";
   import { createPoller } from "../utils/polling.svelte";
+  import { createLogFilter, createAutoScroll } from "../utils/composables.svelte";
   import SaveSelector from "../components/SaveSelector.svelte";
 
   // 使用共享的服务器状态
@@ -12,15 +13,13 @@
   let loading = $derived(serverState.loading);
   let logs = $derived(serverLogs);
 
-  let logContainer: HTMLDivElement | undefined = $state();
-  let logSearch = $state("");
-  let normalizedLogSearch = $derived(logSearch.trim().toLowerCase());
-  let filteredLogs = $derived(
-    normalizedLogSearch
-      ? logs.filter((log) => log.text.toLowerCase().includes(normalizedLogSearch))
-      : logs
-  );
-  let isNearBottom = false;
+  // 使用日志过滤 composable
+  const logFilter = createLogFilter(logs);
+  let filteredLogs = $derived(logFilter.filteredLogs);
+
+  // 使用自动滚动 composable
+  const autoScroller = createAutoScroll();
+
   let firstLoadDone = false;
   let polling = false;
 
@@ -46,21 +45,15 @@
     }
   }
 
-  async function toggleAutoUpdateHosting() {
-    const nextEnabled = !sharedSettings.autoUpdateHosting;
+  async function handleToggleAutoUpdate() {
     autoUpdateSaving = true;
     autoUpdateMessage = "";
-    try {
-      const settings: any = await invoke("set_auto_update_hosting", {
-        enabled: nextEnabled,
-        saveId: selectedSaveId || null,
-      });
-      sharedSettings.autoUpdateHosting = !!settings.autoUpdateHosting;
-      autoUpdateMessage = sharedSettings.autoUpdateHosting ? "托管已开启" : "托管已关闭";
-      serverLogs.push({ text: `[系统] 自动更新托管${sharedSettings.autoUpdateHosting ? '已开启' : '已关闭'}`, level: "system" });
-    } catch (e: any) {
-      autoUpdateMessage = `设置失败: ${e}`;
-      serverLogs.push({ text: `[错误] ${e}`, level: "error" });
+    const result = await toggleAutoUpdateHosting(selectedSaveId || null);
+    autoUpdateMessage = result.message;
+    if (result.success) {
+      serverLogs.push({ text: `[系统] ${result.message}`, level: "system" });
+    } else {
+      serverLogs.push({ text: `[错误] ${result.message}`, level: "error" });
     }
     autoUpdateSaving = false;
   }
@@ -73,10 +66,10 @@
       if (newLines.length > 0) {
         if (!firstLoadDone) {
           firstLoadDone = true;
-          isNearBottom = true;
-          scrollBottom(logContainer);
-        } else if (isNearBottom) {
-          scrollBottom(logContainer);
+          autoScroller.autoScroll = true;
+          autoScroller.scrollToBottom();
+        } else {
+          autoScroller.scrollIfEnabled();
         }
       }
     } catch {
@@ -89,7 +82,7 @@
     serverState.loading = "starting";
     clearServerLogs();
     firstLoadDone = false;
-    isNearBottom = true;
+    autoScroller.autoScroll = true;
     try {
       await invoke("start_server", {
         saveId: selectedSaveId || null,
@@ -113,7 +106,7 @@
 
   async function restartServer() {
     serverState.loading = "restarting";
-    isNearBottom = true;
+    autoScroller.autoScroll = true;
     try {
       await invoke("restart_server", {
         saveId: selectedSaveId || null,
@@ -142,21 +135,15 @@
     try {
       await invoke("send_server_command", { command });
       localCommand = "";
-      isNearBottom = true;
+      autoScroller.autoScroll = true;
       await refreshStatus();
-      scrollBottom(logContainer);
+      autoScroller.scrollToBottom();
     } catch (e: any) {
       serverLogs.push({ text: `[错误] 本地命令发送失败: ${e}`, level: "error" });
-      scrollBottom(logContainer);
+      autoScroller.scrollToBottom();
     } finally {
       localCommandSending = false;
     }
-  }
-
-  function onScroll() {
-    if (!logContainer) return;
-    const { scrollTop, scrollHeight, clientHeight } = logContainer;
-    isNearBottom = scrollHeight - scrollTop - clientHeight < 80;
   }
 
   $effect(() => {
@@ -265,7 +252,7 @@
             role="switch"
             aria-checked={sharedSettings.autoUpdateHosting}
             class="relative h-6 w-11 rounded-full border transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed {sharedSettings.autoUpdateHosting ? 'bg-[var(--success)] border-[var(--success)]' : 'bg-[var(--bg-elevated)] border-[var(--border)]'}"
-            onclick={toggleAutoUpdateHosting}
+            onclick={handleToggleAutoUpdate}
             disabled={autoUpdateSaving}
             title="自动更新托管"
           >
@@ -306,7 +293,7 @@
           </svg>
           <input
             type="text"
-            bind:value={logSearch}
+            bind:value={logFilter.searchText}
             placeholder="搜索日志..."
             class="w-full sm:w-44 bg-[var(--bg-primary)] border border-[var(--border)] rounded-md pl-8 pr-2 py-1 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors"
           />
@@ -319,25 +306,25 @@
         </button>
       </div>
     </div>
-    <div bind:this={logContainer} onscroll={onScroll} class="flex-1 overflow-y-auto p-4 font-mono text-xs leading-6">
+    <div bind:this={autoScroller.container} onscroll={autoScroller.handleScroll} class="flex-1 overflow-y-auto p-4 font-mono text-xs leading-6">
       {#if logs.length === 0}
         <div class="flex items-center justify-center h-full text-[var(--text-muted)]">
           <p class="italic">等待服务器启动...</p>
         </div>
       {:else}
-        {#if logSearch && filteredLogs.length === 0}
+        {#if logFilter.searchText && filteredLogs.length === 0}
           <div class="flex items-center justify-center h-full text-[var(--text-muted)]">
             <p class="italic">未找到匹配内容</p>
           </div>
         {:else}
-          {#if logSearch}
+          {#if logFilter.searchText}
             <div class="pb-2 mb-2 border-b border-[var(--border)] text-[var(--text-muted)]">
               找到 {filteredLogs.length} 条匹配
             </div>
           {/if}
           {#each filteredLogs as log}
             <p class="py-0.5 {log.level === 'error' ? 'text-[var(--danger)]' : log.level === 'warning' ? 'text-[var(--warning)]' : log.level === 'info' ? 'text-[var(--success)]' : log.level === 'system' ? 'text-[var(--accent-light)] font-medium' : 'text-[var(--text-secondary)]'}">
-              {@html highlightText(log.text, logSearch)}
+              {@html highlightText(log.text, logFilter.searchText)}
             </p>
           {/each}
         {/if}
