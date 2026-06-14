@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { classifyLogLevel } from "./utils";
+import { classifyLogLevel, formatUptime } from "./utils";
 
 // Global state that persists across page switches
 export const rconLogs: Array<{text: string, type: string}> = $state([]);
@@ -48,6 +48,23 @@ export async function loadSharedSettings() {
     sharedSettings.autoUpdateHosting = !!settings.autoUpdateHosting;
     sharedSettings.loaded = true;
   } catch (e) { console.error("加载应用设置失败:", e); }
+}
+
+export async function toggleAutoUpdateHosting(saveId: string | null) {
+  const nextEnabled = !sharedSettings.autoUpdateHosting;
+  try {
+    const settings: any = await invoke("set_auto_update_hosting", {
+      enabled: nextEnabled,
+      saveId,
+    });
+    sharedSettings.autoUpdateHosting = !!settings.autoUpdateHosting;
+    return {
+      success: true,
+      message: sharedSettings.autoUpdateHosting ? "托管已开启" : "托管已关闭",
+    };
+  } catch (e: any) {
+    return { success: false, message: `设置失败: ${e}` };
+  }
 }
 
 // 服务器运行时信息（Dashboard 使用）
@@ -106,14 +123,7 @@ export async function refreshServerStatus(): Promise<string[]> {
     serverState.pid = s.pid ? String(s.pid) : "--";
 
     // 计算 uptime
-    if (s.uptime_secs > 0) {
-      const h = Math.floor(s.uptime_secs / 3600);
-      const m = Math.floor((s.uptime_secs % 3600) / 60);
-      const sec = Math.floor(s.uptime_secs % 60);
-      serverState.uptime = h > 0 ? `${h}时${m}分${sec}秒` : m > 0 ? `${m}分${sec}秒` : `${sec}秒`;
-    } else {
-      serverState.uptime = "--";
-    }
+    serverState.uptime = formatUptime(s.uptime_secs);
 
     if (s.output_count > serverState.outputIndex) {
       const newLines = (s.output ?? []) as string[];
@@ -122,7 +132,8 @@ export async function refreshServerStatus(): Promise<string[]> {
       return newLines;
     }
     return [];
-  } catch {
+  } catch (e) {
+    console.error("刷新服务器状态失败:", e);
     return [];
   }
 }

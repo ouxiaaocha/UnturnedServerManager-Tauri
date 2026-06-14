@@ -25,7 +25,7 @@
 
   --text-primary: #12231f;
   --text-secondary: #4d635d;
-  --text-muted: #778b85;
+  --text-muted: #5a6d66;
   --text-accent: #0f766e;
 
   --border: #d9e8e3;
@@ -186,4 +186,16 @@ button[class*="bg-[var(--warning)]"] {
   #app {
     height: 100dvh;
   }
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
 }

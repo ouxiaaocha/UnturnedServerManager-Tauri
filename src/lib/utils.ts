@@ -1,13 +1,21 @@
 /**
- * Escape HTML special characters to prevent XSS, then highlight search matches.
+ * Escape HTML special characters to prevent XSS.
+ * 任何用于 {@html} 的内容都应先经过此函数转义，再做后续格式化替换。
  */
-export function highlightText(text: string, query: string): string {
-  const escaped = text
+export function escapeHtml(text: string): string {
+  return text
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+/**
+ * Escape HTML special characters to prevent XSS, then highlight search matches.
+ */
+export function highlightText(text: string, query: string): string {
+  const escaped = escapeHtml(text);
   if (!query) return escaped;
   const q = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   return escaped.replace(new RegExp(`(${q})`, 'gi'), '<mark class="bg-yellow-500/30 text-yellow-200 rounded px-0.5">$1</mark>');

@@ -36,13 +36,13 @@ export function createPoller(options: PollerOptions) {
   }
 
   async function pollLoop(token = pollToken) {
-    if (token !== pollToken) return;
+    if (token !== pollToken || !running) return;
     try {
       await pollFn();
     } catch (e) {
       console.error("轮询失败:", e);
     }
-    if (token !== pollToken) return;
+    if (token !== pollToken || !running) return;
     pollTimer = setTimeout(() => pollLoop(token), nextPollDelay());
   }
 
@@ -66,10 +66,12 @@ export function createPoller(options: PollerOptions) {
 
   function setupVisibilityListener() {
     const onVisibilityChange = () => {
-      if (typeof document !== "undefined" && !document.hidden) {
-        // 页面恢复可见时，重置定时器以使用更短的活跃间隔，但不立即触发轮询
+      if (typeof document !== "undefined" && !document.hidden && running) {
+        // 页面恢复可见时，作废所有旧链（含正在 await 中的），再以活跃间隔重启单链
+        pollToken += 1;
         if (pollTimer) clearTimeout(pollTimer);
-        pollTimer = setTimeout(() => pollLoop(pollToken), nextPollDelay());
+        const token = pollToken;
+        pollTimer = setTimeout(() => pollLoop(token), nextPollDelay());
       }
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
