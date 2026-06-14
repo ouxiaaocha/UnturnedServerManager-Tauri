@@ -10,3 +10,4 @@ pub mod setup;
 pub mod system;
 pub mod update;
 pub mod updater;
+pub mod window;

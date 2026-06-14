@@ -1,6 +1,6 @@
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
-use tauri::Manager;
+use tauri::{Manager, Emitter, AppHandle};
 
 mod commands;
 mod models;
@@ -13,6 +13,152 @@ use services::process::{start_output_cache_maintenance, ProcessManager};
 use services::rcon_client::RconClient;
 use services::scheduler;
 use services::system_monitor::SystemMonitor;
+
+// 构建托盘菜单
+fn build_tray_menu(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    // 获取当前自动托管状态
+    let config_state: tauri::State<Arc<Mutex<ConfigService>>> = app.state();
+    let cfg = config_state.lock().unwrap_or_else(|e| e.into_inner());
+    let settings = cfg.load_app_settings();
+    let auto_hosting_enabled = settings.auto_update_hosting;
+    drop(cfg);
+
+    let hosting_label = if auto_hosting_enabled {
+        "✓ 关闭托管"
+    } else {
+        "启动托管"
+    };
+
+    // 创建菜单项
+    let show_i = tauri::menu::MenuItem::with_id(app, "show", "显示窗口", true, None::<&str>)?;
+    let sep1 = tauri::menu::PredefinedMenuItem::separator(app)?;
+    let dashboard_i = tauri::menu::MenuItem::with_id(app, "dashboard", "仪表盘", true, None::<&str>)?;
+    let server_i = tauri::menu::MenuItem::with_id(app, "server", "服务器", true, None::<&str>)?;
+    let settings_i = tauri::menu::MenuItem::with_id(app, "settings", "设置", true, None::<&str>)?;
+    let sep2 = tauri::menu::PredefinedMenuItem::separator(app)?;
+    let auto_hosting_i = tauri::menu::MenuItem::with_id(app, "auto_hosting", hosting_label, true, None::<&str>)?;
+    let sep3 = tauri::menu::PredefinedMenuItem::separator(app)?;
+    let quit_i = tauri::menu::MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
+
+    let menu = tauri::menu::Menu::with_items(app, &[
+        &show_i,
+        &sep1,
+        &dashboard_i,
+        &server_i,
+        &settings_i,
+        &sep2,
+        &auto_hosting_i,
+        &sep3,
+        &quit_i,
+    ])?;
+
+    // 构建托盘图标
+    let _tray = tauri::tray::TrayIconBuilder::with_id("main")
+        .menu(&menu)
+        .icon(app.default_window_icon().unwrap().clone())
+        .on_menu_event(|app, event| {
+            match event.id.as_ref() {
+                "show" => {
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                    }
+                }
+                "dashboard" | "server" | "settings" => {
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                        let _ = window.emit("navigate", event.id.as_ref());
+                    }
+                }
+                "auto_hosting" => {
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.emit("toggle-auto-hosting", ());
+                    }
+                }
+                "quit" => {
+                    app.exit(0);
+                }
+                _ => {}
+            }
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let tauri::tray::TrayIconEvent::Click {
+                button: tauri::tray::MouseButton::Left,
+                button_state: tauri::tray::MouseButtonState::Up,
+                ..
+            } = event {
+                let app = tray.app_handle();
+                if let Some(window) = app.get_webview_window("main") {
+                    if window.is_visible().unwrap_or(false) {
+                        let _ = window.hide();
+                    } else {
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                    }
+                }
+            }
+        })
+        .build(app)?;
+
+    Ok(())
+}
+
+// 重建托盘菜单的命令
+#[tauri::command]
+fn rebuild_tray_menu(app: AppHandle) -> Result<(), String> {
+    // 获取当前自动托管状态
+    let config_state: tauri::State<Arc<Mutex<ConfigService>>> = app.state();
+    let cfg = config_state.lock().unwrap_or_else(|e| e.into_inner());
+    let settings = cfg.load_app_settings();
+    let auto_hosting_enabled = settings.auto_update_hosting;
+    drop(cfg);
+
+    let hosting_label = if auto_hosting_enabled {
+        "✓ 关闭托管"
+    } else {
+        "启动托管"
+    };
+
+    // 创建菜单项
+    let show_i = tauri::menu::MenuItem::with_id(&app, "show", "显示窗口", true, None::<&str>)
+        .map_err(|e| e.to_string())?;
+    let sep1 = tauri::menu::PredefinedMenuItem::separator(&app)
+        .map_err(|e| e.to_string())?;
+    let dashboard_i = tauri::menu::MenuItem::with_id(&app, "dashboard", "仪表盘", true, None::<&str>)
+        .map_err(|e| e.to_string())?;
+    let server_i = tauri::menu::MenuItem::with_id(&app, "server", "服务器", true, None::<&str>)
+        .map_err(|e| e.to_string())?;
+    let settings_i = tauri::menu::MenuItem::with_id(&app, "settings", "设置", true, None::<&str>)
+        .map_err(|e| e.to_string())?;
+    let sep2 = tauri::menu::PredefinedMenuItem::separator(&app)
+        .map_err(|e| e.to_string())?;
+    let auto_hosting_i = tauri::menu::MenuItem::with_id(&app, "auto_hosting", hosting_label, true, None::<&str>)
+        .map_err(|e| e.to_string())?;
+    let sep3 = tauri::menu::PredefinedMenuItem::separator(&app)
+        .map_err(|e| e.to_string())?;
+    let quit_i = tauri::menu::MenuItem::with_id(&app, "quit", "退出", true, None::<&str>)
+        .map_err(|e| e.to_string())?;
+
+    let menu = tauri::menu::Menu::with_items(&app, &[
+        &show_i,
+        &sep1,
+        &dashboard_i,
+        &server_i,
+        &settings_i,
+        &sep2,
+        &auto_hosting_i,
+        &sep3,
+        &quit_i,
+    ]).map_err(|e| e.to_string())?;
+
+    // 更新托盘菜单
+    if let Some(tray) = app.tray_by_id("main") {
+        tray.set_menu(Some(menu)).map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -64,6 +210,7 @@ pub fn run() {
             }
         }))
         .setup(move |app| {
+            // 启动自动更新监控
             commands::server::start_auto_update_monitor(
                 app.handle().clone(),
                 Arc::clone(&monitor_process),
@@ -73,6 +220,20 @@ pub fn run() {
                 Arc::clone(&monitor_auto_update),
                 monitor_stop,
             );
+
+            // 创建初始托盘菜单
+            build_tray_menu(app)?;
+
+            // 监听窗口关闭事件
+            let window = app.get_webview_window("main").unwrap();
+            let window_clone = window.clone();
+            window.on_window_event(move |event| {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    let _ = window_clone.emit("close-requested", ());
+                }
+            });
+
             Ok(())
         })
         .manage(process_arc)
@@ -125,6 +286,8 @@ pub fn run() {
             commands::save::save_rocket_rcon_config,
             commands::save::read_workshop_config,
             commands::save::save_workshop_config,
+            commands::save::read_permissions_config,
+            commands::save::save_permissions_config,
             commands::save::load_workshop_mod_notes,
             commands::save::save_workshop_mod_notes,
             commands::save::open_url,
@@ -135,6 +298,15 @@ pub fn run() {
             commands::setup::init_server_save,
             commands::setup::check_save_rocket_status,
             commands::updater::check_for_updates,
+            commands::window::should_show_close_dialog,
+            commands::window::save_close_preference,
+            commands::window::get_close_preference,
+            commands::window::hide_window_to_tray,
+            commands::window::show_window_from_tray,
+            commands::window::quit_app,
+            rebuild_tray_menu,
+            commands::window::show_window_from_tray,
+            commands::window::quit_app,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
