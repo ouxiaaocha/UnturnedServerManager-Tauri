@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex};
 use quick_xml::events::Event;
 use quick_xml::Reader;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use tauri::State;
 
 use crate::services::config_service::ConfigService;
@@ -38,6 +39,62 @@ pub struct PluginInfo {
     pub name: String,
     pub file_name: String,
     pub path: String,
+}
+
+#[derive(Debug, Serialize, Clone, PartialEq, Eq)]
+pub struct GameConfigInfo {
+    pub exists: bool,
+    pub path: String,
+    pub version: Option<String>,
+    pub source_hash: String,
+    pub line_ending: String,
+    pub sections: Vec<GameConfigSection>,
+}
+
+#[derive(Debug, Serialize, Clone, PartialEq, Eq)]
+pub struct GameConfigSection {
+    pub name: String,
+    pub entries: Vec<GameConfigEntry>,
+}
+
+#[derive(Debug, Serialize, Clone, PartialEq, Eq)]
+pub struct GameConfigEntry {
+    pub id: String,
+    pub section: String,
+    pub key: String,
+    pub value: String,
+    pub has_value: bool,
+    pub value_kind: String,
+    pub description: Vec<String>,
+    pub default_hint: Option<String>,
+    pub options: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, Clone, PartialEq, Eq)]
+pub struct GameConfigChange {
+    pub section: String,
+    pub key: String,
+    pub original_value: String,
+    pub value: String,
+}
+
+#[derive(Debug, Clone)]
+struct GameConfigEntryPosition {
+    section: String,
+    key: String,
+    start_line: usize,
+    end_line: usize,
+    indent: String,
+    is_block: bool,
+}
+
+#[derive(Debug, Clone)]
+struct ParsedGameConfig {
+    info: GameConfigInfo,
+    lines: Vec<String>,
+    final_newline: bool,
+    positions: Vec<GameConfigEntryPosition>,
+    section_bounds: HashMap<String, usize>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -262,6 +319,458 @@ const MANAGED_COMMANDS: &[&str] = &[
     "Perspective",
     "GSLT",
 ];
+
+fn game_config_path(server_root: &str, server_id: &str) -> PathBuf {
+    Path::new(server_root)
+        .join("Servers")
+        .join(server_id)
+        .join("Config.txt")
+}
+
+fn detect_line_ending(content: &str) -> String {
+    if content.contains("\r\n") {
+        "\r\n".to_string()
+    } else {
+        "\n".to_string()
+    }
+}
+
+fn sha256_hex(content: &str) -> String {
+    let digest = Sha256::digest(content.as_bytes());
+    let mut output = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        output.push_str(&format!("{byte:02x}"));
+    }
+    output
+}
+
+fn split_config_lines(content: &str) -> (Vec<String>, bool) {
+    let final_newline = content.ends_with('\n');
+    let normalized = content.replace("\r\n", "\n");
+    let mut lines: Vec<String> = normalized.lines().map(str::to_string).collect();
+    if normalized.is_empty() {
+        lines.clear();
+    }
+    (lines, final_newline)
+}
+
+fn is_identifier_line(value: &str) -> bool {
+    let mut chars = value.chars();
+    match chars.next() {
+        Some(first) if first.is_ascii_alphabetic() || first == '_' => {}
+        _ => return false,
+    }
+    chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+fn line_indent(line: &str) -> String {
+    line.chars()
+        .take_while(|c| *c == ' ' || *c == '\t')
+        .collect()
+}
+
+fn strip_comment_prefix(line: &str) -> Option<String> {
+    let trimmed = line.trim();
+    let rest = trimmed.strip_prefix("//")?.trim_start();
+    Some(
+        rest.strip_prefix('>')
+            .unwrap_or(rest)
+            .trim_start()
+            .to_string(),
+    )
+}
+
+fn comment_text(comments: &[String]) -> String {
+    comments
+        .iter()
+        .filter_map(|line| strip_comment_prefix(line))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn parse_options(comments: &[String]) -> Vec<String> {
+    for line in comments {
+        let Some(text) = strip_comment_prefix(line) else {
+            continue;
+        };
+        let Some((_, rest)) = text.split_once("Options:") else {
+            continue;
+        };
+        return rest
+            .split(',')
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+            .collect();
+    }
+    Vec::new()
+}
+
+fn parse_default_hint(comments: &[String]) -> Option<String> {
+    let hints: Vec<String> = comments
+        .iter()
+        .filter_map(|line| strip_comment_prefix(line))
+        .filter(|line| {
+            line.contains("Default:")
+                || line.contains("Easy:")
+                || line.contains("Normal:")
+                || line.contains("Hard:")
+                || line.contains("[0 to 1]")
+        })
+        .collect();
+    if hints.is_empty() {
+        None
+    } else {
+        Some(hints.join(" "))
+    }
+}
+
+fn infer_game_config_value_kind(
+    key: &str,
+    value: &str,
+    comments: &[String],
+    is_block: bool,
+) -> String {
+    if is_block {
+        return "raw_block".to_string();
+    }
+
+    let options = parse_options(comments);
+    if !options.is_empty() {
+        return "select".to_string();
+    }
+
+    let text = comment_text(comments);
+    let lower_value = value.trim().to_ascii_lowercase();
+    if key == "Links"
+        || text.contains("Buttons shown")
+        || text.contains("Format is a list")
+        || text.contains("Refer to Scheduled_Shutdown_Warnings")
+    {
+        return "raw_block".to_string();
+    }
+    if text.contains("[0 to 1]") || text.contains("Percentage") {
+        return "percent".to_string();
+    }
+    if key.contains("URL") || key.contains("Icon") || key.contains("Thumbnail") {
+        return "url".to_string();
+    }
+    if lower_value == "true"
+        || lower_value == "false"
+        || text.contains("If true")
+        || text.contains("If false")
+        || text.contains("Whether")
+        || text.contains("Should")
+        || text.contains("Default: True")
+        || text.contains("Default: False")
+        || text.contains("Easy: True")
+        || text.contains("Easy: False")
+        || text.contains("Normal: True")
+        || text.contains("Normal: False")
+        || text.contains("Hard: True")
+        || text.contains("Hard: False")
+    {
+        return "bool".to_string();
+    }
+    if value.trim().parse::<f64>().is_ok()
+        || text.contains("seconds")
+        || text.contains("milliseconds")
+        || text.contains("minutes")
+        || text.contains("hours")
+        || text.contains("Default: 0")
+        || text.contains("Default: 1")
+        || text.contains("Default: 2")
+        || text.contains("Default: 3")
+        || text.contains("Default: 4")
+        || text.contains("Default: 5")
+        || text.contains("Default: 6")
+        || text.contains("Default: 7")
+        || text.contains("Default: 8")
+        || text.contains("Default: 9")
+    {
+        return "number".to_string();
+    }
+    if value.len() > 80 || value.contains("\\n") || key.starts_with("Desc_") {
+        return "long_text".to_string();
+    }
+    "text".to_string()
+}
+
+fn block_end_line(lines: &[String], start_line: usize) -> Option<usize> {
+    let opener = lines.get(start_line)?.trim();
+    let (open, close) = match opener.chars().next()? {
+        '[' => ('[', ']'),
+        '{' => ('{', '}'),
+        _ => return None,
+    };
+    let mut depth = 0isize;
+    for (index, line) in lines.iter().enumerate().skip(start_line) {
+        for ch in line.chars() {
+            if ch == open {
+                depth += 1;
+            } else if ch == close {
+                depth -= 1;
+                if depth <= 0 {
+                    return Some(index);
+                }
+            }
+        }
+    }
+    Some(lines.len().saturating_sub(1))
+}
+
+fn make_game_config_entry(
+    section: &str,
+    key: &str,
+    value: String,
+    is_block: bool,
+    comments: &[String],
+) -> GameConfigEntry {
+    let description = comments
+        .iter()
+        .filter_map(|line| strip_comment_prefix(line))
+        .collect::<Vec<_>>();
+    let value_kind = infer_game_config_value_kind(key, &value, comments, is_block);
+    GameConfigEntry {
+        id: format!("{section}.{key}"),
+        section: section.to_string(),
+        key: key.to_string(),
+        has_value: !value.trim().is_empty(),
+        value,
+        value_kind,
+        description,
+        default_hint: parse_default_hint(comments),
+        options: parse_options(comments),
+    }
+}
+
+fn parse_game_config(content: &str, path: String) -> ParsedGameConfig {
+    let (lines, final_newline) = split_config_lines(content);
+    let line_ending = detect_line_ending(content);
+    let mut version = None;
+    let mut sections = Vec::<GameConfigSection>::new();
+    let mut positions = Vec::<GameConfigEntryPosition>::new();
+    let mut section_bounds = HashMap::<String, usize>::new();
+    let mut section_index = HashMap::<String, usize>::new();
+    let mut current_section: Option<String> = None;
+    let mut pending_section: Option<String> = None;
+    let mut comments = Vec::<String>::new();
+    let mut index = 0usize;
+
+    while index < lines.len() {
+        let line = &lines[index];
+        let trimmed = line.trim();
+
+        if let Some(section) = pending_section.take() {
+            if trimmed == "{" {
+                current_section = Some(section.clone());
+                section_index.insert(section.clone(), sections.len());
+                sections.push(GameConfigSection {
+                    name: section,
+                    entries: Vec::new(),
+                });
+                comments.clear();
+                index += 1;
+                continue;
+            }
+        }
+
+        if trimmed.starts_with("//") {
+            comments.push(line.clone());
+            index += 1;
+            continue;
+        }
+
+        if trimmed.is_empty() {
+            index += 1;
+            continue;
+        }
+
+        if current_section.is_none() {
+            if let Some(rest) = trimmed.strip_prefix("Version ") {
+                version = Some(rest.trim().to_string());
+            } else if is_identifier_line(trimmed) {
+                pending_section = Some(trimmed.to_string());
+            }
+            comments.clear();
+            index += 1;
+            continue;
+        }
+
+        if trimmed == "}" {
+            if let Some(section) = current_section.take() {
+                section_bounds.insert(section, index);
+            }
+            comments.clear();
+            index += 1;
+            continue;
+        }
+
+        let section = current_section.clone().unwrap_or_default();
+        let mut parts = trimmed.splitn(2, char::is_whitespace);
+        let key = parts.next().unwrap_or_default();
+        let value = parts.next().map(str::trim_start).unwrap_or_default();
+        let mut is_block = false;
+        let mut end_line = index;
+        let mut entry_value = value.to_string();
+
+        if entry_value.is_empty() {
+            let mut next = index + 1;
+            while next < lines.len() && lines[next].trim().is_empty() {
+                next += 1;
+            }
+            if next < lines.len() && matches!(lines[next].trim().chars().next(), Some('[' | '{')) {
+                is_block = true;
+                end_line = block_end_line(&lines, next).unwrap_or(next);
+                entry_value = lines[next..=end_line].join("\n");
+            }
+        }
+
+        let entry = make_game_config_entry(&section, key, entry_value, is_block, &comments);
+        if let Some(section_pos) = section_index.get(&section).copied() {
+            sections[section_pos].entries.push(entry);
+        }
+        positions.push(GameConfigEntryPosition {
+            section,
+            key: key.to_string(),
+            start_line: index,
+            end_line,
+            indent: line_indent(line),
+            is_block,
+        });
+
+        comments.clear();
+        index = end_line + 1;
+    }
+
+    let info = GameConfigInfo {
+        exists: true,
+        path,
+        version,
+        source_hash: sha256_hex(content),
+        line_ending,
+        sections,
+    };
+
+    ParsedGameConfig {
+        info,
+        lines,
+        final_newline,
+        positions,
+        section_bounds,
+    }
+}
+
+fn find_game_config_entry<'a>(
+    parsed: &'a ParsedGameConfig,
+    section: &str,
+    key: &str,
+) -> Option<&'a GameConfigEntry> {
+    parsed
+        .info
+        .sections
+        .iter()
+        .find(|item| item.name == section)?
+        .entries
+        .iter()
+        .find(|entry| entry.key == key)
+}
+
+fn render_game_config_change(indent: &str, key: &str, value: &str, is_block: bool) -> Vec<String> {
+    if value.trim().is_empty() {
+        return vec![format!("{indent}{key}")];
+    }
+    if is_block || value.contains('\n') {
+        let mut lines = vec![format!("{indent}{key}")];
+        lines.extend(value.lines().map(str::to_string));
+        lines
+    } else {
+        vec![format!("{indent}{key} {}", value.trim())]
+    }
+}
+
+fn render_config_lines(lines: &[String], line_ending: &str, final_newline: bool) -> String {
+    let mut output = lines.join(line_ending);
+    if final_newline && !output.ends_with(line_ending) {
+        output.push_str(line_ending);
+    }
+    output
+}
+
+fn apply_game_config_changes(
+    current_content: &str,
+    loaded_source_hash: &str,
+    changes: &[GameConfigChange],
+) -> Result<String, String> {
+    let mut parsed = parse_game_config(current_content, String::new());
+    let current_hash = parsed.info.source_hash.clone();
+    let mut ordered_changes = changes.to_vec();
+    ordered_changes.sort_by(|a, b| b.section.cmp(&a.section).then_with(|| b.key.cmp(&a.key)));
+
+    for change in &ordered_changes {
+        if change.section.trim().is_empty() || change.key.trim().is_empty() {
+            return Err("配置项分组和名称不能为空".to_string());
+        }
+
+        if let Some(current_entry) =
+            find_game_config_entry(&parsed, &change.section, &change.key).cloned()
+        {
+            if current_hash != loaded_source_hash && current_entry.value != change.original_value {
+                return Err(format!(
+                    "配置项 {}.{} 已被外部修改，请重新加载后再保存",
+                    change.section, change.key
+                ));
+            }
+
+            let position = parsed
+                .positions
+                .iter()
+                .find(|item| item.section == change.section && item.key == change.key)
+                .cloned()
+                .ok_or_else(|| format!("找不到配置项位置: {}.{}", change.section, change.key))?;
+            let rendered = render_game_config_change(
+                &position.indent,
+                &change.key,
+                &change.value,
+                position.is_block,
+            );
+            parsed
+                .lines
+                .splice(position.start_line..=position.end_line, rendered);
+            parsed = parse_game_config(
+                &render_config_lines(
+                    &parsed.lines,
+                    &parsed.info.line_ending,
+                    parsed.final_newline,
+                ),
+                String::new(),
+            );
+        } else {
+            let Some(section_end) = parsed.section_bounds.get(&change.section).copied() else {
+                return Err(format!(
+                    "配置分组 {} 不存在，无法安全追加新配置项",
+                    change.section
+                ));
+            };
+            let rendered = render_game_config_change("\t", &change.key, &change.value, false);
+            parsed.lines.splice(section_end..section_end, rendered);
+            parsed = parse_game_config(
+                &render_config_lines(
+                    &parsed.lines,
+                    &parsed.info.line_ending,
+                    parsed.final_newline,
+                ),
+                String::new(),
+            );
+        }
+    }
+
+    Ok(render_config_lines(
+        &parsed.lines,
+        &parsed.info.line_ending,
+        parsed.final_newline,
+    ))
+}
 
 fn permissions_config_path(server_root: &str, server_id: &str) -> PathBuf {
     Path::new(server_root)
@@ -766,6 +1275,83 @@ pub fn save_commands_dat(
     ls.log_operation(&format!("保存存档配置: {}", server_id));
 
     Ok("Commands.dat 已保存".to_string())
+}
+
+fn read_game_config_blocking(
+    config: Arc<Mutex<ConfigService>>,
+    save_id: Option<String>,
+) -> Result<GameConfigInfo, String> {
+    let (server_root, server_id) = {
+        let cfg = config.lock().unwrap_or_else(|e| e.into_inner());
+        resolve_save_dir(&cfg, &save_id)?
+    };
+
+    let path = game_config_path(&server_root, &server_id);
+    let path_text = path.to_string_lossy().to_string();
+    if !path.exists() {
+        return Ok(GameConfigInfo {
+            exists: false,
+            path: path_text,
+            version: None,
+            source_hash: String::new(),
+            line_ending: "\n".to_string(),
+            sections: Vec::new(),
+        });
+    }
+
+    let content = fs::read_to_string(&path).map_err(|e| format!("读取 Config.txt 失败: {}", e))?;
+    Ok(parse_game_config(&content, path_text).info)
+}
+
+#[tauri::command(async)]
+pub async fn read_game_config(
+    config: State<'_, Arc<Mutex<ConfigService>>>,
+    save_id: Option<String>,
+) -> Result<GameConfigInfo, String> {
+    let config = config.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || read_game_config_blocking(config, save_id))
+        .await
+        .map_err(|e| format!("读取 Config.txt 任务失败: {}", e))?
+}
+
+#[tauri::command]
+pub fn save_game_config(
+    config: State<'_, Arc<Mutex<ConfigService>>>,
+    log: State<'_, Arc<Mutex<LogService>>>,
+    save_id: Option<String>,
+    source_hash: String,
+    changes: Vec<GameConfigChange>,
+) -> Result<String, String> {
+    let (server_root, server_id) = {
+        let cfg = config.lock().unwrap_or_else(|e| e.into_inner());
+        resolve_save_dir(&cfg, &save_id)?
+    };
+
+    if changes.is_empty() {
+        return Ok("Config.txt 无变更".to_string());
+    }
+
+    let path = game_config_path(&server_root, &server_id);
+    if !path.exists() {
+        return Err("Config.txt 不存在，请先运行一次服务端生成配置文件".to_string());
+    }
+
+    let current_content =
+        fs::read_to_string(&path).map_err(|e| format!("读取 Config.txt 失败: {}", e))?;
+    let next_content = apply_game_config_changes(&current_content, &source_hash, &changes)?;
+    crate::services::config_service::atomic_write(&path, &next_content).map_err(|e| {
+        let ls = log.lock().unwrap_or_else(|e| e.into_inner());
+        ls.log_app(&format!(
+            "[ERROR] 保存 Config.txt 失败 ({}): {}",
+            server_id, e
+        ));
+        format!("保存 Config.txt 失败: {}", e)
+    })?;
+
+    let ls = log.lock().unwrap_or_else(|e| e.into_inner());
+    ls.log_operation(&format!("保存高级配置: {}", server_id));
+
+    Ok("Config.txt 已保存".to_string())
 }
 
 fn read_permissions_config_blocking(
@@ -1389,6 +1975,186 @@ mod tests {
         assert!(!output.iter().any(|line| line == "Cheats"));
         assert!(!output.iter().any(|line| line == "Cheats false"));
         assert!(!output.iter().any(|line| line == "PvE true"));
+    }
+
+    fn sample_game_config() -> &'static str {
+        "// > Unturned Server Configuration File\r\nVersion 1\r\n\r\nBrowser\r\n{\r\n\t// > Long description in the lower-right of the server lobby menu.\r\n\t// > Default: empty\r\n\tDesc_Full <color=#FF0000>中文服务器</color>\\n欢迎\r\n\r\n\t// > How the server is monetized (if at all).\r\n\t// > Options: Unspecified, Any, None, NonGameplay, Monetized\r\n\t// > Default: Unspecified\r\n\tMonetization\r\n\r\n\t// > Buttons shown in the server lobby menu.\r\n\tLinks\r\n\t[\r\n\t    {\r\n\t        Message QQ群\r\n\t        URL https://example.com/\r\n\t    }\r\n\t]\r\n}\r\n\r\nGameplay\r\n{\r\n\t// > Should a hit confirmation be shown when players deal damage?\r\n\t// > Easy: True    Normal: True    Hard: False\r\n\tHitmarkers True\r\n\r\n\t// > Percentage [0 to 1] of XP to retain.\r\n\tLose_Experience_PvP 1\r\n}\r\n"
+    }
+
+    #[test]
+    fn parse_game_config_reads_sections_comments_utf8_and_blocks() {
+        let parsed = parse_game_config(sample_game_config(), "Config.txt".to_string());
+
+        assert_eq!(parsed.info.version.as_deref(), Some("1"));
+        assert_eq!(parsed.info.line_ending, "\r\n");
+        assert_eq!(parsed.info.sections.len(), 2);
+
+        let browser = parsed
+            .info
+            .sections
+            .iter()
+            .find(|section| section.name == "Browser")
+            .unwrap();
+        assert_eq!(browser.entries.len(), 3);
+
+        let desc = browser
+            .entries
+            .iter()
+            .find(|entry| entry.key == "Desc_Full")
+            .unwrap();
+        assert_eq!(desc.value, "<color=#FF0000>中文服务器</color>\\n欢迎");
+        assert_eq!(desc.value_kind, "long_text");
+        assert!(desc.description[0].contains("Long description"));
+
+        let monetization = browser
+            .entries
+            .iter()
+            .find(|entry| entry.key == "Monetization")
+            .unwrap();
+        assert!(!monetization.has_value);
+        assert_eq!(
+            monetization.options,
+            vec!["Unspecified", "Any", "None", "NonGameplay", "Monetized"]
+        );
+
+        let links = browser
+            .entries
+            .iter()
+            .find(|entry| entry.key == "Links")
+            .unwrap();
+        assert_eq!(links.value_kind, "raw_block");
+        assert!(links.value.contains("Message QQ群"));
+    }
+
+    #[test]
+    fn infer_game_config_kind_prefers_config_comments_over_warning_suffix() {
+        let max_ip_warnings = vec![
+            "// > Whether rejections for Max_Clients_With_Same_IP_Address should log to command output."
+                .to_string(),
+            "// > Default: True".to_string(),
+        ];
+        assert_eq!(
+            infer_game_config_value_kind(
+                "Max_Clients_With_Same_IP_Address_Log_Warnings",
+                "",
+                &max_ip_warnings,
+                false
+            ),
+            "bool"
+        );
+
+        let fake_lag_warnings = vec![
+            "// > Whether fake lag detection should log to command output.".to_string(),
+            "// > Default: False".to_string(),
+        ];
+        assert_eq!(
+            infer_game_config_value_kind("Fake_Lag_Log_Warnings", "", &fake_lag_warnings, false),
+            "bool"
+        );
+
+        let scheduled_warnings = vec![
+            "// > Broadcast \"shutting down for scheduled maintenance\" warnings at these intervals."
+                .to_string(),
+            "// > Format is a list of hours:minutes:seconds.".to_string(),
+        ];
+        assert_eq!(
+            infer_game_config_value_kind(
+                "Scheduled_Shutdown_Warnings",
+                "",
+                &scheduled_warnings,
+                false
+            ),
+            "raw_block"
+        );
+
+        let update_warnings = vec![
+            "// > Broadcast \"shutting down for update\" warnings at these intervals.".to_string(),
+            "// > Refer to Scheduled_Shutdown_Warnings for an explanation of the format."
+                .to_string(),
+        ];
+        assert_eq!(
+            infer_game_config_value_kind("Update_Shutdown_Warnings", "", &update_warnings, false),
+            "raw_block"
+        );
+
+        let spawn_chance = vec![
+            "// > Percentage [0 to 1] of item spawns to use.".to_string(),
+            "// > Easy: 0.35    Normal: 0.35    Hard: 0.15".to_string(),
+        ];
+        assert_eq!(
+            infer_game_config_value_kind("Spawn_Chance", "5", &spawn_chance, false),
+            "percent"
+        );
+
+        let has_durability = vec!["// > Easy: False    Normal: True    Hard: True".to_string()];
+        assert_eq!(
+            infer_game_config_value_kind("Has_Durability", "false", &has_durability, false),
+            "bool"
+        );
+    }
+
+    #[test]
+    fn apply_game_config_changes_preserves_unrelated_new_server_keys() {
+        let loaded = parse_game_config(sample_game_config(), "Config.txt".to_string());
+        let current = sample_game_config().replace(
+            "\tHitmarkers True\r\n",
+            "\tHitmarkers True\r\n\tNew_Server_Setting 42\r\n",
+        );
+
+        let output = apply_game_config_changes(
+            &current,
+            &loaded.info.source_hash,
+            &[GameConfigChange {
+                section: "Browser".to_string(),
+                key: "Desc_Full".to_string(),
+                original_value: "<color=#FF0000>中文服务器</color>\\n欢迎".to_string(),
+                value: "<color=#00FF00>中文新描述</color>\\n欢迎".to_string(),
+            }],
+        )
+        .unwrap();
+
+        assert!(output.contains("New_Server_Setting 42"));
+        assert!(output.contains("<color=#00FF00>中文新描述</color>\\n欢迎"));
+        assert!(output.contains("\r\n"));
+    }
+
+    #[test]
+    fn apply_game_config_changes_detects_external_same_key_conflict() {
+        let loaded = parse_game_config(sample_game_config(), "Config.txt".to_string());
+        let current = sample_game_config().replace("Hitmarkers True", "Hitmarkers False");
+
+        let err = apply_game_config_changes(
+            &current,
+            &loaded.info.source_hash,
+            &[GameConfigChange {
+                section: "Gameplay".to_string(),
+                key: "Hitmarkers".to_string(),
+                original_value: "True".to_string(),
+                value: "False".to_string(),
+            }],
+        )
+        .expect_err("same key changed externally should conflict");
+
+        assert!(err.contains("已被外部修改"));
+    }
+
+    #[test]
+    fn apply_game_config_changes_can_restore_empty_default_value() {
+        let loaded = parse_game_config(sample_game_config(), "Config.txt".to_string());
+        let output = apply_game_config_changes(
+            sample_game_config(),
+            &loaded.info.source_hash,
+            &[GameConfigChange {
+                section: "Gameplay".to_string(),
+                key: "Hitmarkers".to_string(),
+                original_value: "True".to_string(),
+                value: String::new(),
+            }],
+        )
+        .unwrap();
+
+        assert!(output.contains("\tHitmarkers\r\n"));
+        assert!(!output.contains("Hitmarkers True"));
     }
 
     #[test]

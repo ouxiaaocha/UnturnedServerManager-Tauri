@@ -5,6 +5,7 @@
   import { listenInstallerProgress } from "../utils/installer";
   import Select from "../components/Select.svelte";
   import SelectCustom from "../components/SelectCustom.svelte";
+  import GameConfigTab from "./Save/GameConfigTab.svelte";
 
   type PermissionEntry = {
     name: string;
@@ -896,6 +897,13 @@
     </button>
     <button
       class="px-4 py-2 rounded-lg text-sm font-medium transition-all cursor-pointer
+        {activeTab === 'gameConfig' ? 'bg-[var(--accent-subtle)] text-[var(--accent-light)] border border-[var(--border-accent)]' : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-card)] border border-transparent'}"
+      onclick={() => onTabChange('gameConfig')}
+    >
+      高级配置
+    </button>
+    <button
+      class="px-4 py-2 rounded-lg text-sm font-medium transition-all cursor-pointer
         {activeTab === 'workshop' ? 'bg-[var(--accent-subtle)] text-[var(--accent-light)] border border-[var(--border-accent)]' : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-card)] border border-transparent'}"
       onclick={() => onTabChange('workshop')}
     >
@@ -1093,6 +1101,9 @@
         {/if}
       </button>
     </div>
+
+  {:else if activeTab === 'gameConfig'}
+    <GameConfigTab saveId={selectedSaveId} />
 
   {:else if activeTab === 'workshop'}
     <!-- Workshop Tab -->

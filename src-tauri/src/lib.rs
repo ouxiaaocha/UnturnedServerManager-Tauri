@@ -278,6 +278,8 @@ pub fn run() {
             commands::save::list_server_saves,
             commands::save::read_commands_dat,
             commands::save::save_commands_dat,
+            commands::save::read_game_config,
+            commands::save::save_game_config,
             commands::save::list_plugins,
             commands::save::open_plugin_config_dir,
             commands::save::load_plugin_notes,
