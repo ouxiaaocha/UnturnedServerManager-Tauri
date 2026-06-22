@@ -8,6 +8,7 @@ use tauri::{AppHandle, Emitter, State};
 
 use crate::services::config_service::ConfigService;
 use crate::services::log_service::LogService;
+use crate::services::process::ProcessManager;
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
@@ -181,6 +182,7 @@ pub fn init_server_save(
     app: AppHandle,
     config: State<'_, Arc<Mutex<ConfigService>>>,
     log: State<'_, Arc<Mutex<LogService>>>,
+    process: State<'_, Arc<Mutex<ProcessManager>>>,
     server_root: Option<String>,
     save_name: String,
 ) -> Result<(), String> {
@@ -215,6 +217,20 @@ pub fn init_server_save(
         let ls = log.lock().unwrap_or_else(|e| e.into_inner());
         ls.log_app("[ERROR] 初始化存档失败: 存档名称包含非法字符");
         return Err("存档名称包含非法字符".to_string());
+    }
+    {
+        let mut pm = process.lock().unwrap_or_else(|e| e.into_inner());
+        if pm.is_running_for(&save_name) {
+            let ls = log.lock().unwrap_or_else(|e| e.into_inner());
+            ls.log_app(&format!(
+                "[ERROR] 初始化存档失败: 存档 {} 正在运行",
+                save_name
+            ));
+            return Err(format!(
+                "存档 {} 的服务器正在运行，请先停止后再修改",
+                save_name
+            ));
+        }
     }
 
     let exe_path = Path::new(&server_root).join("Unturned.exe");

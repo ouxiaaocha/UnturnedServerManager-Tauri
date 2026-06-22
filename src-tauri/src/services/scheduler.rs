@@ -65,9 +65,8 @@ pub fn start_scheduler(
 
             // 每小时清理一次不在当前任务列表中的孤儿条目，防止内存泄露
             if current_minute == 0 {
-                let active_ids: std::collections::HashSet<String> = tasks.iter()
-                    .map(|t| t.id.clone())
-                    .collect();
+                let active_ids: std::collections::HashSet<String> =
+                    tasks.iter().map(|t| t.id.clone()).collect();
                 announced.retain(|id, _| active_ids.contains(id));
             }
 
@@ -239,7 +238,7 @@ fn send_announce(
         match local_command_bridge::enqueue_command(&profile.server_root, &profile.id, &msg) {
             Ok(command) => {
                 let pm = process.lock().unwrap_or_else(|e| e.into_inner());
-                pm.record_sent_command(&command);
+                pm.record_sent_command_for(&profile.id, &command);
                 let ls = log.lock().unwrap_or_else(|e| e.into_inner());
                 ls.log_operation(&format!("定时任务公告: {}分钟后重启", minutes));
             }
@@ -276,7 +275,7 @@ fn execute_restart(
         match local_command_bridge::enqueue_command(&profile.server_root, &profile.id, command) {
             Ok(sent) => {
                 let pm = process.lock().unwrap_or_else(|e| e.into_inner());
-                pm.record_sent_command(&sent);
+                pm.record_sent_command_for(&profile.id, &sent);
             }
             Err(e) => {
                 let ls = log.lock().unwrap_or_else(|e| e.into_inner());
@@ -294,7 +293,7 @@ fn execute_restart(
         std::thread::sleep(Duration::from_secs(1));
         let is_running = {
             let mut pm = process.lock().unwrap_or_else(|e| e.into_inner());
-            pm.is_running()
+            pm.is_running_for(&profile.id)
         };
         if !is_running {
             break;
@@ -304,8 +303,8 @@ fn execute_restart(
     // 仍在运行则强制停止
     {
         let mut pm = process.lock().unwrap_or_else(|e| e.into_inner());
-        if pm.is_running() {
-            let _ = pm.force_stop();
+        if pm.is_running_for(&profile.id) {
+            let _ = pm.force_stop_for(&profile.id);
         }
     }
 
@@ -314,7 +313,12 @@ fn execute_restart(
     let _ = local_command_bridge::ensure_bridge_installed(&profile.server_root, &profile.id);
     {
         let mut pm = process.lock().unwrap_or_else(|e| e.into_inner());
-        let _ = pm.start(&profile);
+        let launch_mode = if profile.server_entry.contains("+LanServer") {
+            "lan"
+        } else {
+            "internet"
+        };
+        let _ = pm.start(&profile.id, launch_mode, &profile);
     }
     let ls = log.lock().unwrap_or_else(|e| e.into_inner());
     ls.log_operation("定时任务: 服务器已重启");

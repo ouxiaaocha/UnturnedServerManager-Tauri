@@ -113,6 +113,23 @@ pub fn set_auto_update_hosting(
 }
 
 #[tauri::command]
+pub fn set_log_retention_days(
+    config: State<'_, Arc<Mutex<ConfigService>>>,
+    days: u32,
+) -> Result<AppSettings, String> {
+    if !(1..=3650).contains(&days) {
+        return Err("日志保存时间必须在 1 到 3650 天之间".to_string());
+    }
+
+    let cfg = config.lock().unwrap_or_else(|e| e.into_inner());
+    let mut settings = cfg.load_app_settings();
+    settings.log_retention_days = days;
+    cfg.save_app_settings(&settings)?;
+
+    Ok(settings)
+}
+
+#[tauri::command]
 pub fn save_config(
     config: State<'_, Arc<Mutex<ConfigService>>>,
     servers: ServersConfig,

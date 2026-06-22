@@ -102,10 +102,10 @@
 
   <!-- Add Task Form -->
   {#if showAdd}
-    <div class="bg-[var(--bg-card)] border border-[var(--accent)] rounded-xl p-6 flex-shrink-0">
-      <div class="flex gap-5 items-end flex-wrap">
-        <div>
-          <span class="block text-xs text-[var(--text-muted)] mb-2 uppercase tracking-wider">类型</span>
+    <div class="bg-[var(--bg-card)] border border-[var(--accent)] rounded-xl p-5 sm:p-6 flex-shrink-0">
+      <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-[minmax(200px,220px)_minmax(140px,160px)_minmax(120px,140px)_auto] lg:items-end">
+        <label class="grid gap-2">
+          <span class="text-xs text-[var(--text-muted)] uppercase tracking-wider leading-4">类型</span>
           <SelectCustom
             bind:value={newType}
             options={[
@@ -114,43 +114,43 @@
               { value: "weekly", label: "每周定时" }
             ]}
             size="sm"
-            class="min-w-[140px]"
+            fullWidth={true}
           />
-        </div>
+        </label>
 
         {#if newType === "daily" || newType === "weekly"}
-          <div>
-            <span class="block text-xs text-[var(--text-muted)] mb-2 uppercase tracking-wider">时间</span>
-            <div class="relative inline-block min-w-[140px]">
+          <label class="grid gap-2">
+            <span class="text-xs text-[var(--text-muted)] uppercase tracking-wider leading-4">时间</span>
+            <div class="relative">
               <input type="time" bind:value={newTime}
-                class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg pl-4 pr-4 py-2.5 text-sm text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/20 focus:border-[var(--accent)] transition-all cursor-pointer appearance-none hover:border-[var(--border-hover)] hover:bg-[var(--bg-card)]"
+                class="h-[34px] w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 text-sm text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/20 focus:border-[var(--accent)] transition-all cursor-pointer appearance-none hover:border-[var(--border-hover)] hover:bg-[var(--bg-card)]"
                 style="box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);" />
             </div>
-          </div>
+          </label>
         {/if}
 
         {#if newType === "interval"}
-          <div>
-            <span class="block text-xs text-[var(--text-muted)] mb-2 uppercase tracking-wider">间隔（小时）</span>
+          <label class="grid gap-2">
+            <span class="text-xs text-[var(--text-muted)] uppercase tracking-wider leading-4">间隔（小时）</span>
             <input type="number" bind:value={newInterval} min="1" max="24"
-              class="w-full sm:w-[120px] bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm text-[var(--text-primary)] focus:border-[var(--accent)] transition-colors duration-[var(--transition-normal)]" />
-          </div>
+              class="h-[34px] w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg px-4 text-sm text-[var(--text-primary)] focus:border-[var(--accent)] transition-colors duration-[var(--transition-normal)]" />
+          </label>
         {/if}
 
         {#if newType === "weekly"}
-          <div>
-            <span class="block text-xs text-[var(--text-muted)] mb-2 uppercase tracking-wider">星期</span>
+          <label class="grid gap-2">
+            <span class="text-xs text-[var(--text-muted)] uppercase tracking-wider leading-4">星期</span>
             <SelectCustom
               bind:value={newWeekday}
               options={weekdays.map((day, i) => ({ value: i, label: day }))}
               size="sm"
-              class="min-w-[120px]"
+              fullWidth={true}
             />
-          </div>
+          </label>
         {/if}
 
         <button
-          class="px-5 py-2.5 bg-gradient-to-r from-[var(--success)] to-emerald-600 hover:from-emerald-500 hover:to-[var(--success)] text-[var(--text-primary)] text-sm font-medium rounded-lg transition-all duration-[var(--transition-normal)] cursor-pointer flex items-center gap-2"
+          class="h-[34px] px-5 bg-gradient-to-r from-[var(--success)] to-emerald-600 hover:from-emerald-500 hover:to-[var(--success)] text-[var(--text-primary)] text-sm font-medium rounded-lg transition-all duration-[var(--transition-normal)] cursor-pointer inline-flex items-center justify-center gap-2 self-end sm:col-span-2 lg:col-span-1"
           onclick={addTask}
         >
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -159,7 +159,7 @@
           确认添加
         </button>
       </div>
-      <p class="text-xs text-[var(--text-muted)] mt-4 flex items-center gap-1">
+      <p class="text-xs text-[var(--text-muted)] mt-4 flex items-center gap-1 leading-5">
         <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>

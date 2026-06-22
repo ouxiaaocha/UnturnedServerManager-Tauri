@@ -1,12 +1,25 @@
 ﻿<script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
-  import { rconLogs, addRconLog, addRconLogs } from "$lib/stores.svelte";
+  import {
+    rconLogs,
+    addRconLog,
+    addRconLogs,
+    runningServers,
+    refreshRunningServers,
+    serverView,
+    sharedSaves,
+    loadSharedSaves,
+  } from "$lib/stores.svelte";
   import { highlightText } from "$lib/utils";
   import { createLogFilter, createAutoScroll } from "$lib/utils/composables.svelte";
 
   let connected = $state(false);
   let command = $state("");
   let connecting = $state(false);
+  let selectedRconSaveId = $state("");
+  let connectedSaveId = $state("");
+  let runningCount = $derived(runningServers.length);
+  let selectedRunningServer = $derived(runningServers.find((server) => server.save_id === selectedRconSaveId));
 
   // 使用日志过滤 composable
   const logFilter = createLogFilter(rconLogs);
@@ -19,16 +32,56 @@
     autoScroller.scrollToBottom();
   }
 
+  function getSaveName(saveId: string): string {
+    if (!saveId) return "";
+    const save = sharedSaves.find((s: any) => s.id === saveId);
+    return save ? (save.name ? `${save.id} - ${save.name}` : save.id) : saveId;
+  }
+
+  function selectRconTarget(saveId: string) {
+    if (connected || connecting) {
+      addRconLog("请先断开当前 RCON 连接，再切换目标服务器", "error");
+      scrollToBottom();
+      return;
+    }
+    selectedRconSaveId = saveId;
+  }
+
+  function ensureRconTarget() {
+    if (connected || connecting) return;
+    if (selectedRconSaveId && runningServers.some((server) => server.save_id === selectedRconSaveId)) {
+      return;
+    }
+    const preferred = serverView.selectedRunningSaveId;
+    selectedRconSaveId = runningServers.some((server) => server.save_id === preferred)
+      ? preferred
+      : (runningServers[0]?.save_id ?? "");
+  }
+
   async function checkStatus(token = pollGeneration) {
     try {
       const status = await invoke("rcon_status") as boolean;
+      if (token !== pollGeneration) return;
+      const target = status ? await invoke("rcon_connected_save_id") as string | null : "";
       if (token !== pollGeneration) return;
       if (connected && !status) {
         addRconLog("连接已断开（服务器可能已关闭）", "error");
         scrollToBottom();
       }
+      if (!status) {
+        connectedSaveId = "";
+      }
+      if (status && target) {
+        connectedSaveId = target;
+        if (!selectedRconSaveId) {
+          selectedRconSaveId = target;
+        }
+      }
       connected = status;
-    } catch { connected = false; }
+    } catch {
+      connected = false;
+      connectedSaveId = "";
+    }
   }
 
   async function pollResponses(token = pollGeneration) {
@@ -53,15 +106,27 @@
   }
 
   async function connect() {
+    if (!selectedRconSaveId) {
+      addRconLog("请选择要连接的运行服务器", "error");
+      scrollToBottom();
+      return;
+    }
+    if (!selectedRunningServer) {
+      addRconLog("所选服务器未运行，无法连接 RCON", "error");
+      scrollToBottom();
+      return;
+    }
     connecting = true;
-    addRconLog("正在连接...", "system");
+    addRconLog(`正在连接 ${selectedRconSaveId}...`, "system");
     try {
-      const welcome = await invoke("rcon_connect") as string;
+      const welcome = await invoke("rcon_connect", { saveId: selectedRconSaveId }) as string;
       connected = true;
+      connectedSaveId = selectedRconSaveId;
       addRconLog(welcome, "info");
-      addRconLog("RCON 连接成功", "system");
+      addRconLog(`RCON 连接成功: ${selectedRconSaveId}`, "system");
     } catch (e: any) {
       addRconLog(`连接失败: ${e}`, "error");
+      connectedSaveId = "";
     }
     connecting = false;
     scrollToBottom();
@@ -74,6 +139,7 @@
       addRconLog(`断开时出错: ${e}`, "error");
     }
     connected = false;
+    connectedSaveId = "";
     addRconLog("已断开连接", "system");
     scrollToBottom();
   }
@@ -81,6 +147,12 @@
   async function send() {
     const cmd = command.trim();
     if (!cmd) return;
+    if (!connected || connectedSaveId !== selectedRconSaveId) {
+      addRconLog("RCON 目标已变化，请重新连接后再发送命令", "error");
+      connected = false;
+      connectedSaveId = "";
+      return;
+    }
 
     addRconLog(`> ${cmd}`, "command");
     command = "";
@@ -113,6 +185,8 @@
   function scheduleStatusCheck(token: number) {
     statusTimer = setTimeout(async () => {
       if (token !== pollGeneration) return;
+      await refreshRunningServers();
+      ensureRconTarget();
       await checkStatus(token);
       if (token === pollGeneration) scheduleStatusCheck(token);
     }, 10000);
@@ -120,6 +194,8 @@
 
   $effect(() => {
     const token = ++pollGeneration;
+    void loadSharedSaves();
+    void refreshRunningServers().then(() => ensureRconTarget());
     checkStatus(token);
     schedulePoll(token);
     scheduleStatusCheck(token);
@@ -138,6 +214,44 @@
     <p class="text-sm text-[var(--text-muted)] mt-1">远程服务器命令控制</p>
   </div>
 
+  <div class="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-5 flex-shrink-0">
+    <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+      <div>
+        <h2 class="text-sm font-semibold text-[var(--text-primary)]">RCON 目标服务器</h2>
+        <p class="mt-1 text-xs text-[var(--text-muted)]">连接后需先断开，才能切换目标</p>
+      </div>
+      <span class="text-xs text-[var(--text-muted)]">运行 {runningCount}</span>
+    </div>
+
+    {#if runningCount === 0}
+      <div class="rounded-lg border border-dashed border-[var(--border)] bg-[var(--bg-primary)] px-4 py-5 text-center text-sm text-[var(--text-muted)]">
+        当前没有运行中的服务器
+      </div>
+    {:else}
+      <div class="{runningCount > 8 ? 'max-h-[180px] overflow-y-auto pr-1' : ''}">
+        <div class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {#each runningServers as server (server.save_id)}
+            <button
+              type="button"
+              onclick={() => selectRconTarget(server.save_id)}
+              disabled={connected || connecting}
+              title={getSaveName(server.save_id)}
+              class="flex min-h-[56px] items-center justify-between gap-3 rounded-lg border px-4 py-3 text-left transition-all duration-[var(--transition-normal)] disabled:cursor-not-allowed disabled:opacity-70 {server.save_id === selectedRconSaveId ? 'border-[var(--accent)] bg-[var(--accent-subtle)] shadow-[var(--shadow-sm)]' : 'border-[var(--border)] bg-[var(--bg-primary)] hover:border-[var(--border-hover)] hover:bg-[var(--bg-card-hover)]'}"
+            >
+              <div class="flex min-w-0 items-center gap-2">
+                <span class="h-2.5 w-2.5 shrink-0 rounded-full bg-[var(--success)] animate-pulse"></span>
+                <span class="truncate text-sm font-semibold text-[var(--text-primary)]">{getSaveName(server.save_id)}</span>
+              </div>
+              <span class="shrink-0 rounded-md px-2 py-1 text-xs font-medium {server.save_id === selectedRconSaveId ? 'bg-[var(--accent)] text-white' : 'bg-[var(--success-glow)] text-[var(--success)]'}">
+                {server.save_id === connectedSaveId && connected ? '已连接' : server.save_id === selectedRconSaveId ? '目标' : '运行中'}
+              </span>
+            </button>
+          {/each}
+        </div>
+      </div>
+    {/if}
+  </div>
+
   <!-- Connection Status -->
   <div class="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-5 flex-shrink-0">
     <div class="flex items-center gap-4 flex-wrap">
@@ -146,13 +260,16 @@
         <span class="text-sm font-medium {connected ? 'text-[var(--success)]' : 'text-[var(--text-secondary)]'}">
           {connected ? "已连接" : "未连接"}
         </span>
+        {#if selectedRconSaveId}
+          <span class="rounded-md bg-[var(--bg-primary)] px-2 py-1 text-xs text-[var(--text-muted)]">{getSaveName(selectedRconSaveId)}</span>
+        {/if}
       </div>
 
       <div class="flex gap-3 ml-auto">
         <button
           class="px-5 py-2.5 bg-gradient-to-r from-[var(--accent)] to-cyan-600 hover:from-cyan-500 hover:to-[var(--accent)] text-[var(--text-primary)] text-sm font-medium rounded-lg transition-all duration-[var(--transition-normal)] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2"
           onclick={connect}
-          disabled={connected || connecting}
+          disabled={connected || connecting || !selectedRconSaveId || !selectedRunningServer}
         >
           {#if connecting}
             <div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
@@ -242,7 +359,7 @@
         bind:value={command}
         placeholder="输入 RCON 命令..."
         class="w-full bg-[var(--bg-card)] border border-[var(--border)] rounded-lg px-4 py-3 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors duration-[var(--transition-normal)] font-mono"
-        disabled={!connected}
+        disabled={!connected || connectedSaveId !== selectedRconSaveId}
         onkeydown={handleKeydown}
       />
       <div class="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]">
@@ -254,7 +371,7 @@
     <button
       class="px-6 py-3 bg-gradient-to-r from-[var(--accent)] to-cyan-600 hover:from-cyan-500 hover:to-[var(--accent)] text-[var(--text-primary)] text-sm font-medium rounded-lg transition-all duration-[var(--transition-normal)] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2"
       onclick={send}
-      disabled={!connected || !command.trim()}
+      disabled={!connected || connectedSaveId !== selectedRconSaveId || !command.trim()}
     >
       <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />

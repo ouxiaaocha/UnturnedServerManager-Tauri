@@ -7,21 +7,29 @@
     onCancel
   }: {
     show: boolean;
-    onConfirm: (closeToTray: boolean, remember: boolean) => void;
+    onConfirm: (closeToTray: boolean, remember: boolean) => void | Promise<void>;
     onCancel: () => void;
   } = $props();
 
   let rememberChoice = $state(false);
   let loading = $state(false);
 
-  function handleMinimize() {
+  async function handleMinimize() {
     loading = true;
-    onConfirm(true, rememberChoice);
+    try {
+      await onConfirm(true, rememberChoice);
+    } finally {
+      loading = false;
+    }
   }
 
-  function handleQuit() {
+  async function handleQuit() {
     loading = true;
-    onConfirm(false, rememberChoice);
+    try {
+      await onConfirm(false, rememberChoice);
+    } finally {
+      loading = false;
+    }
   }
 
   function handleClose() {

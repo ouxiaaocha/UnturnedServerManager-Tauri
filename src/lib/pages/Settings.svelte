@@ -41,6 +41,8 @@
   // --- 窗口行为配置状态 ---
   let closeToTray = $state(false);
   let closeActionRemembered = $state(false);
+  let logRetentionDays = $state(15);
+  let logRetentionSaving = $state(false);
 
   // --- 更新检测状态 ---
   type CheckStatus = "idle" | "checking" | "has_update" | "up_to_date" | "error";
@@ -61,6 +63,7 @@
       const appSettings: any = await invoke("get_app_settings");
       closeToTray = appSettings.closeToTray || false;
       closeActionRemembered = appSettings.closeActionRemembered || false;
+      logRetentionDays = Number(appSettings.logRetentionDays) || 15;
 
       await checkEnvironment(false);
     } catch (e) { console.error("加载配置失败:", e); }
@@ -200,6 +203,25 @@
       toastStore.success("已重置关闭行为");
     } catch (e: any) {
       toastStore.error(`重置失败: ${e}`);
+    }
+  }
+
+  async function saveLogRetention() {
+    const days = Math.trunc(Number(logRetentionDays));
+    if (!Number.isFinite(days) || days < 1 || days > 3650) {
+      toastStore.error("日志保存时间必须在 1 到 3650 天之间");
+      return;
+    }
+
+    logRetentionSaving = true;
+    try {
+      const settings: any = await invoke("set_log_retention_days", { days });
+      logRetentionDays = Number(settings.logRetentionDays) || days;
+      toastStore.success("日志保存时间已保存");
+    } catch (e: any) {
+      toastStore.error(`保存失败: ${e}`);
+    } finally {
+      logRetentionSaving = false;
     }
   }
 
@@ -363,6 +385,45 @@
           <div class="rounded-xl border border-dashed border-[var(--border-hover)] bg-[var(--bg-primary)]/60 p-4">
             <p class="text-xs text-[var(--text-muted)]">
               提示：应用最小化到系统托盘后，可通过点击托盘图标或右键菜单重新打开窗口
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section class="overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] shadow-[var(--shadow-sm)]">
+        <div class="flex flex-col gap-3 border-b border-[var(--border)] bg-[var(--bg-secondary)]/70 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 class="text-base font-bold text-[var(--text-primary)]">日志保留</h2>
+            <p class="mt-1 text-xs text-[var(--text-muted)]">超过保存时间的软件、操作和游戏日志会自动清理</p>
+          </div>
+          <button
+            class="inline-flex items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-[var(--accent)] to-cyan-600 px-4 py-2 text-xs font-semibold text-white transition-all duration-[var(--transition-normal)] hover:from-cyan-500 hover:to-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50"
+            onclick={saveLogRetention}
+            disabled={logRetentionSaving}
+          >
+            {#if logRetentionSaving}
+              <div class="h-3.5 w-3.5 rounded-full border-2 border-white border-t-transparent animate-spin"></div>
+              保存中...
+            {:else}
+              保存
+            {/if}
+          </button>
+        </div>
+        <div class="grid gap-4 p-5 lg:grid-cols-[minmax(220px,320px)_1fr] lg:items-center">
+          <label class="block rounded-xl border border-[var(--border)] bg-[var(--bg-primary)]/65 p-4 transition-all duration-[var(--transition-normal)] focus-within:border-[var(--accent)] focus-within:bg-white">
+            <span class="mb-2 block text-xs font-semibold text-[var(--text-secondary)]">日志保存时间（天）</span>
+            <input
+              type="number"
+              bind:value={logRetentionDays}
+              min="1"
+              max="3650"
+              step="1"
+              class="w-full border-0 bg-transparent p-0 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none"
+            />
+          </label>
+          <div class="rounded-xl border border-dashed border-[var(--border-hover)] bg-[var(--bg-primary)]/60 p-4">
+            <p class="text-xs leading-relaxed text-[var(--text-muted)]">
+              后台调度器每天检查一次旧日志；修改后立即写入配置，下次清理会按新的天数执行。
             </p>
           </div>
         </div>

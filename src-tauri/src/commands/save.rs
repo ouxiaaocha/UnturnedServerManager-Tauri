@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
+use std::net::{TcpListener, UdpSocket};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -11,12 +12,36 @@ use tauri::State;
 
 use crate::services::config_service::ConfigService;
 use crate::services::log_service::LogService;
+use crate::services::process::ProcessManager;
 
 #[derive(Serialize)]
 pub struct SaveInfo {
     pub id: String,
     pub name: Option<String>,
     pub has_commands_dat: bool,
+}
+
+#[derive(Serialize)]
+pub struct SavePortInfo {
+    pub save_id: String,
+    pub name: Option<String>,
+    pub game_port: u16,
+    pub rcon_port: u16,
+}
+
+#[derive(Serialize)]
+pub struct SavePortIssue {
+    pub kind: String,
+    pub port: u16,
+    pub save_ids: Vec<String>,
+    pub message: String,
+}
+
+#[derive(Serialize)]
+pub struct SavePortCheckReport {
+    pub ok: bool,
+    pub saves: Vec<SavePortInfo>,
+    pub issues: Vec<SavePortIssue>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -144,6 +169,31 @@ fn validate_save_id(id: &str) -> Result<(), String> {
     crate::services::config_service::validate_id(id).map_err(|_| "存档 ID 包含非法字符".to_string())
 }
 
+fn resolve_delete_save_path(server_root: &str, save_id: &str) -> Result<PathBuf, String> {
+    validate_save_id(save_id)?;
+
+    let servers_dir = Path::new(server_root).join("Servers");
+    let save_dir = servers_dir.join(save_id);
+
+    if !save_dir.exists() {
+        return Err("存档不存在".to_string());
+    }
+
+    if !save_dir.is_dir() {
+        return Err("存档路径不是目录".to_string());
+    }
+
+    let servers_dir =
+        fs::canonicalize(&servers_dir).map_err(|e| format!("解析 Servers 目录失败: {}", e))?;
+    let save_dir = fs::canonicalize(&save_dir).map_err(|e| format!("解析存档目录失败: {}", e))?;
+
+    if !save_dir.starts_with(&servers_dir) || save_dir == servers_dir {
+        return Err("存档路径不安全".to_string());
+    }
+
+    Ok(save_dir)
+}
+
 fn resolve_save_dir(
     config: &ConfigService,
     save_id: &Option<String>,
@@ -153,6 +203,267 @@ fn resolve_save_dir(
     let server_id = save_id.clone().unwrap_or_else(|| profile.id.clone());
     validate_save_id(&server_id)?;
     Ok((profile.server_root.clone(), server_id))
+}
+
+fn resolve_server_root_and_fallback_rcon(config: &ConfigService) -> Result<(String, u16), String> {
+    let servers = config.load_servers_config();
+    let profile = servers.servers.first().ok_or("没有配置服务器")?;
+    Ok((profile.server_root.clone(), profile.rcon.port))
+}
+
+fn ensure_save_not_running(
+    process: &Arc<Mutex<ProcessManager>>,
+    save_id: &str,
+) -> Result<(), String> {
+    let mut pm = process.lock().unwrap_or_else(|e| e.into_inner());
+    if pm.is_running_for(save_id) {
+        return Err(format!(
+            "存档 {} 的服务器正在运行，请先停止后再修改",
+            save_id
+        ));
+    }
+    Ok(())
+}
+
+fn rocket_config_path(server_root: &str, save_id: &str) -> PathBuf {
+    Path::new(server_root)
+        .join("Servers")
+        .join(save_id)
+        .join("Rocket")
+        .join("Rocket.config.xml")
+}
+
+fn read_rocket_rcon_settings_actual(path: &Path) -> Option<(u16, String)> {
+    let content = fs::read_to_string(path).ok()?;
+    let mut port = None;
+    let mut password = String::new();
+
+    if let Some(start) = content.find("Port=\"") {
+        let after = start + 6;
+        if let Some(end) = content[after..].find('"') {
+            port = content[after..after + end].parse::<u16>().ok();
+        }
+    }
+
+    if let Some(start) = content.find("Password=\"") {
+        let after = start + 10;
+        if let Some(end) = content[after..].find('"') {
+            password = content[after..after + end]
+                .replace("&amp;", "&")
+                .replace("&quot;", "\"")
+                .replace("&lt;", "<")
+                .replace("&gt;", ">")
+                .replace("&apos;", "'");
+        }
+    }
+
+    Some((port?, password))
+}
+
+fn read_save_ports_for_report(
+    server_root: &str,
+    save: &SaveInfo,
+    fallback_rcon_port: u16,
+) -> SavePortInfo {
+    let commands_path = detect_commands_dat_path(server_root, &save.id);
+    let game_port = fs::read_to_string(&commands_path)
+        .ok()
+        .and_then(|content| parse_commands_dat(&content).port)
+        .unwrap_or(27015);
+    let rcon_port = read_rocket_rcon_settings_actual(&rocket_config_path(server_root, &save.id))
+        .map(|(port, _)| port)
+        .unwrap_or(fallback_rcon_port);
+
+    SavePortInfo {
+        save_id: save.id.clone(),
+        name: save.name.clone(),
+        game_port,
+        rcon_port,
+    }
+}
+
+fn is_udp_port_available(port: u16) -> bool {
+    UdpSocket::bind(("0.0.0.0", port)).is_ok()
+}
+
+fn is_tcp_port_available(port: u16) -> bool {
+    TcpListener::bind(("127.0.0.1", port)).is_ok()
+}
+
+fn build_port_report(
+    config: Arc<Mutex<ConfigService>>,
+    process: Option<Arc<Mutex<ProcessManager>>>,
+) -> Result<SavePortCheckReport, String> {
+    let (server_root, fallback_rcon_port) = {
+        let cfg = config.lock().unwrap_or_else(|e| e.into_inner());
+        resolve_server_root_and_fallback_rcon(&cfg)?
+    };
+
+    let saves = list_server_saves_blocking(config, Some(server_root.clone()));
+    let port_infos: Vec<SavePortInfo> = saves
+        .iter()
+        .map(|save| read_save_ports_for_report(&server_root, save, fallback_rcon_port))
+        .collect();
+    let mut issues = Vec::new();
+    let running_save_ids: HashSet<String> = process
+        .as_ref()
+        .map(|process| {
+            let mut pm = process.lock().unwrap_or_else(|e| e.into_inner());
+            pm.running_save_ids().into_iter().collect()
+        })
+        .unwrap_or_default();
+
+    let mut game_ports: HashMap<u16, Vec<String>> = HashMap::new();
+    let mut rcon_ports: HashMap<u16, Vec<String>> = HashMap::new();
+    for info in &port_infos {
+        game_ports
+            .entry(info.game_port)
+            .or_default()
+            .push(info.save_id.clone());
+        rcon_ports
+            .entry(info.rcon_port)
+            .or_default()
+            .push(info.save_id.clone());
+    }
+
+    for (port, save_ids) in game_ports {
+        if save_ids.len() > 1 {
+            issues.push(SavePortIssue {
+                kind: "duplicate_game".to_string(),
+                port,
+                message: format!("游戏端口 {} 被多个存档使用: {}", port, save_ids.join(", ")),
+                save_ids,
+            });
+        }
+    }
+
+    for (port, save_ids) in rcon_ports {
+        if save_ids.len() > 1 {
+            issues.push(SavePortIssue {
+                kind: "duplicate_rcon".to_string(),
+                port,
+                message: format!("RCON 端口 {} 被多个存档使用: {}", port, save_ids.join(", ")),
+                save_ids,
+            });
+        }
+    }
+
+    for info in &port_infos {
+        if running_save_ids.contains(&info.save_id) {
+            continue;
+        }
+        if !is_udp_port_available(info.game_port) {
+            issues.push(SavePortIssue {
+                kind: "occupied_game".to_string(),
+                port: info.game_port,
+                save_ids: vec![info.save_id.clone()],
+                message: format!("存档 {} 的游戏端口 {} 当前被系统占用", info.save_id, info.game_port),
+            });
+        }
+        if !is_tcp_port_available(info.rcon_port) {
+            issues.push(SavePortIssue {
+                kind: "occupied_rcon".to_string(),
+                port: info.rcon_port,
+                save_ids: vec![info.save_id.clone()],
+                message: format!("存档 {} 的 RCON 端口 {} 当前被系统占用", info.save_id, info.rcon_port),
+            });
+        }
+    }
+
+    Ok(SavePortCheckReport {
+        ok: issues.is_empty(),
+        saves: port_infos,
+        issues,
+    })
+}
+
+fn next_available_port(
+    start: u16,
+    used: &mut HashSet<u16>,
+    is_available: fn(u16) -> bool,
+) -> Result<u16, String> {
+    let mut port = start.max(1024);
+    while port < u16::MAX {
+        if !used.contains(&port) && is_available(port) {
+            used.insert(port);
+            return Ok(port);
+        }
+        port = port.saturating_add(1);
+    }
+    Err("没有找到可用端口".to_string())
+}
+
+fn write_commands_dat_port(server_root: &str, save_id: &str, port: u16) -> Result<(), String> {
+    let path = detect_commands_dat_path(server_root, save_id);
+    let existing_content = fs::read_to_string(&path).unwrap_or_default();
+    let existing_lines: Vec<String> = existing_content.lines().map(|line| line.to_string()).collect();
+    let mut info = parse_commands_dat(&existing_content);
+    info.port = Some(port);
+
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("创建 Commands.dat 目录失败: {}", e))?;
+    }
+    let content = build_commands_dat_lines(&existing_lines, &info).join("\n");
+    crate::services::config_service::atomic_write(&path, &content)
+        .map_err(|e| format!("写入 Commands.dat 失败: {}", e))
+}
+
+fn auto_assign_save_ports_blocking(
+    config: Arc<Mutex<ConfigService>>,
+    log: Arc<Mutex<LogService>>,
+    process: Arc<Mutex<ProcessManager>>,
+) -> Result<SavePortCheckReport, String> {
+    let (server_root, fallback_rcon_port) = {
+        let cfg = config.lock().unwrap_or_else(|e| e.into_inner());
+        resolve_server_root_and_fallback_rcon(&cfg)?
+    };
+    let saves = list_server_saves_blocking(config.clone(), Some(server_root.clone()));
+
+    let mut used_game = HashSet::new();
+    let mut used_rcon = HashSet::new();
+    let mut next_game = 27015;
+    let mut next_rcon = fallback_rcon_port.max(27115);
+
+    for save in &saves {
+        ensure_save_not_running(&process, &save.id)?;
+        let current = read_save_ports_for_report(&server_root, save, fallback_rcon_port);
+
+        let game_port = if used_game.contains(&current.game_port) || !is_udp_port_available(current.game_port) {
+            let assigned = next_available_port(next_game, &mut used_game, is_udp_port_available)?;
+            next_game = assigned.saturating_add(1);
+            assigned
+        } else {
+            used_game.insert(current.game_port);
+            current.game_port
+        };
+
+        let rcon_port = if used_rcon.contains(&current.rcon_port) || !is_tcp_port_available(current.rcon_port) {
+            let assigned = next_available_port(next_rcon, &mut used_rcon, is_tcp_port_available)?;
+            next_rcon = assigned.saturating_add(1);
+            assigned
+        } else {
+            used_rcon.insert(current.rcon_port);
+            current.rcon_port
+        };
+
+        if game_port != current.game_port {
+            write_commands_dat_port(&server_root, &save.id, game_port)?;
+        }
+
+        if rcon_port != current.rcon_port {
+            let rocket_path = rocket_config_path(&server_root, &save.id);
+            if let Some((_, password)) = read_rocket_rcon_settings_actual(&rocket_path) {
+                let _ = ConfigService::update_rocket_config(&server_root, &save.id, rcon_port, &password);
+            }
+        }
+    }
+
+    {
+        let ls = log.lock().unwrap_or_else(|e| e.into_inner());
+        ls.log_operation("自动分配存档端口");
+    }
+
+    build_port_report(config, Some(process))
 }
 
 pub(crate) fn parse_commands_dat(content: &str) -> CommandsDatInfo {
@@ -1175,6 +1486,74 @@ pub async fn list_server_saves(
     Ok(saves)
 }
 
+#[tauri::command(async)]
+pub async fn check_save_port_conflicts(
+    config: State<'_, Arc<Mutex<ConfigService>>>,
+    process: State<'_, Arc<Mutex<ProcessManager>>>,
+) -> Result<SavePortCheckReport, String> {
+    let config = config.inner().clone();
+    let process = process.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || build_port_report(config, Some(process)))
+        .await
+        .map_err(|e| format!("端口检测任务失败: {}", e))?
+}
+
+#[tauri::command(async)]
+pub async fn auto_assign_save_ports(
+    config: State<'_, Arc<Mutex<ConfigService>>>,
+    log: State<'_, Arc<Mutex<LogService>>>,
+    process: State<'_, Arc<Mutex<ProcessManager>>>,
+) -> Result<SavePortCheckReport, String> {
+    let config = config.inner().clone();
+    let log = log.inner().clone();
+    let process = process.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || auto_assign_save_ports_blocking(config, log, process))
+        .await
+        .map_err(|e| format!("自动分配端口任务失败: {}", e))?
+}
+
+#[tauri::command(async)]
+pub async fn delete_server_save(
+    config: State<'_, Arc<Mutex<ConfigService>>>,
+    log: State<'_, Arc<Mutex<LogService>>>,
+    process: State<'_, Arc<Mutex<ProcessManager>>>,
+    save_id: String,
+) -> Result<(), String> {
+    let save_id = save_id.trim().to_string();
+    if save_id.is_empty() {
+        return Err("请选择要删除的存档".to_string());
+    }
+
+    {
+        ensure_save_not_running(process.inner(), &save_id)?;
+    }
+
+    let config = config.inner().clone();
+    let log = log.inner().clone();
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let server_root = {
+            let cfg = config.lock().unwrap_or_else(|e| e.into_inner());
+            let servers_config = cfg.load_servers_config();
+            let profile = servers_config
+                .servers
+                .first()
+                .ok_or_else(|| "没有配置服务器".to_string())?;
+            profile.server_root.clone()
+        };
+
+        let save_dir = resolve_delete_save_path(&server_root, &save_id)?;
+        fs::remove_dir_all(&save_dir).map_err(|e| format!("删除存档失败: {}", e))?;
+
+        let ls = log.lock().unwrap_or_else(|e| e.into_inner());
+        ls.log_operation(&format!("删除存档: {}", save_id));
+
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("删除存档任务失败: {}", e))?
+}
+
 fn read_commands_dat_blocking(
     config: Arc<Mutex<ConfigService>>,
     save_id: Option<String>,
@@ -1222,6 +1601,7 @@ pub async fn read_commands_dat(
 pub fn save_commands_dat(
     config: State<'_, Arc<Mutex<ConfigService>>>,
     log: State<'_, Arc<Mutex<LogService>>>,
+    process: State<'_, Arc<Mutex<ProcessManager>>>,
     save_id: Option<String>,
     info: CommandsDatInfo,
 ) -> Result<String, String> {
@@ -1236,6 +1616,7 @@ pub fn save_commands_dat(
         };
         (sr, sid, rp, rpw)
     };
+    ensure_save_not_running(process.inner(), &server_id)?;
 
     let dir = Path::new(&server_root)
         .join("Servers")
@@ -1318,6 +1699,7 @@ pub async fn read_game_config(
 pub fn save_game_config(
     config: State<'_, Arc<Mutex<ConfigService>>>,
     log: State<'_, Arc<Mutex<LogService>>>,
+    process: State<'_, Arc<Mutex<ProcessManager>>>,
     save_id: Option<String>,
     source_hash: String,
     changes: Vec<GameConfigChange>,
@@ -1326,6 +1708,7 @@ pub fn save_game_config(
         let cfg = config.lock().unwrap_or_else(|e| e.into_inner());
         resolve_save_dir(&cfg, &save_id)?
     };
+    ensure_save_not_running(process.inner(), &server_id)?;
 
     if changes.is_empty() {
         return Ok("Config.txt 无变更".to_string());
@@ -1394,6 +1777,7 @@ pub async fn read_permissions_config(
 pub fn save_permissions_config(
     config: State<'_, Arc<Mutex<ConfigService>>>,
     log: State<'_, Arc<Mutex<LogService>>>,
+    process: State<'_, Arc<Mutex<ProcessManager>>>,
     save_id: Option<String>,
     permissions_config: PermissionsConfigInfo,
 ) -> Result<String, String> {
@@ -1401,6 +1785,7 @@ pub fn save_permissions_config(
         let cfg = config.lock().unwrap_or_else(|e| e.into_inner());
         resolve_save_dir(&cfg, &save_id)?
     };
+    ensure_save_not_running(process.inner(), &server_id)?;
 
     let path = permissions_config_path(&server_root, &server_id);
     save_permissions_config_to_path(&path, permissions_config).map_err(|e| {
@@ -1659,6 +2044,7 @@ pub async fn read_rocket_rcon_config(
 pub fn save_rocket_rcon_config(
     config: State<'_, Arc<Mutex<ConfigService>>>,
     log: State<'_, Arc<Mutex<LogService>>>,
+    process: State<'_, Arc<Mutex<ProcessManager>>>,
     save_id: Option<String>,
     port: u16,
     password: String,
@@ -1667,6 +2053,7 @@ pub fn save_rocket_rcon_config(
         let cfg = config.lock().unwrap_or_else(|e| e.into_inner());
         resolve_save_dir(&cfg, &save_id)?
     };
+    ensure_save_not_running(process.inner(), &server_id)?;
 
     // 密码为空时表示保留原密码，从现有配置中读取
     let actual_password = if password.is_empty() {
@@ -1813,6 +2200,7 @@ pub async fn read_workshop_config(
 pub fn save_workshop_config(
     config: State<'_, Arc<Mutex<ConfigService>>>,
     log: State<'_, Arc<Mutex<LogService>>>,
+    process: State<'_, Arc<Mutex<ProcessManager>>>,
     save_id: Option<String>,
     workshop_config: WorkshopDownloadConfig,
 ) -> Result<String, String> {
@@ -1820,6 +2208,7 @@ pub fn save_workshop_config(
         let cfg = config.lock().unwrap_or_else(|e| e.into_inner());
         resolve_save_dir(&cfg, &save_id)?
     };
+    ensure_save_not_running(process.inner(), &server_id)?;
 
     let path = workshop_config_path(&server_root, &server_id);
 
@@ -1934,6 +2323,37 @@ pub fn open_url(url: String) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn unique_temp_dir(prefix: &str) -> PathBuf {
+        let suffix = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!("{}_{}", prefix, suffix))
+    }
+
+    #[test]
+    fn resolve_delete_save_path_accepts_existing_save_directory() {
+        let root = unique_temp_dir("usm_delete_save_ok");
+        let save_dir = root.join("Servers").join("Save_1");
+        fs::create_dir_all(&save_dir).unwrap();
+
+        let resolved = resolve_delete_save_path(root.to_str().unwrap(), "Save_1").unwrap();
+
+        assert_eq!(resolved, fs::canonicalize(&save_dir).unwrap());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn resolve_delete_save_path_rejects_path_traversal() {
+        let root = unique_temp_dir("usm_delete_save_traversal");
+        fs::create_dir_all(root.join("Servers")).unwrap();
+
+        let err = resolve_delete_save_path(root.to_str().unwrap(), "../outside").unwrap_err();
+
+        assert_eq!(err, "存档 ID 包含非法字符");
+        let _ = fs::remove_dir_all(root);
+    }
 
     #[test]
     fn build_commands_dat_lines_uses_bare_flags_and_omits_disabled_flags() {

@@ -25,6 +25,11 @@
   let loaded = $state(false);
   let isMaximized = $state(false);
   let showCloseDialog = $state(false);
+  let portCheckReport = $state<any | null>(null);
+  let portAutoAssigning = $state(false);
+  let showRunningQuitDialog = $state(false);
+  let runningQuitServers = $state<any[]>([]);
+  let runningQuitResolve: ((value: boolean) => void) | null = null;
 
   const navItems = [
     { id: "dashboard", label: "仪表盘", icon: "M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" },
@@ -43,6 +48,7 @@
       showWizard = isFirst;
       if (!isFirst) {
         void checkRuntimeEnvironmentOnStartup();
+        void checkPortConflictsOnStartup();
       }
     } catch {
       showWizard = true;
@@ -53,6 +59,53 @@
   function onWizardComplete() {
     showWizard = false;
     void checkRuntimeEnvironmentOnStartup();
+    void checkPortConflictsOnStartup();
+  }
+
+  async function checkPortConflictsOnStartup() {
+    if (!isTauriRuntime()) return;
+    try {
+      const report: any = await invoke("check_save_port_conflicts");
+      if (report && !report.ok && Array.isArray(report.issues) && report.issues.length > 0) {
+        portCheckReport = report;
+      }
+    } catch (e) {
+      console.error("端口检测失败:", e);
+    }
+  }
+
+  function portIssueLabel(issue: any) {
+    return issue?.message || `端口 ${issue?.port ?? "--"} 存在冲突`;
+  }
+
+  async function handleManualPortFix() {
+    const saveId = portCheckReport?.issues?.[0]?.save_ids?.[0] || portCheckReport?.saves?.[0]?.save_id || "";
+    if (saveId) {
+      const { setSelectedSaveId, setSaveActiveTab } = await import("./lib/stores.svelte");
+      setSelectedSaveId(saveId);
+      setSaveActiveTab("save");
+    }
+    currentPage = "save";
+    portCheckReport = null;
+    toastStore.info("已切换到存档配置，请调整 Commands.dat 游戏端口和 RCON 端口");
+  }
+
+  async function handleAutoAssignPorts() {
+    if (portAutoAssigning) return;
+    portAutoAssigning = true;
+    try {
+      const report: any = await invoke("auto_assign_save_ports");
+      portCheckReport = report && !report.ok ? report : null;
+      if (report?.ok) {
+        toastStore.success("端口已自动分配完成");
+      } else {
+        toastStore.error("自动分配后仍有端口问题，请手动检查");
+      }
+    } catch (e: any) {
+      toastStore.error(`自动分配失败: ${e}`);
+    } finally {
+      portAutoAssigning = false;
+    }
   }
 
   async function checkRuntimeEnvironmentOnStartup() {
@@ -178,7 +231,7 @@
         if (settings.closeToTray) {
           await invoke("hide_window_to_tray");
         } else {
-          await invoke("quit_app");
+          await quitWithRunningServersGuard();
         }
       }
     } catch (e) {
@@ -188,6 +241,11 @@
 
   async function handleCloseConfirm(closeToTray: boolean, remember: boolean) {
     try {
+      if (!closeToTray) {
+        const canQuit = await confirmAndStopRunningServers();
+        if (!canQuit) return;
+      }
+
       await invoke("save_close_preference", {
         closeToTray,
         remember
@@ -208,6 +266,65 @@
 
   function handleCloseCancel() {
     showCloseDialog = false;
+  }
+
+  function runningServerLabel(server: any) {
+    const saveId = server?.save_id || "未知存档";
+    const pid = server?.pid ? ` (PID ${server.pid})` : "";
+    return `${saveId}${pid}`;
+  }
+
+  async function confirmAndStopRunningServers() {
+    let servers: any[] = [];
+    try {
+      servers = await invoke("list_running_servers") as any[];
+    } catch (e: any) {
+      toastStore.error(`检查运行服务器失败: ${e}`);
+      return false;
+    }
+
+    if (servers.length === 0) return true;
+
+    const confirmed = await requestRunningQuitConfirm(servers);
+    if (!confirmed) return false;
+
+    toastStore.info("正在关闭运行中的服务器...");
+    for (const server of servers) {
+      const saveId = server.save_id || "";
+      try {
+        await invoke("stop_server", { saveId });
+      } catch {
+        try {
+          await invoke("force_stop_server", { saveId });
+        } catch (e: any) {
+          toastStore.error(`关闭服务器 ${saveId || "默认"} 失败: ${e}`);
+          return false;
+        }
+      }
+    }
+
+    return true;
+  }
+
+  function requestRunningQuitConfirm(servers: any[]) {
+    runningQuitServers = servers;
+    showRunningQuitDialog = true;
+    return new Promise<boolean>((resolve) => {
+      runningQuitResolve = resolve;
+    });
+  }
+
+  function resolveRunningQuitConfirm(value: boolean) {
+    showRunningQuitDialog = false;
+    runningQuitResolve?.(value);
+    runningQuitResolve = null;
+  }
+
+  async function quitWithRunningServersGuard() {
+    const canQuit = await confirmAndStopRunningServers();
+    if (canQuit) {
+      await invoke("quit_app");
+    }
   }
 
   onMount(() => {
@@ -374,6 +491,95 @@
 {/if}
 
 <Toast />
+{#if portCheckReport}
+  <div class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/45 p-4 backdrop-blur-sm">
+    <div class="w-full max-w-xl rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-6 shadow-[var(--shadow-lg)]">
+      <div class="flex items-start gap-4">
+        <div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-[var(--warning-glow)] text-[var(--warning)]">
+          <svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M12 9v4m0 4h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+          </svg>
+        </div>
+        <div class="min-w-0 flex-1">
+          <h3 class="text-lg font-bold text-[var(--text-primary)]">检测到端口问题</h3>
+          <p class="mt-1 text-sm text-[var(--text-secondary)]">多服务器运行需要避免游戏端口和 RCON 端口冲突。</p>
+        </div>
+      </div>
+
+      <div class="mt-5 max-h-64 space-y-2 overflow-y-auto pr-1">
+        {#each portCheckReport.issues as issue}
+          <div class="rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-3">
+            <p class="text-sm font-medium text-[var(--text-primary)]">{portIssueLabel(issue)}</p>
+            <p class="mt-1 text-xs text-[var(--text-muted)]">关联存档：{issue.save_ids?.join(", ") || "--"}</p>
+          </div>
+        {/each}
+      </div>
+
+      <div class="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+        <button
+          class="rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-2 text-sm font-medium text-[var(--text-secondary)] transition-all hover:border-[var(--accent)] hover:text-[var(--text-primary)]"
+          onclick={handleManualPortFix}
+          disabled={portAutoAssigning}
+        >
+          自己修改
+        </button>
+        <button
+          class="rounded-lg bg-gradient-to-r from-[var(--accent)] to-cyan-600 px-4 py-2 text-sm font-medium text-white transition-all hover:from-cyan-500 hover:to-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50"
+          onclick={handleAutoAssignPorts}
+          disabled={portAutoAssigning}
+        >
+          {portAutoAssigning ? "分配中..." : "自动分配端口"}
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
+{#if showRunningQuitDialog}
+  <div class="fixed inset-0 z-[10001] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+    <div class="w-full max-w-lg rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-6 shadow-[var(--shadow-lg)]">
+      <div class="flex items-start gap-4">
+        <div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-[var(--danger-glow)] text-[var(--danger)]">
+          <svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.9" d="M12 9v4m0 4h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+          </svg>
+        </div>
+        <div class="min-w-0 flex-1">
+          <h3 class="text-lg font-bold text-[var(--text-primary)]">仍有服务器正在运行</h3>
+          <p class="mt-1 text-sm text-[var(--text-secondary)]">退出软件前会先关闭下面的服务器。</p>
+        </div>
+      </div>
+
+      <div class="mt-5 max-h-56 space-y-2 overflow-y-auto pr-1">
+        {#each runningQuitServers as server}
+          <div class="flex min-w-0 items-center justify-between gap-3 rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-3">
+            <div class="flex min-w-0 items-center gap-2">
+              <span class="h-2.5 w-2.5 shrink-0 rounded-full bg-[var(--success)]"></span>
+              <p class="truncate text-sm font-medium text-[var(--text-primary)]" title={runningServerLabel(server)}>{server?.save_id || "未知存档"}</p>
+            </div>
+            <span class="shrink-0 rounded-md bg-[var(--bg-elevated)] px-2 py-1 font-mono text-xs text-[var(--text-muted)]">
+              PID {server?.pid ?? "--"}
+            </span>
+          </div>
+        {/each}
+      </div>
+
+      <div class="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+        <button
+          class="rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-2 text-sm font-medium text-[var(--text-secondary)] transition-all hover:border-[var(--accent)] hover:text-[var(--text-primary)]"
+          onclick={() => resolveRunningQuitConfirm(false)}
+        >
+          取消
+        </button>
+        <button
+          class="rounded-lg bg-gradient-to-r from-[var(--danger)] to-rose-600 px-4 py-2 text-sm font-medium text-white transition-all hover:from-rose-500 hover:to-[var(--danger)]"
+          onclick={() => resolveRunningQuitConfirm(true)}
+        >
+          关闭服务器并退出
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
 <CloseConfirmDialog
   bind:show={showCloseDialog}
   onConfirm={handleCloseConfirm}

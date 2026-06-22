@@ -27,6 +27,7 @@ pub struct RconClient {
     stream: Option<Arc<Mutex<TcpStream>>>,
     responses: Arc<Mutex<Vec<String>>>,
     reader_alive: Arc<AtomicBool>,
+    connected_save_id: Option<String>,
 }
 
 impl RconClient {
@@ -35,6 +36,7 @@ impl RconClient {
             stream: None,
             responses: Arc::new(Mutex::new(Vec::new())),
             reader_alive: Arc::new(AtomicBool::new(false)),
+            connected_save_id: None,
         }
     }
 
@@ -152,6 +154,18 @@ impl RconClient {
         std::mem::take(&mut *responses)
     }
 
+    pub fn set_connected_save_id(&mut self, save_id: String) {
+        self.connected_save_id = Some(save_id);
+    }
+
+    pub fn connected_save_id(&self) -> Option<String> {
+        if self.is_connected() {
+            self.connected_save_id.clone()
+        } else {
+            None
+        }
+    }
+
     pub fn disconnect(&mut self) {
         // 关闭 TCP 连接，使读线程的 read 操作返回错误并退出
         if let Some(ref stream) = self.stream {
@@ -160,6 +174,7 @@ impl RconClient {
             }
         }
         self.stream = None;
+        self.connected_save_id = None;
         self.reader_alive.store(false, Ordering::SeqCst);
     }
 

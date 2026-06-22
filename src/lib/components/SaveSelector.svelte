@@ -9,7 +9,7 @@
   }: {
     saves: { id: string; name?: string }[];
     value?: string;
-    onChange?: () => void;
+    onChange?: (value: string) => void;
     placeholder?: string;
   } = $props();
 

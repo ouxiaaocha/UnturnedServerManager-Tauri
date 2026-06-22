@@ -1,7 +1,7 @@
 ﻿<script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
-  import { formatBytes, copyToClipboard } from "$lib/utils";
-  import { appState, sharedSaves, loadSharedSaves, sharedSettings, loadSharedSettings, toggleAutoUpdateHosting, serverInfo, serverState, serverLogs, refreshServerStatus, clearServerLogs } from "$lib/stores.svelte";
+  import { formatBytes, formatUptime, copyToClipboard } from "$lib/utils";
+  import { appState, uiPreferences, setSelectedSaveId, ensureSelectedSaveId, sharedSaves, loadSharedSaves, sharedSettings, loadSharedSettings, toggleAutoUpdateHosting, serverInfo, serverState, serverLogs, runningServers, refreshServerStatus, clearServerLogs, setServerLoading, syncSelectedServerRuntime, serverView, selectRunningServer, getServerInfoForSave, resetServerInfoForSave, serverStatesBySave, serverInfoBySave } from "$lib/stores.svelte";
   import { toastStore } from "../stores/toast.svelte";
   import { createPoller } from "../utils/polling.svelte";
   import SaveSelector from "../components/SaveSelector.svelte";
@@ -11,8 +11,18 @@
   let uptime = $derived(serverState.uptime);
   let pid = $derived(serverState.pid);
   let loading = $derived(serverState.loading);
+  let runningCount = $derived(runningServers.length);
 
-  let selectedSaveId = $state("");
+  let selectedSaveId = $derived(uiPreferences.selectedSaveId);
+  let selectedRunningSaveId = $derived(serverView.selectedRunningSaveId);
+  let viewingSaveId = $derived(selectedRunningSaveId || selectedSaveId);
+  let selectedRunningServer = $derived(runningServers.find((server) => server.save_id === selectedRunningSaveId));
+  const emptyServerInfo = { serverCode: "", port: 0, portLoading: false, codeParsed: false };
+  let viewingServerInfo = $derived(serverInfoBySave[viewingSaveId || "__default__"] ?? emptyServerInfo);
+  let launchSaveRuntime = $derived(serverStatesBySave[selectedSaveId || "__default__"]);
+  let launchSaveLoading = $derived(launchSaveRuntime?.loading ?? "");
+  let selectedSaveRunning = $derived(runningServers.some((server) => server.save_id === selectedSaveId));
+  let launchModeLocked = $derived(selectedSaveRunning || launchSaveLoading !== "");
   let autoUpdateSaving = $state(false);
   let autoUpdateMessage = $state("");
 
@@ -25,11 +35,7 @@
   let totalDown = $state(0);
   let totalUp = $state(0);
 
-  // 缓存：避免每次渲染都遍历存档列表
-  let cachedSaveName = "";
-  let cachedSaveId = "";
-
-  let parsedExistingLogsForCode = false;
+  let parsedExistingLogsForCodeBySave = $state<Record<string, boolean>>({});
 
   // Non-reactive variables for internal state tracking
   let prevNetDown = 0;
@@ -41,7 +47,7 @@
   // 轮询管理器
   const poller = createPoller({
     pollFn: pollAll,
-    isActive: () => serverState.loading !== "" || serverState.status === "运行中",
+    isActive: () => serverState.loading !== "" || serverState.status === "运行中" || runningServers.length > 0,
   });
 
   function formatRate(bytesPerSec: number): string {
@@ -59,9 +65,12 @@
 
   async function loadSaves() {
     await loadSharedSaves();
-    if (sharedSaves.length > 0 && !selectedSaveId) {
-      selectedSaveId = sharedSaves[0].id;
-    }
+    ensureSelectedSaveId(sharedSaves);
+  }
+
+  function handleSelectedSaveChange(value: string) {
+    setSelectedSaveId(value);
+    pollAll();
   }
 
   async function handleToggleAutoUpdate() {
@@ -86,43 +95,45 @@
     serverInfo.ipLoading = false;
   }
 
-  async function fetchServerPort() {
-    if (serverInfo.port || serverInfo.portLoading) return;
-    serverInfo.portLoading = true;
+  async function fetchServerPort(saveId = viewingSaveId) {
+    const info = getServerInfoForSave(saveId);
+    if (info.port || info.portLoading) return;
+    info.portLoading = true;
     try {
-      serverInfo.port = await invoke("get_server_port", { saveId: serverInfo.runningSaveId || null });
+      info.port = await invoke("get_server_port", { saveId: saveId || null });
     } catch {
-      serverInfo.port = 27015;
+      info.port = 27015;
     }
-    serverInfo.portLoading = false;
+    info.portLoading = false;
   }
 
-  function parseServerCode(lines: string[]) {
+  function parseServerCode(lines: string[], saveId = viewingSaveId) {
+    const info = getServerInfoForSave(saveId);
     for (const line of lines) {
       const match = line.match(/Server Code:\s*(\d+)/);
       if (match) {
-        serverInfo.serverCode = match[1];
-        serverInfo.codeParsed = true;
+        info.serverCode = match[1];
+        info.codeParsed = true;
         break;
       }
     }
   }
 
-  function getRunningSaveName(): string {
-    if (!serverInfo.runningSaveId) {
-      cachedSaveName = "";
-      cachedSaveId = "";
-      return "";
-    }
-    // 仅在 ID 变化时重新查找
-    if (serverInfo.runningSaveId !== cachedSaveId) {
-      cachedSaveId = serverInfo.runningSaveId;
-      const save = sharedSaves.find((s: any) => s.id === serverInfo.runningSaveId);
-      cachedSaveName = save
-        ? (save.name ? `${save.id} - ${save.name}` : save.id)
-        : serverInfo.runningSaveId;
-    }
-    return cachedSaveName;
+  function getSaveName(saveId: string): string {
+    if (!saveId) return "";
+    const save = sharedSaves.find((s: any) => s.id === saveId);
+    return save ? (save.name ? `${save.id} - ${save.name}` : save.id) : saveId;
+  }
+
+  function formatLaunchMode(mode: string): string {
+    return mode === "lan" ? "局域网" : "互联网";
+  }
+
+  async function handleRunningServerSelect(saveId: string) {
+    if (saveId === selectedRunningSaveId) return;
+    selectRunningServer(saveId);
+    parsedExistingLogsForCodeBySave[saveId] = false;
+    await refreshStatus();
   }
 
   async function handleCopyToClipboard(text: string) {
@@ -136,30 +147,23 @@
 
   async function refreshStatus() {
     try {
-      const newLines = await refreshServerStatus();
+      const targetSaveId = viewingSaveId;
+      const newLines = await refreshServerStatus(targetSaveId);
+      const activeSaveId = serverView.selectedRunningSaveId || targetSaveId;
+      const activeInfo = getServerInfoForSave(activeSaveId);
 
       if (serverState.status === "运行中") {
-        // 记录当前运行的存档 ID
-        if (!serverInfo.runningSaveId) {
-          serverInfo.runningSaveId = selectedSaveId;
-        }
         fetchPublicIp();
-        fetchServerPort();
-        if (!serverInfo.codeParsed) {
-          parseServerCode(newLines);
+        fetchServerPort(activeSaveId);
+        if (!activeInfo.codeParsed) {
+          parseServerCode(newLines, activeSaveId);
         }
-        if (!serverInfo.codeParsed && !parsedExistingLogsForCode) {
-          parsedExistingLogsForCode = true;
-          parseServerCode(serverLogs.map((log) => log.text));
+        if (!activeInfo.codeParsed && !parsedExistingLogsForCodeBySave[activeSaveId]) {
+          parsedExistingLogsForCodeBySave[activeSaveId] = true;
+          parseServerCode(serverLogs.map((log) => log.text), activeSaveId);
         }
       } else if (serverState.status !== "启动中") {
-        // 服务器完全停止后清除信息
-        serverInfo.serverCode = "";
-        serverInfo.publicIp = "";
-        serverInfo.port = 0;
-        serverInfo.runningSaveId = "";
-        serverInfo.codeParsed = false;
-        parsedExistingLogsForCode = false;
+        resetServerInfoForSave(targetSaveId);
       }
     } catch (e) { console.error("刷新服务器状态失败:", e); }
   }
@@ -197,48 +201,49 @@
   }
 
   async function startServer() {
-    serverState.loading = "starting";
-    clearServerLogs();
-    serverInfo.codeParsed = false;
-    parsedExistingLogsForCode = false;
+    setServerLoading(selectedSaveId, "starting");
+    clearServerLogs(selectedSaveId);
+    resetServerInfoForSave(selectedSaveId);
+    parsedExistingLogsForCodeBySave[selectedSaveId] = false;
     try {
       await invoke("start_server", {
         saveId: selectedSaveId || null,
         launchMode: appState.launchMode,
       });
-      // 记录本次启动的存档 ID
-      serverInfo.runningSaveId = selectedSaveId;
     } catch (e: any) {
       toastStore.error(`${e}`);
     }
-    serverState.loading = "";
+    setServerLoading(selectedSaveId, "");
     await refreshStatus();
   }
 
   async function stopServer() {
-    serverState.loading = "stopping";
+    const targetSaveId = viewingSaveId;
+    setServerLoading(targetSaveId, "stopping");
     try {
-      await invoke("stop_server");
+      await invoke("stop_server", { saveId: targetSaveId || null });
+      resetServerInfoForSave(targetSaveId);
     } catch (e: any) {
       toastStore.error(`${e}`);
     }
-    serverState.loading = "";
+    setServerLoading(targetSaveId, "");
     await refreshStatus();
   }
 
   async function restartServer() {
-    serverState.loading = "restarting";
-    serverInfo.codeParsed = false;
-    parsedExistingLogsForCode = false;
+    const targetSaveId = viewingSaveId;
+    setServerLoading(targetSaveId, "restarting");
+    resetServerInfoForSave(targetSaveId);
+    parsedExistingLogsForCodeBySave[targetSaveId] = false;
     try {
       await invoke("restart_server", {
-        saveId: selectedSaveId || null,
-        launchMode: appState.launchMode,
+        saveId: targetSaveId || null,
+        launchMode: selectedRunningServer?.launch_mode || appState.launchMode,
       });
     } catch (e: any) {
       toastStore.error(`${e}`);
     }
-    serverState.loading = "";
+    setServerLoading(targetSaveId, "");
     await refreshStatus();
   }
 
@@ -267,6 +272,12 @@
       poller.stop();
     };
   });
+
+  $effect(() => {
+    if (selectedSaveId && !selectedRunningSaveId) {
+      syncSelectedServerRuntime(selectedSaveId);
+    }
+  });
 </script>
 
 <div>
@@ -278,6 +289,9 @@
     <div class="flex items-center gap-2 px-4 py-2 rounded-lg bg-[var(--bg-card)] border border-[var(--border)]">
       <div class="w-2 h-2 rounded-full {status === '运行中' ? 'bg-[var(--success)] animate-pulse' : status === '错误' ? 'bg-[var(--danger)]' : 'bg-[var(--text-muted)]'}"></div>
       <span class="text-sm text-[var(--text-secondary)]">{status}</span>
+      {#if runningCount > 0}
+        <span class="text-xs text-[var(--text-muted)]">运行 {runningCount}</span>
+      {/if}
     </div>
   </div>
 
@@ -321,7 +335,7 @@
     </div>
   </div>
 
-  {#if status === '运行中'}
+  {#if runningCount > 0}
   <div class="mb-8">
     <h2 class="text-base font-semibold text-[var(--text-primary)] mb-5 flex items-center gap-2">
       <svg class="w-5 h-5 text-[var(--accent-light)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -329,6 +343,48 @@
       </svg>
       服务器信息
     </h2>
+    <div class="mb-4 {runningCount > 6 ? 'max-h-[360px] overflow-y-auto pr-1' : ''}">
+      <div class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+        {#each runningServers as server (server.save_id)}
+          <button
+            type="button"
+            onclick={() => handleRunningServerSelect(server.save_id)}
+            title={getSaveName(server.save_id)}
+            class="min-h-[132px] rounded-xl border p-4 text-left transition-all duration-[var(--transition-normal)] cursor-pointer {server.save_id === selectedRunningSaveId ? 'border-[var(--accent)] bg-[var(--accent-subtle)] shadow-[var(--shadow-md)]' : 'border-[var(--border)] bg-[var(--bg-card)] hover:border-[var(--border-hover)] hover:bg-[var(--bg-card-hover)]'}"
+          >
+            <div class="flex min-w-0 items-start justify-between gap-3">
+              <div class="min-w-0">
+                <div class="flex items-center gap-2">
+                  <span class="h-2.5 w-2.5 shrink-0 rounded-full bg-[var(--success)] animate-pulse"></span>
+                  <p class="truncate text-sm font-semibold text-[var(--text-primary)]">{getSaveName(server.save_id)}</p>
+                </div>
+                <p class="mt-1 text-xs text-[var(--text-muted)]">{formatLaunchMode(server.launch_mode)}</p>
+              </div>
+              <span class="shrink-0 rounded-md bg-[var(--success-glow)] px-2 py-1 text-xs font-medium text-[var(--success)]">{server.state}</span>
+            </div>
+            <div class="mt-4 grid grid-cols-2 gap-2 text-xs">
+              <div class="min-w-0 rounded-lg bg-[var(--bg-primary)] px-3 py-2">
+                <p class="text-[var(--text-muted)]">PID</p>
+                <p class="truncate font-mono font-semibold text-[var(--text-primary)]">{server.pid ?? '--'}</p>
+              </div>
+              <div class="min-w-0 rounded-lg bg-[var(--bg-primary)] px-3 py-2">
+                <p class="text-[var(--text-muted)]">运行</p>
+                <p class="truncate font-semibold text-[var(--text-primary)]">{formatUptime(server.uptime_secs)}</p>
+              </div>
+              <div class="min-w-0 rounded-lg bg-[var(--bg-primary)] px-3 py-2">
+                <p class="text-[var(--text-muted)]">输出</p>
+                <p class="truncate font-semibold text-[var(--text-primary)]">{server.output_count} 行</p>
+              </div>
+              <div class="min-w-0 rounded-lg bg-[var(--bg-primary)] px-3 py-2">
+                <p class="text-[var(--text-muted)]">查看</p>
+                <p class="truncate font-semibold {server.save_id === selectedRunningSaveId ? 'text-[var(--accent-light)]' : 'text-[var(--text-primary)]'}">{server.save_id === selectedRunningSaveId ? '当前' : '切换'}</p>
+              </div>
+            </div>
+          </button>
+        {/each}
+      </div>
+    </div>
+
     <div class="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-6">
       <!-- 当前存档 -->
       <div class="flex items-center gap-3 mb-5 pb-5 border-b border-[var(--border)]">
@@ -339,11 +395,11 @@
         </div>
         <div class="flex-1 min-w-0">
           <p class="text-xs text-[var(--text-muted)] mb-1">当前运行存档</p>
-          <p class="text-lg font-bold text-[var(--text-primary)] truncate">{getRunningSaveName() || '--'}</p>
+          <p class="text-lg font-bold text-[var(--text-primary)] truncate">{getSaveName(viewingSaveId) || '--'}</p>
         </div>
         <div class="flex items-center gap-2">
-          <div class="w-10 h-10 rounded-lg flex items-center justify-center {appState.launchMode === 'internet' ? 'bg-[var(--accent-subtle)]' : 'bg-[var(--success-glow)]'}">
-            {#if appState.launchMode === 'internet'}
+          <div class="w-10 h-10 rounded-lg flex items-center justify-center {(selectedRunningServer?.launch_mode || appState.launchMode) === 'internet' ? 'bg-[var(--accent-subtle)]' : 'bg-[var(--success-glow)]'}">
+            {#if (selectedRunningServer?.launch_mode || appState.launchMode) === 'internet'}
               <svg class="w-5 h-5 text-[var(--accent-light)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
               </svg>
@@ -355,8 +411,8 @@
           </div>
           <div>
             <p class="text-xs text-[var(--text-muted)] mb-1">启动方式</p>
-            <p class="text-sm font-bold {appState.launchMode === 'internet' ? 'text-[var(--accent-light)]' : 'text-[var(--success)]'}">
-              {appState.launchMode === 'internet' ? '互联网' : '局域网'}
+            <p class="text-sm font-bold {(selectedRunningServer?.launch_mode || appState.launchMode) === 'internet' ? 'text-[var(--accent-light)]' : 'text-[var(--success)]'}">
+              {formatLaunchMode(selectedRunningServer?.launch_mode || appState.launchMode)}
             </p>
           </div>
         </div>
@@ -369,12 +425,12 @@
             <p class="text-xs text-[var(--text-muted)] mb-1">连接地址</p>
             <p class="text-lg font-mono font-bold text-[var(--text-primary)]">
               {serverInfo.ipLoading ? '获取中...' : (serverInfo.publicIp || '--')}
-              {#if serverInfo.port}<span class="text-[var(--text-muted)]">:{serverInfo.port}</span>{/if}
+              {#if viewingServerInfo.port}<span class="text-[var(--text-muted)]">:{viewingServerInfo.port}</span>{/if}
             </p>
           </div>
           <button
-            onclick={() => handleCopyToClipboard(`${serverInfo.publicIp}:${serverInfo.port}`)}
-            disabled={!serverInfo.publicIp || serverInfo.ipLoading}
+            onclick={() => handleCopyToClipboard(`${serverInfo.publicIp}:${viewingServerInfo.port}`)}
+            disabled={!serverInfo.publicIp || serverInfo.ipLoading || !viewingServerInfo.port}
             class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg hover:border-[var(--accent)] hover:text-[var(--accent-light)] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -394,12 +450,12 @@
           <div class="flex-1 min-w-0">
             <p class="text-xs text-[var(--text-muted)] mb-1">联机码</p>
             <p class="text-lg font-mono font-bold text-[var(--text-primary)] truncate">
-              {serverInfo.serverCode || '等待服务器输出...'}
+              {viewingServerInfo.serverCode || '等待服务器输出...'}
             </p>
           </div>
           <button
-            onclick={() => handleCopyToClipboard(serverInfo.serverCode)}
-            disabled={!serverInfo.serverCode}
+            onclick={() => handleCopyToClipboard(viewingServerInfo.serverCode)}
+            disabled={!viewingServerInfo.serverCode}
             class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg hover:border-[var(--accent)] hover:text-[var(--accent-light)] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ml-4"
           >
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -495,18 +551,20 @@
     <div class="flex flex-col gap-4 mb-5 pb-5 border-b border-[var(--border)] lg:flex-row lg:items-center">
       <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
         <span class="text-xs text-[var(--text-muted)]">存档:</span>
-        <SaveSelector saves={sharedSaves} bind:value={selectedSaveId} />
+        <SaveSelector saves={sharedSaves} bind:value={uiPreferences.selectedSaveId} onChange={handleSelectedSaveChange} />
       </div>
       <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
         <span class="text-xs text-[var(--text-muted)]">模式:</span>
         <div class="flex rounded-lg overflow-hidden border border-[var(--border)]">
           <button
-            class="px-3 py-1.5 text-xs font-medium transition-all cursor-pointer {appState.launchMode === 'internet' ? 'bg-[var(--accent)] text-[var(--text-primary)]' : 'bg-[var(--bg-primary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}"
+            class="px-3 py-1.5 text-xs font-medium transition-all disabled:cursor-not-allowed disabled:opacity-50 {launchModeLocked ? '' : 'cursor-pointer'} {appState.launchMode === 'internet' ? 'bg-[var(--accent)] text-[var(--text-primary)]' : 'bg-[var(--bg-primary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}"
             onclick={() => appState.launchMode = 'internet'}
+            disabled={launchModeLocked}
           >互联网</button>
           <button
-            class="px-3 py-1.5 text-xs font-medium transition-all cursor-pointer {appState.launchMode === 'lan' ? 'bg-[var(--accent)] text-[var(--text-primary)]' : 'bg-[var(--bg-primary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}"
+            class="px-3 py-1.5 text-xs font-medium transition-all disabled:cursor-not-allowed disabled:opacity-50 {launchModeLocked ? '' : 'cursor-pointer'} {appState.launchMode === 'lan' ? 'bg-[var(--accent)] text-[var(--text-primary)]' : 'bg-[var(--bg-primary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}"
             onclick={() => appState.launchMode = 'lan'}
+            disabled={launchModeLocked}
           >局域网</button>
         </div>
       </div>
@@ -533,9 +591,9 @@
       <button
         class="flex-1 px-6 py-3 bg-gradient-to-r from-[var(--success)] to-emerald-600 hover:from-emerald-500 hover:to-[var(--success)] text-[var(--text-primary)] text-sm font-medium rounded-lg transition-all duration-[var(--transition-normal)] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer flex items-center justify-center gap-2 shadow-lg shadow-[var(--success-glow)]"
         onclick={startServer}
-        disabled={status === '运行中' || loading !== ''}
+        disabled={!selectedSaveId || selectedSaveRunning || launchSaveLoading !== ''}
       >
-        {#if loading === 'starting'}
+        {#if launchSaveLoading === 'starting'}
           <div role="status" aria-live="polite" class="flex items-center gap-2">
             <div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" aria-hidden="true"></div>
             <span>启动中...</span>
@@ -546,7 +604,7 @@
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
-          启动服务器
+          {selectedSaveRunning ? '已在运行' : '启动服务器'}
         {/if}
       </button>
 

@@ -419,7 +419,7 @@
     [/\bfalse\b/gi, "False"],
   ];
 
-  let { saveId = "" } = $props<{ saveId: string }>();
+  let { saveId = "", readonly = false } = $props<{ saveId: string; readonly?: boolean }>();
 
   let config = $state<GameConfigInfo | null>(null);
   let loading = $state(false);
@@ -506,10 +506,12 @@
   }
 
   function setEntryValue(entry: GameConfigEntry, value: string) {
+    if (readonly) return;
     values = { ...values, [entry.id]: value };
   }
 
   function resetEntry(entry: GameConfigEntry) {
+    if (readonly) return;
     setEntryValue(entry, "");
   }
 
@@ -543,7 +545,7 @@
   }
 
   async function saveGameConfig() {
-    if (!config || !saveId || changedCount === 0) return;
+    if (readonly || !config || !saveId || changedCount === 0) return;
     saving = true;
     try {
       const changes = allEntries
@@ -704,7 +706,7 @@
         <button
           class="toolbar-primary"
           onclick={saveGameConfig}
-          disabled={saving || loading || changedCount === 0}
+          disabled={saving || loading || changedCount === 0 || readonly}
         >
           {saving ? "保存中..." : "保存更改"}
         </button>
@@ -820,6 +822,7 @@
                           type="button"
                           class:active={normalizedBoolValue(entry) === option.value}
                           onclick={() => setEntryValue(entry, option.value)}
+                          disabled={readonly}
                         >
                           {option.label}
                         </button>
@@ -833,6 +836,7 @@
                         ...entry.options.map((option) => ({ value: option, label: optionLabel(entry, option) })),
                       ]}
                       onchange={(value) => setEntryValue(entry, String(value))}
+                      disabled={readonly}
                       size="sm"
                       fullWidth
                     />
@@ -840,6 +844,7 @@
                     <textarea
                       value={entryValue(entry)}
                       oninput={(event) => setEntryValue(entry, (event.target as HTMLTextAreaElement).value)}
+                      disabled={readonly}
                       spellcheck="false"
                       rows="4"
                       placeholder="留空表示使用默认值"
@@ -849,6 +854,7 @@
                     <textarea
                       value={entryValue(entry)}
                       oninput={(event) => setEntryValue(entry, (event.target as HTMLTextAreaElement).value)}
+                      disabled={readonly}
                       rows="3"
                       placeholder="留空表示使用默认值"
                       class="setting-input setting-textarea"
@@ -861,6 +867,7 @@
                         step="0.01"
                         value={entryValue(entry)}
                         oninput={(event) => setEntryValue(entry, (event.target as HTMLInputElement).value)}
+                        disabled={readonly}
                         placeholder="默认"
                         class="setting-input"
                       />
@@ -872,6 +879,7 @@
                           step="0.01"
                           value={entryValue(entry)}
                           oninput={(event) => setEntryValue(entry, (event.target as HTMLInputElement).value)}
+                          disabled={readonly}
                           class="percent-range"
                           aria-label={`${entryLabel(entry)} 滑杆`}
                         />
@@ -887,6 +895,7 @@
                       step="any"
                       value={entryValue(entry)}
                       oninput={(event) => setEntryValue(entry, (event.target as HTMLInputElement).value)}
+                      disabled={readonly}
                       placeholder="默认"
                       class="setting-input"
                     />
@@ -895,6 +904,7 @@
                       type={entry.value_kind === "url" ? "url" : "text"}
                       value={entryValue(entry)}
                       oninput={(event) => setEntryValue(entry, (event.target as HTMLInputElement).value)}
+                      disabled={readonly}
                       placeholder="默认"
                       class="setting-input"
                     />
@@ -904,7 +914,7 @@
                 <button
                   class="reset-button"
                   onclick={() => resetEntry(entry)}
-                  disabled={entryValue(entry) === ""}
+                  disabled={entryValue(entry) === "" || readonly}
                   title="恢复为游戏默认值"
                   aria-label={`${entryLabel(entry)} 恢复默认`}
                 >

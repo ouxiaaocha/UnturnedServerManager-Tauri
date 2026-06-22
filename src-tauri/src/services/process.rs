@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, Write as IoWrite};
 use std::path::{Path, PathBuf};
@@ -93,12 +94,39 @@ fn push_output_line(output_buffer: &Arc<Mutex<OutputBuffer>>, line: String) {
     buffer.push(line);
 }
 
-/// 管理 Unturned 服务端进程的生命周期、输出缓冲和游戏日志
-pub struct ProcessManager {
+struct ServerProcessSession {
     child: Option<Child>,
     state: ServerState,
     start_time: Option<Instant>,
     output_buffer: Arc<Mutex<OutputBuffer>>,
+    launch_mode: String,
+}
+
+impl ServerProcessSession {
+    fn new() -> Self {
+        Self {
+            child: None,
+            state: ServerState::Stopped,
+            start_time: None,
+            output_buffer: Arc::new(Mutex::new(OutputBuffer::new())),
+            launch_mode: "internet".to_string(),
+        }
+    }
+
+    fn is_active(&self) -> bool {
+        matches!(
+            self.state,
+            ServerState::Starting
+                | ServerState::Running
+                | ServerState::Restarting
+                | ServerState::Updating
+        )
+    }
+}
+
+/// 管理多个 Unturned 存档实例的生命周期、输出缓冲和游戏日志
+pub struct ProcessManager {
+    sessions: HashMap<String, ServerProcessSession>,
     logs_dir: PathBuf,
 }
 
@@ -106,29 +134,84 @@ impl ProcessManager {
     pub fn new(logs_dir: PathBuf) -> Self {
         let _ = fs::create_dir_all(logs_dir.join("game"));
         Self {
-            child: None,
-            state: ServerState::Stopped,
-            start_time: None,
-            output_buffer: Arc::new(Mutex::new(OutputBuffer::new())),
+            sessions: HashMap::new(),
             logs_dir,
         }
     }
 
     pub fn state(&self) -> ServerState {
-        self.state
+        if self.sessions.values().any(ServerProcessSession::is_active) {
+            ServerState::Running
+        } else {
+            ServerState::Stopped
+        }
     }
 
     pub fn pid(&self) -> Option<u32> {
-        self.child.as_ref().map(|c| c.id())
+        self.sessions.values().find_map(|session| {
+            if session.is_active() {
+                session.child.as_ref().map(|c| c.id())
+            } else {
+                None
+            }
+        })
     }
 
     pub fn uptime_secs(&self) -> u64 {
-        self.start_time.map(|t| t.elapsed().as_secs()).unwrap_or(0)
+        self.sessions
+            .values()
+            .filter_map(|session| session.start_time.map(|t| t.elapsed().as_secs()))
+            .max()
+            .unwrap_or(0)
     }
 
-    pub fn start(&mut self, profile: &ServerProfile) -> Result<(), String> {
-        if self.state == ServerState::Running || self.state == ServerState::Starting {
-            return Err("服务器已在运行".to_string());
+    pub fn state_for(&self, save_id: &str) -> ServerState {
+        self.sessions
+            .get(save_id)
+            .map(|session| session.state)
+            .unwrap_or(ServerState::Stopped)
+    }
+
+    pub fn pid_for(&self, save_id: &str) -> Option<u32> {
+        self.sessions
+            .get(save_id)
+            .and_then(|session| session.child.as_ref().map(|c| c.id()))
+    }
+
+    pub fn uptime_secs_for(&self, save_id: &str) -> u64 {
+        self.sessions
+            .get(save_id)
+            .and_then(|session| session.start_time.map(|t| t.elapsed().as_secs()))
+            .unwrap_or(0)
+    }
+
+    pub fn launch_mode_for(&self, save_id: &str) -> String {
+        self.sessions
+            .get(save_id)
+            .map(|session| session.launch_mode.clone())
+            .unwrap_or_else(|| "internet".to_string())
+    }
+
+    pub fn running_save_ids(&mut self) -> Vec<String> {
+        let ids: Vec<String> = self.sessions.keys().cloned().collect();
+        ids.into_iter()
+            .filter(|save_id| self.is_running_for(save_id))
+            .collect()
+    }
+
+    pub fn running_count(&mut self) -> usize {
+        self.running_save_ids().len()
+    }
+
+    pub fn start(
+        &mut self,
+        save_id: &str,
+        launch_mode: &str,
+        profile: &ServerProfile,
+    ) -> Result<(), String> {
+        if self.is_running_for(save_id) || matches!(self.state_for(save_id), ServerState::Starting)
+        {
+            return Err(format!("存档 {} 的服务器已在运行", save_id));
         }
 
         let exe_path = Path::new(&profile.server_root).join("Unturned.exe");
@@ -136,10 +219,18 @@ impl ProcessManager {
             return Err(format!("找不到 Unturned.exe: {}", exe_path.display()));
         }
 
-        self.state = ServerState::Starting;
+        let session = self
+            .sessions
+            .entry(save_id.to_string())
+            .or_insert_with(ServerProcessSession::new);
+        session.state = ServerState::Starting;
+        session.launch_mode = launch_mode.to_string();
 
         {
-            let mut buffer = self.output_buffer.lock().unwrap_or_else(|e| e.into_inner());
+            let mut buffer = session
+                .output_buffer
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
             buffer.reset_with("[系统] 正在启动服务器...".to_string());
         }
 
@@ -162,14 +253,14 @@ impl ProcessManager {
         let child = cmd.spawn().map_err(|e| format!("启动失败: {}", e))?;
 
         // Store child and set state BEFORE spawning reader threads
-        self.child = Some(child);
-        self.state = ServerState::Running;
-        self.start_time = Some(Instant::now());
+        session.child = Some(child);
+        session.state = ServerState::Running;
+        session.start_time = Some(Instant::now());
 
-        let child_ref = self.child.as_mut().unwrap();
+        let child_ref = session.child.as_mut().unwrap();
 
         if let Some(stdout) = child_ref.stdout.take() {
-            let output_buffer = Arc::clone(&self.output_buffer);
+            let output_buffer = Arc::clone(&session.output_buffer);
             let game_log_dir = self.logs_dir.join("game");
             std::thread::spawn(move || {
                 let reader = BufReader::new(stdout);
@@ -182,7 +273,7 @@ impl ProcessManager {
         }
 
         if let Some(stderr) = child_ref.stderr.take() {
-            let output_buffer = Arc::clone(&self.output_buffer);
+            let output_buffer = Arc::clone(&session.output_buffer);
             let game_log_dir = self.logs_dir.join("game");
             std::thread::spawn(move || {
                 let reader = BufReader::new(stderr);
@@ -195,19 +286,31 @@ impl ProcessManager {
             });
         }
 
-        push_output_line(&self.output_buffer, "[系统] 服务器已启动".to_string());
+        push_output_line(&session.output_buffer, "[系统] 服务器已启动".to_string());
 
         Ok(())
     }
 
     pub fn is_running(&mut self) -> bool {
-        if let Some(child) = &mut self.child {
+        let ids: Vec<String> = self.sessions.keys().cloned().collect();
+        ids.into_iter().any(|save_id| self.is_running_for(&save_id))
+    }
+
+    pub fn is_running_for(&mut self, save_id: &str) -> bool {
+        let Some(session) = self.sessions.get_mut(save_id) else {
+            return false;
+        };
+
+        if let Some(child) = &mut session.child {
             match child.try_wait() {
                 Ok(Some(_)) => {
-                    push_output_line(&self.output_buffer, "[系统] 服务器进程已退出".to_string());
-                    self.state = ServerState::Stopped;
-                    self.child = None;
-                    self.start_time = None;
+                    push_output_line(
+                        &session.output_buffer,
+                        "[系统] 服务器进程已退出".to_string(),
+                    );
+                    session.state = ServerState::Stopped;
+                    session.child = None;
+                    session.start_time = None;
                     false
                 }
                 Ok(None) => true,
@@ -218,41 +321,107 @@ impl ProcessManager {
         }
     }
 
-    pub fn force_stop(&mut self) -> Result<(), String> {
-        if let Some(mut child) = self.child.take() {
-            self.state = ServerState::Stopping;
+    pub fn force_stop_for(&mut self, save_id: &str) -> Result<(), String> {
+        let session = self
+            .sessions
+            .entry(save_id.to_string())
+            .or_insert_with(ServerProcessSession::new);
+
+        if let Some(mut child) = session.child.take() {
+            session.state = ServerState::Stopping;
             child.kill().map_err(|e| format!("强制停止失败: {}", e))?;
             let _ = child.wait();
-            push_output_line(&self.output_buffer, "[系统] 服务器已强制停止".to_string());
+            push_output_line(
+                &session.output_buffer,
+                "[系统] 服务器已强制停止".to_string(),
+            );
         }
-        self.state = ServerState::Stopped;
-        self.start_time = None;
+        session.state = ServerState::Stopped;
+        session.start_time = None;
         Ok(())
     }
 
-    pub fn record_sent_command(&self, command: &str) {
-        push_output_line(&self.output_buffer, format!("[命令] > {}", command));
+    pub fn record_sent_command_for(&self, save_id: &str, command: &str) {
+        if let Some(session) = self.sessions.get(save_id) {
+            push_output_line(&session.output_buffer, format!("[命令] > {}", command));
+        }
     }
 
-    pub fn record_system_message(&self, message: &str) {
-        push_output_line(&self.output_buffer, format!("[系统] {}", message));
+    pub fn record_system_message_for(&self, save_id: &str, message: &str) {
+        if let Some(session) = self.sessions.get(save_id) {
+            push_output_line(&session.output_buffer, format!("[系统] {}", message));
+        }
     }
 
     pub fn get_new_output(&self, from_index: usize) -> Vec<String> {
-        let buffer = self.output_buffer.lock().unwrap_or_else(|e| e.into_inner());
-        buffer.new_lines(from_index)
+        self.sessions
+            .values()
+            .next()
+            .map(|session| {
+                let buffer = session
+                    .output_buffer
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
+                buffer.new_lines(from_index)
+            })
+            .unwrap_or_default()
+    }
+
+    pub fn get_new_output_for(&self, save_id: &str, from_index: usize) -> Vec<String> {
+        self.sessions
+            .get(save_id)
+            .map(|session| {
+                let buffer = session
+                    .output_buffer
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
+                buffer.new_lines(from_index)
+            })
+            .unwrap_or_default()
     }
 
     pub fn output_count(&self) -> usize {
-        self.output_buffer
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .total_count()
+        self.sessions
+            .values()
+            .map(|session| {
+                session
+                    .output_buffer
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .total_count()
+            })
+            .max()
+            .unwrap_or(0)
+    }
+
+    pub fn output_count_for(&self, save_id: &str) -> usize {
+        self.sessions
+            .get(save_id)
+            .map(|session| {
+                session
+                    .output_buffer
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .total_count()
+            })
+            .unwrap_or(0)
     }
 
     pub fn compact_output_cache(&mut self, retain_lines: usize) -> (usize, usize, usize) {
-        let mut buffer = self.output_buffer.lock().unwrap_or_else(|e| e.into_inner());
-        buffer.compact(retain_lines)
+        let mut before_len = 0;
+        let mut after_len = 0;
+        let mut before_capacity = 0;
+        for session in self.sessions.values_mut() {
+            let mut buffer = session
+                .output_buffer
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            let (before, after, capacity) = buffer.compact(retain_lines);
+            before_len += before;
+            after_len += after;
+            before_capacity += capacity;
+        }
+        (before_len, after_len, before_capacity)
     }
 }
 

@@ -1,6 +1,18 @@
 ﻿<script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
+  import { open as openShell } from "@tauri-apps/plugin-shell";
   import { generatePassword } from "$lib/utils";
+  import {
+    uiPreferences,
+    setSelectedSaveId,
+    ensureSelectedSaveId,
+    setSaveActiveTab,
+    isSaveRunning,
+    refreshRunningServers,
+    sharedSaves,
+    sharedSavesState,
+    type SaveActiveTab
+  } from "$lib/stores.svelte";
   import { toastStore } from "../stores/toast.svelte";
   import { listenInstallerProgress } from "../utils/installer";
   import Select from "../components/Select.svelte";
@@ -31,11 +43,13 @@
     groups: PermissionGroup[];
   };
 
-  let activeTab = $state("save");
+  let activeTab = $derived(uiPreferences.saveActiveTab);
   let saves = $state<any[]>([]);
-  let selectedSaveId = $state("");
+  let selectedSaveId = $derived(uiPreferences.selectedSaveId);
+  let selectedSaveRunning = $derived(isSaveRunning(selectedSaveId));
   let loading = $state(false);
   let saving = $state(false);
+  let deletingSave = $state(false);
   let pluginsLoading = $state(false);
 
   let cmdName = $state("");
@@ -92,17 +106,47 @@
   let noteSaveTimer: ReturnType<typeof setTimeout> | undefined;
   let lastRawLines: string[] = [];
 
+  function clearLoadedSaveData() {
+    cmdName = "";
+    cmdMap = "";
+    cmdPort = 27015;
+    cmdMaxPlayers = 24;
+    cmdPassword = "";
+    cmdOwner = "";
+    cmdCheats = false;
+    cmdPve = false;
+    cmdPerspective = "Both";
+    cmdGslt = "";
+    rconPort = 27115;
+    rconPassword = "";
+    rconPasswordMasked = false;
+    showRconPassword = false;
+    plugins = [];
+    pluginNotes = {};
+    workshopConfig = null;
+    workshopModNotes = {};
+    permissionsConfig = null;
+    selectedPermissionGroupId = "";
+    lastRawLines = [];
+  }
+
   async function loadSaves() {
     const gen = ++loadGeneration;
     try {
+      await refreshRunningServers();
       saves = await invoke("list_server_saves");
       if (gen !== loadGeneration) return;
-      if (saves.length > 0 && !selectedSaveId) {
-        selectedSaveId = saves[0].id;
+      sharedSaves.splice(0, sharedSaves.length, ...saves);
+      sharedSavesState.loaded = true;
+      const ensuredSaveId = ensureSelectedSaveId(saves);
+      if (ensuredSaveId) {
         await loadCommandsDat();
+        await checkRocketStatus();
+        await loadActiveTabData();
+      } else {
+        saveHasRocket = null;
+        clearLoadedSaveData();
       }
-      if (gen !== loadGeneration) return;
-      await checkRocketStatus();
     } catch (e) { console.error("加载存档失败:", e); }
   }
 
@@ -149,6 +193,10 @@
 
   async function initRocketForSave() {
     if (!selectedSaveId) return;
+    if (selectedSaveRunning) {
+      toastStore.error("该存档服务器正在运行，请停止后再修改");
+      return;
+    }
     rocketInitRunning = true;
     rocketInitDone = false;
     rocketInitLogs = [];
@@ -206,6 +254,10 @@
   }
 
   async function saveCommandsDat() {
+    if (selectedSaveRunning) {
+      toastStore.error("该存档服务器正在运行，请停止后再修改");
+      return;
+    }
     saving = true;
     try {
       await invoke("save_commands_dat", {
@@ -353,12 +405,14 @@
   }
 
   function setGroupColorFromPicker(groupId: string, value: string) {
+    if (selectedSaveRunning) return;
     replacePermissionGroup(groupId, (group) => {
       group.color = value.replace("#", "").toUpperCase();
     });
   }
 
   function replacePermissionGroup(groupId: string, updater: (group: PermissionGroup) => void) {
+    if (selectedSaveRunning) return;
     if (!permissionsConfig) return;
     const index = permissionsConfig.groups.findIndex((group) => group.id === groupId);
     if (index === -1) return;
@@ -371,7 +425,14 @@
     permissionsConfig = { ...permissionsConfig, groups };
   }
 
+  function setDefaultPermissionGroup(groupId: string) {
+    if (selectedSaveRunning) return;
+    if (!permissionsConfig) return;
+    permissionsConfig = { ...permissionsConfig, default_group: groupId };
+  }
+
   function addPermissionGroup() {
+    if (selectedSaveRunning) return;
     if (!permissionsConfig?.exists) return;
     const id = uniqueGroupId("new_group");
     const group: PermissionGroup = {
@@ -395,6 +456,7 @@
   }
 
   function duplicatePermissionGroup(group: PermissionGroup) {
+    if (selectedSaveRunning) return;
     if (!permissionsConfig?.exists) return;
     const id = uniqueGroupId(`${group.id}_copy`);
     const clone: PermissionGroup = {
@@ -409,6 +471,7 @@
   }
 
   function removePermissionGroup(group: PermissionGroup) {
+    if (selectedSaveRunning) return;
     if (!permissionsConfig) return;
     if (group.id === permissionsConfig.default_group) {
       alert("不能删除默认权限组，请先切换默认组");
@@ -427,6 +490,7 @@
   }
 
   function renameSelectedPermissionGroup(value: string) {
+    if (selectedSaveRunning) return;
     if (!permissionsConfig) return;
     const oldId = selectedPermissionGroupId;
     replacePermissionGroup(oldId, (group) => {
@@ -459,6 +523,7 @@
   }
 
   function addMembersToSelectedGroup() {
+    if (selectedSaveRunning) return;
     const group = getSelectedPermissionGroup();
     if (!group || !newMemberInput.trim()) return;
     const existing = new Set(group.members.map((member) => member.trim()).filter(Boolean));
@@ -480,18 +545,21 @@
   }
 
   function updateMember(groupId: string, index: number, value: string) {
+    if (selectedSaveRunning) return;
     replacePermissionGroup(groupId, (group) => {
       group.members[index] = value;
     });
   }
 
   function removeMember(groupId: string, index: number) {
+    if (selectedSaveRunning) return;
     replacePermissionGroup(groupId, (group) => {
       group.members.splice(index, 1);
     });
   }
 
   function normalizeMembersForGroup(groupId: string) {
+    if (selectedSaveRunning) return;
     const group = permissionsConfig?.groups.find((item) => item.id === groupId);
     if (!group) return;
     const normalized = normalizeInputList(group.members);
@@ -504,6 +572,7 @@
   }
 
   function addPermissionToSelectedGroup() {
+    if (selectedSaveRunning) return;
     const group = getSelectedPermissionGroup();
     if (!group) return;
     if (!newPermissionName.trim()) {
@@ -521,12 +590,14 @@
   }
 
   function updatePermission(groupId: string, index: number, patch: Partial<PermissionEntry>) {
+    if (selectedSaveRunning) return;
     replacePermissionGroup(groupId, (group) => {
       group.permissions[index] = { ...group.permissions[index], ...patch };
     });
   }
 
   function removePermission(groupId: string, index: number) {
+    if (selectedSaveRunning) return;
     replacePermissionGroup(groupId, (group) => {
       group.permissions.splice(index, 1);
     });
@@ -580,6 +651,10 @@
   }
 
   async function savePermissionsConfig() {
+    if (selectedSaveRunning) {
+      toastStore.error("该存档服务器正在运行，请停止后再修改");
+      return;
+    }
     if (!selectedSaveId || !permissionsConfig) return;
     permissionsSaving = true;
     try {
@@ -607,6 +682,10 @@
   }
 
   async function saveWorkshopConfig() {
+    if (selectedSaveRunning) {
+      toastStore.error("该存档服务器正在运行，请停止后再修改");
+      return;
+    }
     if (!selectedSaveId || !workshopConfig) return;
     workshopSaving = true;
     try {
@@ -629,6 +708,7 @@
   }
 
   function addWorkshopMod() {
+    if (selectedSaveRunning) return;
     if (!newModId.trim() && !newModNote.trim()) {
       alert("请输入创意工坊 ID");
       return;
@@ -663,6 +743,7 @@
   }
 
   function removeWorkshopMod(modId: number) {
+    if (selectedSaveRunning) return;
     if (!workshopConfig) return;
     workshopConfig = {
       ...workshopConfig,
@@ -671,6 +752,7 @@
   }
 
   function onWorkshopModNoteChange(modId: string, note: string) {
+    if (selectedSaveRunning) return;
     workshopModNotes = { ...workshopModNotes, [modId]: note };
   }
 
@@ -683,18 +765,20 @@
   }
 
   async function openWorkshopUrl() {
+    const url = "https://steamcommunity.com/app/304930/workshop/";
     try {
-      await invoke("open_url", { url: "https://steamcommunity.com/app/304930/workshop/" });
+      await openShell(url);
     } catch (e: any) {
-      alert(e);
+      toastStore.error(`打开失败: ${e}`);
     }
   }
 
   async function openModPage(modId: number) {
+    const url = `https://steamcommunity.com/sharedfiles/filedetails/?id=${modId}`;
     try {
-      await invoke("open_url", { url: `https://steamcommunity.com/sharedfiles/filedetails/?id=${modId}` });
+      await openShell(url);
     } catch (e: any) {
-      alert(e);
+      toastStore.error(`打开失败: ${e}`);
     }
   }
 
@@ -718,11 +802,7 @@
     }, 500);
   }
 
-  async function onSaveChange() {
-    rocketInitDone = false;
-    rocketInitRunning = false;
-    await loadCommandsDat();
-    await checkRocketStatus();
+  async function loadActiveTabData() {
     if (activeTab === "plugins") {
       await loadPlugins();
     }
@@ -734,8 +814,43 @@
     }
   }
 
-  async function onTabChange(tab: string) {
-    activeTab = tab;
+  async function onSaveChange(value: string) {
+    setSelectedSaveId(value);
+    await refreshRunningServers();
+    rocketInitDone = false;
+    rocketInitRunning = false;
+    await loadCommandsDat();
+    await checkRocketStatus();
+    await loadActiveTabData();
+  }
+
+  async function deleteSelectedSave() {
+    if (!selectedSaveId || deletingSave) return;
+    if (selectedSaveRunning) {
+      toastStore.error("该存档服务器正在运行，请停止后再删除");
+      return;
+    }
+    const save = saves.find((item) => item.id === selectedSaveId);
+    const label = save?.name ? `${save.id} - ${save.name}` : selectedSaveId;
+    const confirmed = confirm(
+      `确定要删除存档 "${label}" 吗？\n\n这会删除该存档目录及其中的世界数据、配置、插件配置，无法撤销。`
+    );
+    if (!confirmed) return;
+
+    deletingSave = true;
+    try {
+      await invoke("delete_server_save", { saveId: selectedSaveId });
+      toastStore.success("存档已删除");
+      await loadSaves();
+    } catch (e: any) {
+      toastStore.error(`删除失败: ${e}`);
+    } finally {
+      deletingSave = false;
+    }
+  }
+
+  async function onTabChange(tab: SaveActiveTab) {
+    setSaveActiveTab(tab);
     if (tab === "plugins") {
       await loadPlugins();
     }
@@ -778,7 +893,7 @@
         <span class="text-sm text-[var(--text-muted)]">未找到存档</span>
       {:else}
         <SelectCustom
-          bind:value={selectedSaveId}
+          bind:value={uiPreferences.selectedSaveId}
           options={saves.map(save => ({
             value: save.id,
             label: `${save.id}${save.name ? ` - ${save.name}` : ''}`
@@ -796,6 +911,21 @@
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
         </svg>
         新建存档
+      </button>
+      <button
+        class="px-4 py-2 bg-[var(--bg-elevated)] border border-[var(--border)] hover:border-[var(--danger)] text-[var(--text-secondary)] hover:text-[var(--danger)] text-sm font-medium rounded-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2"
+        onclick={deleteSelectedSave}
+        disabled={!selectedSaveId || deletingSave || selectedSaveRunning}
+      >
+        {#if deletingSave}
+          <div class="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin"></div>
+          删除中...
+        {:else}
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M9 7h6m-7 0V5a2 2 0 012-2h4a2 2 0 012 2v2m-9 0h10" />
+          </svg>
+          删除存档
+        {/if}
       </button>
     </div>
 
@@ -844,6 +974,20 @@
     {/if}
   </div>
 
+  {#if selectedSaveRunning}
+    <div class="bg-[var(--warning-glow)] border border-[var(--warning)]/30 rounded-xl p-4 mb-5">
+      <div class="flex items-center gap-3">
+        <svg class="w-5 h-5 text-[var(--warning)] flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 11V7a4 4 0 00-8 0v4M5 11h14a2 2 0 012 2v7a2 2 0 01-2 2H5a2 2 0 01-2-2v-7a2 2 0 012-2z" />
+        </svg>
+        <div>
+          <p class="text-sm font-medium text-[var(--warning)]">该存档服务器正在运行，配置已锁定</p>
+          <p class="text-xs text-[var(--text-secondary)] mt-1">可以查看配置；如需修改、删除或初始化，请先停止该存档对应的服务器。</p>
+        </div>
+      </div>
+    </div>
+  {/if}
+
   <!-- Rocket Status Warning -->
   {#if selectedSaveId && saveHasRocket === false}
     <div class="bg-[var(--warning-glow)] border border-[var(--warning)]/30 rounded-xl p-4 mb-5">
@@ -857,7 +1001,7 @@
       <div class="flex items-center gap-3">
         <button
           class="px-5 py-2 bg-gradient-to-r from-[var(--warning)] to-amber-600 hover:from-amber-500 hover:to-[var(--warning)] text-[var(--text-primary)] text-sm font-medium rounded-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2"
-          onclick={initRocketForSave} disabled={rocketInitRunning || rocketInitDone}
+          onclick={initRocketForSave} disabled={rocketInitRunning || rocketInitDone || selectedSaveRunning}
         >
           {#if rocketInitRunning}
             <div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
@@ -940,6 +1084,7 @@
           <div class="w-8 h-8 border-2 border-[var(--accent)] border-t-transparent rounded-full animate-spin"></div>
         </div>
       {:else}
+        <fieldset disabled={selectedSaveRunning} class="contents">
         <div class="grid grid-cols-1 gap-4 md:grid-cols-2 md:gap-5">
           <div>
             <span class="block text-xs text-[var(--text-muted)] mb-2 uppercase tracking-wider">服务器名称</span>
@@ -1022,6 +1167,7 @@
             <span class="text-sm text-[var(--text-secondary)]">启用作弊</span>
           </span>
         </div>
+        </fieldset>
 
       {/if}
     </div>
@@ -1039,6 +1185,7 @@
           <div class="w-8 h-8 border-2 border-[var(--accent)] border-t-transparent rounded-full animate-spin"></div>
         </div>
       {:else}
+        <fieldset disabled={selectedSaveRunning} class="contents">
         <div class="grid grid-cols-1 gap-4 md:grid-cols-2 md:gap-5">
           <div>
             <span class="block text-xs text-[var(--text-muted)] mb-2 uppercase tracking-wider">RCON 端口</span>
@@ -1078,6 +1225,7 @@
           <svg class="w-4 h-4 inline mr-1 text-[var(--accent-light)]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
           每个存档独立配置，修改后点击"保存配置"
         </div>
+        </fieldset>
       {/if}
     </div>
 
@@ -1088,7 +1236,7 @@
       <button
         class="px-6 py-2.5 bg-gradient-to-r from-[var(--accent)] to-blue-600 hover:from-blue-500 hover:to-[var(--accent)] text-[var(--text-primary)] text-sm font-medium rounded-lg transition-all cursor-pointer flex items-center justify-center gap-2 shadow-lg disabled:opacity-40 disabled:cursor-not-allowed"
         onclick={saveCommandsDat}
-        disabled={saving || loading || !selectedSaveId}
+        disabled={saving || loading || !selectedSaveId || selectedSaveRunning}
       >
         {#if saving}
           <div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
@@ -1103,7 +1251,7 @@
     </div>
 
   {:else if activeTab === 'gameConfig'}
-    <GameConfigTab saveId={selectedSaveId} />
+    <GameConfigTab saveId={selectedSaveId} readonly={selectedSaveRunning} />
 
   {:else if activeTab === 'workshop'}
     <!-- Workshop Tab -->
@@ -1138,16 +1286,19 @@
             <div class="flex-1">
               <span class="block text-xs text-[var(--text-muted)] mb-1.5">创意工坊 ID</span>
               <input type="text" bind:value={newModId} placeholder="输入 ID，多个用逗号或空格分隔"
+                disabled={selectedSaveRunning}
                 class="w-full bg-[var(--bg-card)] border border-[var(--border)] rounded-lg px-4 py-2 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors" />
             </div>
             <div class="flex-1">
               <span class="block text-xs text-[var(--text-muted)] mb-1.5">备注（可选）</span>
               <input type="text" bind:value={newModNote} placeholder="添加中文备注..."
+                disabled={selectedSaveRunning}
                 class="w-full bg-[var(--bg-card)] border border-[var(--border)] rounded-lg px-4 py-2 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors" />
             </div>
             <button
               class="px-5 py-2 bg-gradient-to-r from-[var(--accent)] to-cyan-600 hover:from-cyan-500 hover:to-[var(--accent)] text-[var(--text-primary)] text-sm font-medium rounded-lg transition-all cursor-pointer flex items-center gap-2 flex-shrink-0"
               onclick={addWorkshopMod}
+              disabled={selectedSaveRunning}
             >
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
@@ -1198,6 +1349,7 @@
                   <button
                     class="p-1.5 text-[var(--text-muted)] hover:text-[var(--danger)] opacity-0 group-hover:opacity-100 transition-all cursor-pointer"
                     onclick={() => removeWorkshopMod(modId)}
+                    disabled={selectedSaveRunning}
                     title="移除模组"
                   >
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1282,7 +1434,7 @@
           <button
             class="px-6 py-2.5 bg-gradient-to-r from-[var(--accent)] to-blue-600 hover:from-blue-500 hover:to-[var(--accent)] text-[var(--text-primary)] text-sm font-medium rounded-lg transition-all cursor-pointer flex items-center justify-center gap-2 shadow-lg disabled:opacity-40 disabled:cursor-not-allowed"
             onclick={saveWorkshopConfig}
-            disabled={workshopSaving || workshopLoading || !selectedSaveId}
+            disabled={workshopSaving || workshopLoading || !selectedSaveId || selectedSaveRunning}
           >
             {#if workshopSaving}
               <div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
@@ -1337,7 +1489,8 @@
             <SelectCustom
               value={permissionsConfig.default_group}
               options={permissionsConfig.groups.map(g => ({ value: g.id, label: g.id }))}
-              onchange={(val) => permissionsConfig = { ...permissionsConfig!, default_group: val }}
+              onchange={(val) => setDefaultPermissionGroup(val)}
+              disabled={selectedSaveRunning}
               size="sm"
               class="min-w-[160px]"
             />
@@ -1345,7 +1498,7 @@
           <button
             class="px-5 py-2 bg-gradient-to-r from-[var(--accent)] to-blue-600 hover:from-blue-500 hover:to-[var(--accent)] text-[var(--text-primary)] text-sm font-medium rounded-lg transition-all cursor-pointer flex items-center justify-center gap-2 whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed"
             onclick={savePermissionsConfig}
-            disabled={permissionsSaving || permissionsLoading || !selectedSaveId}
+            disabled={permissionsSaving || permissionsLoading || !selectedSaveId || selectedSaveRunning}
           >
             {#if permissionsSaving}
               <div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
@@ -1432,8 +1585,8 @@
                 <h3 class="text-sm font-semibold text-[var(--text-primary)]">组信息</h3>
                 <button
                   class="rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-secondary)] transition-all hover:border-[var(--accent)] hover:text-[var(--text-primary)]"
-                  onclick={() => permissionsConfig = { ...permissionsConfig!, default_group: selectedPermissionGroup!.id }}
-                  disabled={permissionsConfig.default_group === selectedPermissionGroup.id}
+                  onclick={() => setDefaultPermissionGroup(selectedPermissionGroup!.id)}
+                  disabled={permissionsConfig.default_group === selectedPermissionGroup.id || selectedSaveRunning}
                 >
                   设为默认组
                 </button>

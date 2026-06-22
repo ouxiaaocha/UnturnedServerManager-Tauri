@@ -1,9 +1,11 @@
 ﻿<script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
+  import { tick } from "svelte";
   import { highlightText } from "$lib/utils";
-  import { appState, sharedSaves, loadSharedSaves, sharedSettings, loadSharedSettings, toggleAutoUpdateHosting, serverState, serverLogs, refreshServerStatus, clearServerLogs } from "$lib/stores.svelte";
+  import { appState, uiPreferences, setSelectedSaveId, ensureSelectedSaveId, sharedSaves, loadSharedSaves, sharedSettings, loadSharedSettings, toggleAutoUpdateHosting, serverState, serverLogs, runningServers, refreshServerStatus, clearServerLogs, appendServerLogs, setServerLoading, syncSelectedServerRuntime, serverView, selectRunningServer, serverStatesBySave } from "$lib/stores.svelte";
+  import { toastStore } from "../stores/toast.svelte";
   import { createPoller } from "../utils/polling.svelte";
-  import { createLogFilter, createAutoScroll } from "../utils/composables.svelte";
+  import { createAutoScroll } from "../utils/composables.svelte";
   import SaveSelector from "../components/SaveSelector.svelte";
 
   // 使用共享的服务器状态
@@ -12,10 +14,15 @@
   let uptime = $derived(serverState.uptime);
   let loading = $derived(serverState.loading);
   let logs = $derived(serverLogs);
+  let runningCount = $derived(runningServers.length);
 
-  // 使用日志过滤 composable
-  const logFilter = createLogFilter(logs);
-  let filteredLogs = $derived(logFilter.filteredLogs);
+  let logSearchText = $state("");
+  let normalizedLogSearch = $derived(logSearchText.trim().toLowerCase());
+  let filteredLogs = $derived(
+    normalizedLogSearch
+      ? logs.filter((log) => log.text.toLowerCase().includes(normalizedLogSearch))
+      : logs
+  );
 
   // 使用自动滚动 composable
   const autoScroller = createAutoScroll();
@@ -23,26 +30,59 @@
   let firstLoadDone = false;
   let polling = false;
 
-  let selectedSaveId = $state("");
+  let selectedSaveId = $derived(uiPreferences.selectedSaveId);
+  let selectedRunningSaveId = $derived(serverView.selectedRunningSaveId);
+  let viewingSaveId = $derived(selectedRunningSaveId || selectedSaveId);
+  let selectedRunningServer = $derived(runningServers.find((server) => server.save_id === selectedRunningSaveId));
+  let launchSaveRuntime = $derived(serverStatesBySave[selectedSaveId || "__default__"]);
+  let launchSaveLoading = $derived(launchSaveRuntime?.loading ?? "");
+  let selectedSaveRunning = $derived(runningServers.some((server) => server.save_id === selectedSaveId));
+  let launchModeLocked = $derived(selectedSaveRunning || launchSaveLoading !== "");
   let autoUpdateSaving = $state(false);
   let autoUpdateMessage = $state("");
   let localCommand = $state("");
   let localCommandSending = $state(false);
   let canSendLocalCommand = $derived(
-    status === "运行中" && loading === "" && localCommand.trim() !== "" && !localCommandSending
+    !!viewingSaveId && status === "运行中" && loading === "" && localCommand.trim() !== "" && !localCommandSending
   );
 
   // 轮询管理器
   const poller = createPoller({
     pollFn: refreshStatus,
-    isActive: () => serverState.loading !== "" || serverState.status === "运行中",
+    isActive: () => serverState.loading !== "" || serverState.status === "运行中" || runningServers.length > 0,
   });
 
   async function loadSaves() {
     await loadSharedSaves();
-    if (sharedSaves.length > 0 && !selectedSaveId) {
-      selectedSaveId = sharedSaves[0].id;
-    }
+    ensureSelectedSaveId(sharedSaves);
+  }
+
+  function handleSelectedSaveChange(value: string) {
+    setSelectedSaveId(value);
+    refreshStatus();
+  }
+
+  function getSaveName(saveId: string): string {
+    if (!saveId) return "";
+    const save = sharedSaves.find((s: any) => s.id === saveId);
+    return save ? (save.name ? `${save.id} - ${save.name}` : save.id) : saveId;
+  }
+
+  async function handleRunningServerSelect(saveId: string) {
+    if (saveId === selectedRunningSaveId) return;
+    selectRunningServer(saveId);
+    firstLoadDone = false;
+    autoScroller.autoScroll = true;
+    await scrollLogsToBottomAfterRender();
+    await refreshStatus();
+    await scrollLogsToBottomAfterRender();
+  }
+
+  async function scrollLogsToBottomAfterRender() {
+    await tick();
+    requestAnimationFrame(() => {
+      autoScroller.scrollToBottom();
+    });
   }
 
   async function handleToggleAutoUpdate() {
@@ -51,9 +91,9 @@
     const result = await toggleAutoUpdateHosting(selectedSaveId || null);
     autoUpdateMessage = result.message;
     if (result.success) {
-      serverLogs.push({ text: `[系统] ${result.message}`, level: "system" });
+      appendServerLogs([`[系统] ${result.message}`], selectedSaveId);
     } else {
-      serverLogs.push({ text: `[错误] ${result.message}`, level: "error" });
+      appendServerLogs([`[错误] ${result.message}`], selectedSaveId);
     }
     autoUpdateSaving = false;
   }
@@ -62,14 +102,14 @@
     if (polling) return;
     polling = true;
     try {
-      const newLines = await refreshServerStatus();
+      const newLines = await refreshServerStatus(viewingSaveId);
       if (newLines.length > 0) {
         if (!firstLoadDone) {
           firstLoadDone = true;
           autoScroller.autoScroll = true;
-          autoScroller.scrollToBottom();
-        } else {
-          autoScroller.scrollIfEnabled();
+          await scrollLogsToBottomAfterRender();
+        } else if (!normalizedLogSearch && autoScroller.autoScroll) {
+          await scrollLogsToBottomAfterRender();
         }
       }
     } catch {
@@ -79,8 +119,8 @@
   }
 
   async function startServer() {
-    serverState.loading = "starting";
-    clearServerLogs();
+    setServerLoading(selectedSaveId, "starting");
+    clearServerLogs(selectedSaveId);
     firstLoadDone = false;
     autoScroller.autoScroll = true;
     try {
@@ -89,41 +129,49 @@
         launchMode: appState.launchMode,
       });
     } catch (e: any) {
-      serverLogs.push({ text: `[错误] ${e}`, level: "error" });
+      toastStore.error(`${e}`);
+      appendServerLogs([`[错误] ${e}`], selectedSaveId);
     }
-    serverState.loading = "";
+    setServerLoading(selectedSaveId, "");
+    await refreshStatus();
   }
 
   async function stopServer() {
-    serverState.loading = "stopping";
+    const targetSaveId = viewingSaveId;
+    setServerLoading(targetSaveId, "stopping");
     try {
-      await invoke("stop_server");
+      await invoke("stop_server", { saveId: targetSaveId || null });
     } catch (e: any) {
-      serverLogs.push({ text: `[错误] ${e}`, level: "error" });
+      appendServerLogs([`[错误] ${e}`], targetSaveId);
     }
-    serverState.loading = "";
+    setServerLoading(targetSaveId, "");
+    await refreshStatus();
   }
 
   async function restartServer() {
-    serverState.loading = "restarting";
+    const targetSaveId = viewingSaveId;
+    setServerLoading(targetSaveId, "restarting");
     autoScroller.autoScroll = true;
     try {
       await invoke("restart_server", {
-        saveId: selectedSaveId || null,
-        launchMode: appState.launchMode,
+        saveId: targetSaveId || null,
+        launchMode: selectedRunningServer?.launch_mode || appState.launchMode,
       });
     } catch (e: any) {
-      serverLogs.push({ text: `[错误] ${e}`, level: "error" });
+      appendServerLogs([`[错误] ${e}`], targetSaveId);
     }
-    serverState.loading = "";
+    setServerLoading(targetSaveId, "");
+    await refreshStatus();
   }
 
   async function forceStop() {
     if (!confirm("确定要强制停止服务器吗？未保存的数据可能丢失。")) return;
+    const targetSaveId = viewingSaveId;
     try {
-      await invoke("force_stop_server");
+      await invoke("force_stop_server", { saveId: targetSaveId || null });
+      await refreshStatus();
     } catch (e: any) {
-      serverLogs.push({ text: `[错误] ${e}`, level: "error" });
+      appendServerLogs([`[错误] ${e}`], targetSaveId);
     }
   }
 
@@ -133,14 +181,14 @@
 
     localCommandSending = true;
     try {
-      await invoke("send_server_command", { command });
+      await invoke("send_server_command", { saveId: viewingSaveId || null, command });
       localCommand = "";
       autoScroller.autoScroll = true;
       await refreshStatus();
-      autoScroller.scrollToBottom();
+      await scrollLogsToBottomAfterRender();
     } catch (e: any) {
-      serverLogs.push({ text: `[错误] 本地命令发送失败: ${e}`, level: "error" });
-      autoScroller.scrollToBottom();
+      appendServerLogs([`[错误] 本地命令发送失败: ${e}`], viewingSaveId);
+      await scrollLogsToBottomAfterRender();
     } finally {
       localCommandSending = false;
     }
@@ -156,6 +204,12 @@
       poller.stop();
     };
   });
+
+  $effect(() => {
+    if (selectedSaveId && !selectedRunningSaveId) {
+      syncSelectedServerRuntime(selectedSaveId);
+    }
+  });
 </script>
 
 <div class="flex flex-col gap-5">
@@ -168,8 +222,40 @@
     <div class="flex items-center gap-3 px-4 py-2 rounded-lg bg-[var(--bg-card)] border border-[var(--border)]">
       <div class="w-2.5 h-2.5 rounded-full {status === '运行中' ? 'bg-[var(--success)] animate-pulse' : status === '错误' ? 'bg-[var(--danger)]' : 'bg-[var(--text-muted)]'}"></div>
       <span class="text-sm font-medium {status === '运行中' ? 'text-[var(--success)]' : status === '错误' ? 'text-[var(--danger)]' : 'text-[var(--text-secondary)]'}">{status}</span>
+      {#if runningCount > 0}
+        <span class="text-xs text-[var(--text-muted)]">运行 {runningCount}</span>
+      {/if}
     </div>
   </div>
+
+  {#if runningCount > 0}
+    <div class="flex-shrink-0">
+      <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <h2 class="text-sm font-semibold text-[var(--text-primary)]">运行中的服务器</h2>
+        <span class="text-xs text-[var(--text-muted)]">{runningCount} 个实例</span>
+      </div>
+      <div class="{runningCount > 8 ? 'max-h-[180px] overflow-y-auto pr-1' : ''}">
+        <div class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {#each runningServers as server (server.save_id)}
+            <button
+              type="button"
+              onclick={() => handleRunningServerSelect(server.save_id)}
+              title={getSaveName(server.save_id)}
+              class="flex min-h-[52px] items-center justify-between gap-3 rounded-lg border px-4 py-3 text-left transition-all duration-[var(--transition-normal)] cursor-pointer {server.save_id === selectedRunningSaveId ? 'border-[var(--accent)] bg-[var(--accent-subtle)] shadow-[var(--shadow-sm)]' : 'border-[var(--border)] bg-[var(--bg-card)] hover:border-[var(--border-hover)] hover:bg-[var(--bg-card-hover)]'}"
+            >
+              <div class="flex min-w-0 items-center gap-2">
+                <span class="h-2.5 w-2.5 shrink-0 rounded-full bg-[var(--success)] animate-pulse"></span>
+                <span class="truncate text-sm font-semibold text-[var(--text-primary)]">{getSaveName(server.save_id)}</span>
+              </div>
+              <span class="shrink-0 rounded-md px-2 py-1 text-xs font-medium {server.save_id === selectedRunningSaveId ? 'bg-[var(--accent)] text-white' : 'bg-[var(--success-glow)] text-[var(--success)]'}">
+                {server.save_id === selectedRunningSaveId ? '当前' : '运行中'}
+              </span>
+            </button>
+          {/each}
+        </div>
+      </div>
+    </div>
+  {/if}
 
   <!-- Control Panel -->
   <div class="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-5 flex-shrink-0">
@@ -178,16 +264,16 @@
         <button
           class="px-5 py-2.5 bg-gradient-to-r from-[var(--success)] to-emerald-600 hover:from-emerald-500 hover:to-[var(--success)] text-[var(--text-primary)] text-sm font-medium rounded-lg transition-all duration-[var(--transition-normal)] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2"
           onclick={startServer}
-          disabled={status === '运行中' || loading !== ''}
+          disabled={!selectedSaveId || selectedSaveRunning || launchSaveLoading !== ''}
         >
-          {#if loading === 'starting'}
+          {#if launchSaveLoading === 'starting'}
             <div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
           {:else}
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
             </svg>
           {/if}
-          {loading === 'starting' ? '启动中...' : '启动'}
+          {launchSaveLoading === 'starting' ? '启动中...' : selectedSaveRunning ? '已运行' : '启动'}
         </button>
 
         <button
@@ -224,7 +310,7 @@
         <button
           class="px-5 py-2.5 bg-[var(--bg-elevated)] border border-[var(--border)] hover:border-[var(--danger)] text-[var(--text-secondary)] hover:text-[var(--danger)] text-sm rounded-lg transition-all duration-[var(--transition-normal)] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2"
           onclick={forceStop}
-          disabled={status === '已停止' || loading !== ''}
+          disabled={status !== '运行中' || loading !== ''}
         >
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
@@ -234,15 +320,17 @@
       </div>
 
       <div class="flex flex-wrap items-center gap-3">
-        <SaveSelector saves={sharedSaves} bind:value={selectedSaveId} />
+        <SaveSelector saves={sharedSaves} bind:value={uiPreferences.selectedSaveId} onChange={handleSelectedSaveChange} />
         <div class="flex rounded-lg overflow-hidden border border-[var(--border)]">
           <button
-            class="px-2 py-1 text-xs font-medium transition-all cursor-pointer {appState.launchMode === 'internet' ? 'bg-[var(--accent)] text-[var(--text-primary)]' : 'bg-[var(--bg-primary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}"
+            class="px-2 py-1 text-xs font-medium transition-all disabled:cursor-not-allowed disabled:opacity-50 {launchModeLocked ? '' : 'cursor-pointer'} {appState.launchMode === 'internet' ? 'bg-[var(--accent)] text-[var(--text-primary)]' : 'bg-[var(--bg-primary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}"
             onclick={() => appState.launchMode = 'internet'}
+            disabled={launchModeLocked}
           >互联网</button>
           <button
-            class="px-2 py-1 text-xs font-medium transition-all cursor-pointer {appState.launchMode === 'lan' ? 'bg-[var(--accent)] text-[var(--text-primary)]' : 'bg-[var(--bg-primary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}"
+            class="px-2 py-1 text-xs font-medium transition-all disabled:cursor-not-allowed disabled:opacity-50 {launchModeLocked ? '' : 'cursor-pointer'} {appState.launchMode === 'lan' ? 'bg-[var(--accent)] text-[var(--text-primary)]' : 'bg-[var(--bg-primary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}"
             onclick={() => appState.launchMode = 'lan'}
+            disabled={launchModeLocked}
           >局域网</button>
         </div>
         <div class="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-1.5">
@@ -293,14 +381,14 @@
           </svg>
           <input
             type="text"
-            bind:value={logFilter.searchText}
+            bind:value={logSearchText}
             placeholder="搜索日志..."
             class="w-full sm:w-44 bg-[var(--bg-primary)] border border-[var(--border)] rounded-md pl-8 pr-2 py-1 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors"
           />
         </div>
         <button
           class="text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors duration-[var(--transition-fast)] px-2 py-1 rounded hover:bg-[var(--bg-card-hover)] cursor-pointer"
-          onclick={clearServerLogs}
+          onclick={() => clearServerLogs(viewingSaveId)}
         >
           清空
         </button>
@@ -312,19 +400,19 @@
           <p class="italic">等待服务器启动...</p>
         </div>
       {:else}
-        {#if logFilter.searchText && filteredLogs.length === 0}
+        {#if logSearchText && filteredLogs.length === 0}
           <div class="flex items-center justify-center h-full text-[var(--text-muted)]">
             <p class="italic">未找到匹配内容</p>
           </div>
         {:else}
-          {#if logFilter.searchText}
+          {#if logSearchText}
             <div class="pb-2 mb-2 border-b border-[var(--border)] text-[var(--text-muted)]">
               找到 {filteredLogs.length} 条匹配
             </div>
           {/if}
           {#each filteredLogs as log}
             <p class="py-0.5 {log.level === 'error' ? 'text-[var(--danger)]' : log.level === 'warning' ? 'text-[var(--warning)]' : log.level === 'info' ? 'text-[var(--success)]' : log.level === 'system' ? 'text-[var(--accent-light)] font-medium' : 'text-[var(--text-secondary)]'}">
-              {@html highlightText(log.text, logFilter.searchText)}
+              {@html highlightText(log.text, logSearchText)}
             </p>
           {/each}
         {/if}

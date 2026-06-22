@@ -10,10 +10,22 @@ pub async fn rcon_connect(
     rcon: State<'_, Arc<Mutex<RconClient>>>,
     log: State<'_, Arc<Mutex<LogService>>>,
     active_rcon: State<'_, Arc<Mutex<ActiveRcon>>>,
+    save_id: String,
 ) -> Result<String, String> {
+    let target_save_id = save_id.trim().to_string();
+    if target_save_id.is_empty() {
+        return Err("请选择要连接的运行服务器".to_string());
+    }
+
     let (host, port, password) = {
         let ar = active_rcon.lock().unwrap_or_else(|e| e.into_inner());
-        (ar.host.clone(), ar.port, ar.password.clone())
+        let endpoint = ar.endpoint_for_save(&target_save_id).ok_or_else(|| {
+            format!(
+                "未找到存档 {} 的 RCON 会话配置，请重新启动该服务器后再连接",
+                target_save_id
+            )
+        })?;
+        (endpoint.host, endpoint.port, endpoint.password)
     };
 
     let mut client = rcon.lock().unwrap_or_else(|e| e.into_inner());
@@ -22,9 +34,10 @@ pub async fn rcon_connect(
         ls.log_operation(&format!("[ERROR] RCON 连接失败 ({}:{}): {}", host, port, e));
         e
     })?;
+    client.set_connected_save_id(target_save_id.clone());
 
     let ls = log.lock().unwrap_or_else(|e| e.into_inner());
-    ls.log_operation("RCON 连接成功");
+    ls.log_operation(&format!("RCON 连接成功: {}", target_save_id));
 
     Ok(welcome)
 }
@@ -83,4 +96,10 @@ pub fn rcon_poll(rcon: State<'_, Arc<Mutex<RconClient>>>) -> Vec<String> {
 pub fn rcon_status(rcon: State<'_, Arc<Mutex<RconClient>>>) -> bool {
     let client = rcon.lock().unwrap_or_else(|e| e.into_inner());
     client.is_connected()
+}
+
+#[tauri::command]
+pub fn rcon_connected_save_id(rcon: State<'_, Arc<Mutex<RconClient>>>) -> Option<String> {
+    let client = rcon.lock().unwrap_or_else(|e| e.into_inner());
+    client.connected_save_id()
 }
