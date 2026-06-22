@@ -109,5 +109,15 @@ export default defineConfig({
     ['meta', { property: 'og:title', content: 'Unturned Server Manager' }],
     ['meta', { property: 'og:description', content: '清新、轻量、便携的 Unturned 专用服务器管理工具' }],
     ['link', { rel: 'icon', type: 'image/x-icon', href: '/favicon.ico' }],
+
+    // 字体预连接和预加载（优化性能）
+    ['link', { rel: 'preconnect', href: 'https://fonts.googleapis.com' }],
+    ['link', { rel: 'preconnect', href: 'https://fonts.gstatic.com', crossorigin: '' }],
+
+    // 引入 Work Sans 和 Public Sans（替代 Playfair Display 和 Inter）
+    ['link', {
+      rel: 'stylesheet',
+      href: 'https://fonts.googleapis.com/css2?family=Work+Sans:wght@400;500;600;700&family=Public+Sans:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap'
+    }],
   ],
 })

@@ -1,0 +1,235 @@
+/*
+ * Design System Variables
+ * Based on OKLCH color space for perceptual uniformity
+ */
+
+:root {
+  /* ============================================
+     COLOR SYSTEM - OKLCH
+     ============================================ */
+
+  /* Primary Brand Color - 保留原品牌色 #4cada8 并扩展色阶 */
+  --color-primary-50: oklch(96% 0.02 180);
+  --color-primary-100: oklch(92% 0.04 180);
+  --color-primary-200: oklch(85% 0.06 180);
+  --color-primary-300: oklch(75% 0.08 180);
+  --color-primary-400: oklch(70% 0.09 180);
+  --color-primary-500: oklch(65% 0.09 180); /* #4cada8 主品牌色 */
+  --color-primary-600: oklch(55% 0.09 180);
+  --color-primary-700: oklch(45% 0.08 180);
+  --color-primary-800: oklch(35% 0.06 180);
+  --color-primary-900: oklch(25% 0.04 180);
+
+  /* Tinted Neutrals - 色调中性灰（向主品牌色倾斜） */
+  --color-paper: oklch(99% 0.002 180);      /* 纸白 */
+  --color-cream: oklch(97% 0.005 180);      /* 奶油色背景 */
+  --color-surface: oklch(95% 0.006 180);    /* 表面色 */
+  --color-mist: oklch(90% 0.008 180);       /* 雾灰（边框） */
+  --color-ash: oklch(60% 0.008 180);        /* 灰烬（次要文本） */
+  --color-charcoal: oklch(35% 0.006 180);   /* 木炭（正文） */
+  --color-ink: oklch(15% 0.005 180);        /* 墨黑（标题） */
+
+  /* Semantic Colors - 语义化色彩 */
+  --color-success: oklch(65% 0.15 145);     /* 成功绿 */
+  --color-success-bg: oklch(96% 0.03 145);  /* 成功背景 */
+  --color-success-border: oklch(80% 0.10 145);
+
+  --color-warning: oklch(70% 0.15 85);      /* 警告橙 */
+  --color-warning-bg: oklch(96% 0.03 85);   /* 警告背景 */
+  --color-warning-border: oklch(80% 0.10 85);
+
+  --color-error: oklch(60% 0.20 25);        /* 错误红 */
+  --color-error-bg: oklch(96% 0.04 25);     /* 错误背景 */
+  --color-error-border: oklch(75% 0.15 25);
+
+  --color-info: oklch(65% 0.15 250);        /* 信息蓝 */
+  --color-info-bg: oklch(96% 0.03 250);     /* 信息背景 */
+  --color-info-border: oklch(80% 0.10 250);
+
+  /* Accent Colors - 强调色（基于主品牌色） */
+  --color-accent: var(--color-primary-500);
+  --color-accent-hover: var(--color-primary-600);
+  --color-accent-active: var(--color-primary-700);
+  --color-accent-dim: oklch(65% 0.09 180 / 0.15);
+  --color-accent-soft: oklch(65% 0.09 180 / 0.25);
+
+  /* ============================================
+     TYPOGRAPHY
+     ============================================ */
+
+  /* Font Families */
+  --font-display: 'Work Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-body: 'Public Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Cascadia Mono', 'SF Mono', Consolas, monospace;
+
+  /* Fluid Type Scale (1.25 ratio) */
+  --text-xs: clamp(0.75rem, 0.7rem + 0.2vw, 0.875rem);
+  --text-sm: clamp(0.875rem, 0.8rem + 0.3vw, 1rem);
+  --text-base: clamp(1rem, 0.95rem + 0.25vw, 1.125rem);
+  --text-lg: clamp(1.25rem, 1.1rem + 0.6vw, 1.5rem);
+  --text-xl: clamp(1.5rem, 1.3rem + 1vw, 2rem);
+  --text-2xl: clamp(2rem, 1.5rem + 2vw, 3rem);
+  --text-3xl: clamp(2.5rem, 2rem + 2.5vw, 4rem);
+
+  /* Font Weights */
+  --font-light: 300;
+  --font-normal: 400;
+  --font-medium: 500;
+  --font-semibold: 600;
+  --font-bold: 700;
+
+  /* Line Heights */
+  --leading-none: 1;
+  --leading-tight: 1.1;
+  --leading-snug: 1.3;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.7;
+  --leading-loose: 1.9;
+
+  /* Letter Spacing */
+  --tracking-tighter: -0.05em;
+  --tracking-tight: -0.025em;
+  --tracking-normal: 0;
+  --tracking-wide: 0.025em;
+  --tracking-wider: 0.05em;
+  --tracking-widest: 0.1em;
+
+  /* ============================================
+     SPACING SYSTEM
+     ============================================ */
+
+  --spacing-xs: 0.5rem;    /* 8px */
+  --spacing-sm: 1rem;      /* 16px */
+  --spacing-md: 1.5rem;    /* 24px */
+  --spacing-lg: 2rem;      /* 32px */
+  --spacing-xl: 3rem;      /* 48px */
+  --spacing-2xl: 5rem;     /* 80px */
+  --spacing-3xl: 7.5rem;   /* 120px */
+
+  /* ============================================
+     LAYOUT
+     ============================================ */
+
+  --width-max: 1400px;
+  --width-content: 900px;
+  --width-narrow: 650px;
+
+  /* Border Radius */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-2xl: 24px;
+  --radius-full: 9999px;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px 0 oklch(0% 0 0 / 0.05);
+  --shadow-md: 0 4px 6px -1px oklch(0% 0 0 / 0.1), 0 2px 4px -2px oklch(0% 0 0 / 0.1);
+  --shadow-lg: 0 10px 15px -3px oklch(0% 0 0 / 0.1), 0 4px 6px -4px oklch(0% 0 0 / 0.1);
+  --shadow-xl: 0 20px 25px -5px oklch(0% 0 0 / 0.1), 0 8px 10px -6px oklch(0% 0 0 / 0.1);
+
+  /* ============================================
+     ANIMATION
+     ============================================ */
+
+  /* Easing Functions */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+
+  /* Durations */
+  --duration-fast: 0.15s;
+  --duration-base: 0.3s;
+  --duration-slow: 0.6s;
+  --duration-slower: 0.8s;
+  --duration-slowest: 1.2s;
+
+  /* ============================================
+     Z-INDEX SCALE
+     ============================================ */
+
+  --z-base: 0;
+  --z-dropdown: 100;
+  --z-sticky: 200;
+  --z-fixed: 300;
+  --z-modal-backdrop: 400;
+  --z-modal: 500;
+  --z-popover: 600;
+  --z-tooltip: 700;
+}
+
+/* ============================================
+   DARK MODE
+   ============================================ */
+
+.dark {
+  /* Primary Brand Color - 暗色模式下略微降低饱和度 */
+  --color-primary-50: oklch(25% 0.04 180);
+  --color-primary-100: oklch(35% 0.06 180);
+  --color-primary-200: oklch(45% 0.08 180);
+  --color-primary-300: oklch(55% 0.09 180);
+  --color-primary-400: oklch(60% 0.09 180);
+  --color-primary-500: oklch(65% 0.08 180);
+  --color-primary-600: oklch(70% 0.08 180);
+  --color-primary-700: oklch(75% 0.07 180);
+  --color-primary-800: oklch(85% 0.05 180);
+  --color-primary-900: oklch(92% 0.03 180);
+
+  /* Tinted Neutrals - 暗色模式 */
+  --color-paper: oklch(12% 0.005 180);
+  --color-cream: oklch(15% 0.006 180);
+  --color-surface: oklch(18% 0.007 180);
+  --color-mist: oklch(25% 0.008 180);
+  --color-ash: oklch(50% 0.008 180);
+  --color-charcoal: oklch(70% 0.006 180);
+  --color-ink: oklch(92% 0.003 180);
+
+  /* Semantic Colors - 暗色模式调整 */
+  --color-success: oklch(70% 0.13 145);
+  --color-success-bg: oklch(15% 0.03 145);
+  --color-success-border: oklch(35% 0.08 145);
+
+  --color-warning: oklch(75% 0.13 85);
+  --color-warning-bg: oklch(15% 0.03 85);
+  --color-warning-border: oklch(35% 0.08 85);
+
+  --color-error: oklch(65% 0.18 25);
+  --color-error-bg: oklch(15% 0.04 25);
+  --color-error-border: oklch(35% 0.12 25);
+
+  --color-info: oklch(70% 0.13 250);
+  --color-info-bg: oklch(15% 0.03 250);
+  --color-info-border: oklch(35% 0.08 250);
+
+  /* Accent Colors */
+  --color-accent-dim: oklch(65% 0.08 180 / 0.2);
+  --color-accent-soft: oklch(65% 0.08 180 / 0.3);
+
+  /* Shadows - 暗色模式下使用更深的阴影 */
+  --shadow-sm: 0 1px 2px 0 oklch(0% 0 0 / 0.3);
+  --shadow-md: 0 4px 6px -1px oklch(0% 0 0 / 0.4), 0 2px 4px -2px oklch(0% 0 0 / 0.3);
+  --shadow-lg: 0 10px 15px -3px oklch(0% 0 0 / 0.4), 0 4px 6px -4px oklch(0% 0 0 / 0.3);
+  --shadow-xl: 0 20px 25px -5px oklch(0% 0 0 / 0.5), 0 8px 10px -6px oklch(0% 0 0 / 0.4);
+}
+
+/* ============================================
+   FALLBACKS FOR OLDER BROWSERS
+   ============================================ */
+
+@supports not (color: oklch(0% 0 0)) {
+  :root {
+    /* Primary Brand Color - HSL fallback */
+    --color-primary-500: hsl(174, 44%, 57%); /* #4cada8 */
+    --color-primary-600: hsl(174, 44%, 47%);
+
+    /* Neutrals */
+    --color-paper: hsl(0, 0%, 99%);
+    --color-cream: hsl(0, 0%, 97%);
+    --color-ink: hsl(0, 0%, 15%);
+
+    /* Accent */
+    --color-accent: var(--color-primary-500);
+    --color-accent-hover: var(--color-primary-600);
+  }
+}
