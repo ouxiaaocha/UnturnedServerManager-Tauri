@@ -1,106 +1,75 @@
-# ❓ 常见问题
+# 常见问题
 
 ## 构建相关
 
 ### PowerShell 脚本被阻止
 
-Windows 执行策略可能拦截 `pnpm.ps1`，可使用：
+Windows 执行策略可能拦截 `pnpm.ps1`。可以使用：
 
 ```powershell
 pnpm.cmd tauri build
 ```
 
-或修改执行策略：
+### 首次编译很慢
 
-```powershell
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-```
+Rust release 构建会下载并编译依赖，首次耗时较长。后续构建通常会快很多。
 
 ### 旧版 Windows 打不开程序
 
-请安装 [WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) 和 [Visual C++ Redistributable](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist)。
-
-### 首次编译较慢
-
-Rust release 构建首次需下载并编译依赖，可能耗时 10-30 分钟，后续会快很多。
-
-::: tip 提示
-取决于网络和硬件性能，请耐心等待。
-:::
+请安装 Microsoft WebView2 Runtime 和 Visual C++ Redistributable。
 
 ## 运行相关
 
-### 🖥 服务器启动失败
+### 服务器启动失败
 
-1. 检查 SteamCMD 是否正确安装
-2. 检查端口是否被占用
-3. 查看日志中心的错误信息
-4. 确认防火墙设置
+1. 打开「设置」执行运行环境检测。
+2. 检查 SteamCMD、服务端目录、Rocket.Unturned 和 Bridge DLL。
+3. 检查游戏端口和 RCON 端口是否冲突。
+4. 到「日志中心」查看软件日志和游戏日志。
 
-### 🔧 无法连接 RCON
+### 本地命令发送失败
 
-1. 确认 Rocket 模块已正确安装
-2. 检查 RCON 配置是否正确
-3. 确认 RCON 端口未被占用
-4. 检查防火墙是否阻止了端口
+1. 确认目标存档服务器正在运行。
+2. 确认 Rocket.Unturned 已安装。
+3. 确认 `UnturnedServerManagerBridge.dll` 已部署。
+4. 修复后重启服务器，让插件重新加载。
 
-### ⌨ 本地命令发送失败
+### RCON 无法连接
 
-1. 确认服务器正在运行
-2. 打开设置页运行环境检测
-3. 确认 Rocket.Unturned 已安装
-4. 确认 `UnturnedServerManagerBridge.dll` 已部署
-5. 修复后重启服务器让插件重新加载
+1. 确认目标存档正在运行。
+2. 在「存档 > 基础配置」检查 RCON 端口和密码。
+3. 确认 RCON 端口没有被其他程序占用。
+4. 检查防火墙是否阻止了本机或可信来源连接。
 
-### 🧩 创意工坊模组下载失败
-
-1. 检查网络连接
-2. 确认模组 ID 正确
-3. 检查 SteamCMD 是否正常
-4. 查看更新输出中的错误信息
-
-## 🔒 杀毒软件
-
-### 杀毒软件误报
-
-部分杀毒软件可能误报，处理方式：
-
-1. 将程序目录添加到白名单
-2. 将 `unturned-server-manager.exe` 添加到排除列表
-3. 将 SteamCMD 目录添加到白名单
-
-::: warning 注意
-本程序不包含任何恶意代码。误报是由于使用了系统级 API（进程管理、网络监控等）导致的。
+::: warning 安全提示
+RCON 是额外远程管理端口，不建议对公网开放。日常启停和重启优先使用本地命令 Bridge。
 :::
 
-## 💡 其他问题
+### 创意工坊模组不生效
 
-### 如何备份服务器数据？
+1. 检查模组 ID 是否正确。
+2. 查看 `WorkshopDownloadConfig.json` 是否已保存。
+3. 使用 SteamCMD 更新并校验服务端。
+4. 检查客户端 workshop 缓存是否实际更新。
+5. 查看游戏日志中是否有 missing asset 或依赖缺失。
 
-所有数据都在 exe 同级目录下：
+### 多服务器端口冲突
+
+每个同时运行的存档都需要独立游戏端口和 RCON 端口。应用启动时会检测冲突，并提供手动调整或自动分配端口的入口。
+
+## 数据与迁移
+
+### 如何备份
+
+复制 exe 同级目录即可，重点保留：
 
 ```text
-config/      配置数据
-logs/        日志数据
-data/        运行数据
-backups/     备份数据
+config/
+logs/
+data/
+backups/
 ```
 
-备份只需复制整个文件夹。
+### 更新程序会影响存档吗
 
-### 如何迁移服务器？
-
-1. 停止服务器
-2. 复制整个文件夹到新位置
-3. 在新位置运行程序
-4. 根据需要修改网络配置
-
-### 如何更新本工具？
-
-1. 从 GitHub Releases 下载最新版本
-2. 替换 `unturned-server-manager.exe`
-3. 重新运行
-
-::: tip 提示
-更新不会影响服务器配置和数据。
-:::
+直接替换 `unturned-server-manager.exe` 不会删除配置和存档。更新前仍建议备份整个目录。

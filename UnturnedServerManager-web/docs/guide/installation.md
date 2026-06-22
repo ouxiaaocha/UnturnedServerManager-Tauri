@@ -1,57 +1,41 @@
-# 📦 安装说明
+# 安装说明
 
-## 下载安装包
+## 推荐方式
 
-从 [GitHub Releases](https://github.com/ouxiaaocha/UnturnedServerManager-Tauri/releases) 下载最新版本。
+优先使用便携版 `unturned-server-manager.exe`。把它放到独立目录运行，程序会在同级目录创建配置、日志、数据和备份文件夹。
 
-### 安装包类型
+## 运行前准备
 
-| 文件 | 说明 |
+| 项目 | 说明 |
 | --- | --- |
-| `Unturned Server Manager_x64-setup.exe` | NSIS 安装程序，推荐使用 |
-| `unturned-server-manager.exe` | 便携版，无需安装 |
+| WebView2 Runtime | Windows 11 与新版 Windows 10 通常已内置 |
+| Visual C++ Redistributable | 旧系统缺失运行库时需要安装 |
+| 网络访问 | SteamCMD 下载服务端和工作坊内容时需要联网 |
+| 防火墙 | 游戏端口按开服需求放行，RCON 端口不建议对公网开放 |
 
-## 系统要求
+## 首次引导会处理什么
 
-### Windows 11 / Windows 10 21H2+
+- 检测 SteamCMD。
+- 安装或校验 Unturned Dedicated Server。
+- 初始化 Rocket.Unturned。
+- 部署本地命令 Bridge。
+- 初始化默认存档和 RCON 配置。
 
-无需额外安装，系统自带 WebView2 Runtime。
+## 开发者安装
 
-### Windows 10 1803 - 21H1
+如果需要从源码运行：
 
-需手动安装 WebView2 Runtime：
+```bash
+pnpm install
+pnpm tauri dev
+```
 
-1. 访问 [Microsoft WebView2 下载页面](https://developer.microsoft.com/en-us/microsoft-edge/webview2/)
-2. 下载 "Evergreen Standalone Installer"
-3. 安装完成后即可运行
+如果 PowerShell 执行策略阻止 `pnpm.ps1`，可以使用：
 
-### Windows Server
+```powershell
+pnpm.cmd tauri dev
+```
 
-| 版本 | 说明 |
-| --- | --- |
-| 2022 | 直接运行 |
-| 2016/2019 | 需安装 WebView2 Runtime |
+## 公网安全
 
-### 不支持的系统
-
-- Windows 7、8、8.1
-- Windows 10 1803 以下
-
-::: warning 注意
-macOS 和 Linux 未提供预构建包，需自行编译源码。
-:::
-
-## 🔨 开发环境
-
-从源码构建需安装以下工具：
-
-| 工具 | 版本 | 安装方式 |
-| --- | --- | --- |
-| Node.js | 18+ | [nodejs.org](https://nodejs.org/) |
-| pnpm | 11+ | `npm install -g pnpm` |
-| Rust | 1.77.2+ | [rustup.rs](https://rustup.rs/) |
-| VS Build Tools | C++ 桌面开发 | [visualstudio.microsoft.com](https://visualstudio.microsoft.com/visual-cpp-build-tools/) |
-
-::: tip 提示
-VS Build Tools 是编译 Rust 原生代码必需的，请勾选 "C++ 桌面开发" 工作负载。
-:::
+打包后的桌面程序不会启动可被公网访问的 Web 管理服务。需要按开服需求放行的是 Unturned 游戏端口；Rocket RCON 是额外管理端口，不建议直接对公网开放。

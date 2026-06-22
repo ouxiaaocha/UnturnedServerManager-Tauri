@@ -1,44 +1,30 @@
-<script setup>
-import iconDashboard from '/icon-dashboard.svg'
-</script>
+<FeatureHero
+  icon="/icon-dashboard.svg"
+  eyebrow="Operations Overview"
+  title="仪表盘"
+  description="仪表盘用于确认服务器运行状态、系统资源、连接信息和快捷操作。当前版本支持多服务器运行视图，可以在运行中的存档之间快速切换。"
+  image="/dashboard.png"
+  imageAlt="仪表盘界面"
+  pills="运行状态,多服务器卡片,系统监控,快捷启停,自动更新托管"
+/>
 
-<div class="feature-header">
-  <img :src="iconDashboard" alt="仪表盘" />
-  <h1>仪表盘</h1>
+## 适合什么时候看
+
+<div class="doc-card-grid">
+  <div class="doc-card"><h3>开服前确认</h3><p>选择目标存档、启动模式和自动更新托管状态，再启动服务器。</p></div>
+  <div class="doc-card"><h3>运行中巡检</h3><p>查看 PID、运行时间、CPU、内存、网络速率和联机码。</p></div>
+  <div class="doc-card"><h3>多服切换</h3><p>当多个存档同时运行时，选择要查看的运行实例。</p></div>
 </div>
 
-<div class="feature-screenshot">
-  <img src="/dashboard.png" alt="仪表盘界面" />
-</div>
+## 核心信息
 
-仪表盘是 Unturned Server Manager 的核心监控页面，提供服务器运行状态的实时概览。
-
-## 实时监控
-
-仪表盘实时显示以下服务器信息：
-
-| 指标 | 说明 |
+| 区域 | 作用 |
 | --- | --- |
-| 运行状态 | 服务器是否正在运行 |
-| PID | 服务器进程 ID |
-| 运行时间 | 服务器已运行的时长 |
-| CPU 使用率 | 服务器进程的 CPU 占用 |
-| 内存使用 | 服务器占用的内存大小 |
-| 网络流量 | 上传/下载流量 |
+| 状态卡片 | 显示当前服务器状态、运行时间和进程 PID |
+| 服务器信息 | 展示运行存档、启动模式、连接地址和联机码 |
+| 系统监控 | 展示 CPU、内存、上下行流量和总流量 |
+| 快捷操作 | 选择存档、切换互联网/局域网模式、启动/停止/重启服务器 |
 
-## 快速操作
-
-- **启动**：启动 Unturned 服务器
-- **停止**：通过本地命令保存并关闭服务器
-- **重启**：等待旧进程退出后重新启动
-- **强制停止**：强制终止服务器进程
-
-::: tip 提示
-建议优先使用"停止"或"重启"而非"强制停止"，以确保数据正确保存。
+::: tip 使用建议
+仪表盘是日常维护入口。需要修改配置时去「存档」，需要观察完整输出时去「服务器」或「日志」。
 :::
-
-## 界面布局
-
-- 顶部：服务器运行状态 + 快速操作按钮
-- 中部：CPU、内存、网络等性能指标卡片
-- 底部：PID、运行时间、运行存档等基本信息

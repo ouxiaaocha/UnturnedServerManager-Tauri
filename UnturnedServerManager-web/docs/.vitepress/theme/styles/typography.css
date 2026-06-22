@@ -152,17 +152,14 @@ li::marker {
 
 a {
   color: var(--color-accent);
-  text-decoration: underline;
-  text-decoration-thickness: 1px;
-  text-underline-offset: 2px;
+  text-decoration: none;
   transition: color var(--duration-fast) var(--ease-out),
-              text-decoration-color var(--duration-fast) var(--ease-out),
-              text-decoration-thickness var(--duration-fast) var(--ease-out);
+              opacity var(--duration-fast) var(--ease-out);
 }
 
 a:hover {
   color: var(--color-accent-hover);
-  text-decoration-thickness: 2px;
+  text-decoration: none;
 }
 
 a:focus-visible {
