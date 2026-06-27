@@ -1,6 +1,6 @@
 {
   "name": "UnturnedServerManager-Tauri",
-  "version": "2.1.0",
+  "version": "3.0.0",
   "description": "Unturned 专用服务器管理工具 — 基于 Tauri v2 + Svelte 5 + Rust 构建的现代化桌面面板",
   "scripts": {
     "dev": "vite --host 127.0.0.1",

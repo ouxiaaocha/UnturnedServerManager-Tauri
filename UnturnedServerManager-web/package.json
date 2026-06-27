@@ -1,6 +1,6 @@
 {
   "name": "unturned-server-manager-web",
-  "version": "2.1.0",
+  "version": "3.0.0",
   "description": "Unturned Server Manager 官方文档网站",
   "private": true,
   "type": "module",

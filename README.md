@@ -123,7 +123,7 @@ pnpm tauri build
 
 ```text
 src-tauri/target/release/unturned-server-manager.exe
-src-tauri/target/release/bundle/nsis/Unturned Server Manager_2.1.0_x64-setup.exe
+src-tauri/target/release/bundle/nsis/Unturned Server Manager_3.0.0_x64-setup.exe
 ```
 
 ## 便携版
@@ -134,13 +134,14 @@ src-tauri/target/release/bundle/nsis/Unturned Server Manager_2.1.0_x64-setup.exe
 src-tauri/target/release/unturned-server-manager.exe
 ```
 
-程序会在运行目录下自动创建运行数据：
+程序会在运行目录下自动创建统一运行数据目录：
 
 ```text
-config/      应用配置、服务器配置、定时任务、备注数据
-logs/        软件日志、操作日志、游戏日志
-data/        运行数据
-backups/     备份数据
+UnturnedServerManagerData/
+  config/      应用配置、服务器配置、定时任务、备注数据
+  logs/        软件日志、操作日志、游戏日志
+  data/        运行数据
+  backups/     备份数据
 ```
 
 ## 公网安全

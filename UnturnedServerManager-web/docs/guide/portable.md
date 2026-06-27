@@ -4,13 +4,14 @@
 
 ## 目录结构
 
-程序会在 exe 同级目录创建运行数据：
+程序会在 exe 同级目录创建统一运行数据目录：
 
 ```text
-config/      应用配置、服务器配置、定时任务、备注数据
-logs/        软件日志、操作日志、游戏日志
-data/        运行数据
-backups/     备份数据
+UnturnedServerManagerData/
+  config/      应用配置、服务器配置、定时任务、备注数据
+  logs/        软件日志、操作日志、游戏日志
+  data/        运行数据
+  backups/     备份数据
 ```
 
 ## 迁移方式
@@ -25,9 +26,9 @@ backups/     备份数据
 
 | 数据 | 建议 |
 | --- | --- |
-| `config/` | 修改存档、任务、RCON 前备份 |
-| `logs/` | 排查问题时保留近期日志 |
-| `backups/` | 定期复制到其他磁盘或云端 |
+| `UnturnedServerManagerData/config/` | 修改存档、任务、RCON 前备份 |
+| `UnturnedServerManagerData/logs/` | 排查问题时保留近期日志 |
+| `UnturnedServerManagerData/backups/` | 定期复制到其他磁盘或云端 |
 | 服务端目录 | 更新服务端或插件前建议整体备份 |
 
 ::: tip 提示

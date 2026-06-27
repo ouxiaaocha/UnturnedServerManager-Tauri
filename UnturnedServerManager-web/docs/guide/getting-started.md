@@ -34,7 +34,7 @@ pnpm tauri build
 
 ```text
 src-tauri/target/release/unturned-server-manager.exe
-src-tauri/target/release/bundle/nsis/Unturned Server Manager_2.1.0_x64-setup.exe
+src-tauri/target/release/bundle/nsis/Unturned Server Manager_3.0.0_x64-setup.exe
 ```
 
 ## 首次运行流程

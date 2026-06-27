@@ -2,7 +2,7 @@
 
 ## 推荐方式
 
-优先使用便携版 `unturned-server-manager.exe`。把它放到独立目录运行，程序会在同级目录创建配置、日志、数据和备份文件夹。
+优先使用便携版 `unturned-server-manager.exe`。把它放到独立目录运行，程序会在同级目录创建 `UnturnedServerManagerData/`，配置、日志、数据和备份都会统一放在这个目录内。
 
 ## 运行前准备
 
