@@ -5,6 +5,7 @@
   import { generatePassword } from "$lib/utils";
   import { listenInstallerProgress } from "../utils/installer";
   import SelectCustom from "../components/SelectCustom.svelte";
+  import type { ConfigSaveResult, DetectResult, SaveInfo } from "../types";
 
   // 持有当前挂起的 installer-progress 解绑函数，组件销毁或重新开始时兜底解绑，
   // 避免下载/安装进行中切换页面导致监听器泄漏。
@@ -36,7 +37,7 @@
   let saveInitRunning = $state(false);
   let saveInitDone = $state(false);
 
-  let existingSaves = $state<any[]>([]);
+  let existingSaves = $state<SaveInfo[]>([]);
   let selectedSaveId = $state("");
   let saveHasRocket = $state<boolean | null>(null);
   let saveChecking = $state(false);
@@ -57,12 +58,12 @@
     detecting = true;
     error = "";
     try {
-      const result: any = await invoke("auto_detect_paths");
+      const result = await invoke<DetectResult>("auto_detect_paths");
       if (result.steam_cmd_path) steamCmdPath = result.steam_cmd_path;
       if (result.server_root) serverRoot = result.server_root;
       if (result.server_id) serverId = result.server_id;
       if (!result.steam_cmd_path) error = "未能自动检测到 SteamCMD，请手动选择或自动下载";
-    } catch (e: any) {
+    } catch (e) {
       error = `检测失败: ${e}`;
     }
     detecting = false;
@@ -113,7 +114,7 @@
     pendingUnlisten = unlisten;
     try {
       await invoke("download_steamcmd");
-    } catch (e: any) {
+    } catch (e) {
       error = `启动失败: ${e}`;
       downloadMsg = "启动失败";
       lastFailedAction = "steamcmd";
@@ -152,7 +153,7 @@
     pendingUnlisten = unlisten;
     try {
       await invoke("download_server", { steamcmdPath: steamCmdPath });
-    } catch (e: any) {
+    } catch (e) {
       error = `启动失败: ${e}`;
       downloadMsg = "启动失败";
       lastFailedAction = "server";
@@ -166,14 +167,14 @@
     saveChecking = true;
     error = "";
     try {
-      existingSaves = await invoke("list_server_saves", { serverRoot }) as any[];
+      existingSaves = await invoke<SaveInfo[]>("list_server_saves", { serverRoot });
       if (existingSaves.length > 0) {
         selectedSaveId = existingSaves[0].id;
         await checkSelectedSaveRocket();
       } else {
         saveHasRocket = null;
       }
-    } catch (e: any) {
+    } catch (e) {
       error = `检测存档失败: ${e}`;
     }
     saveChecking = false;
@@ -196,7 +197,7 @@
     error = "";
     try {
       rocketInstalled = await invoke("detect_rocket_module", { serverRoot }) as boolean;
-    } catch (e: any) {
+    } catch (e) {
       error = `检测失败: ${e}`;
       rocketInstalled = null;
     }
@@ -230,7 +231,7 @@
     pendingUnlisten = unlisten;
     try {
       await invoke("install_rocket_module", { serverRoot });
-    } catch (e: any) {
+    } catch (e) {
       error = `启动失败: ${e}`;
       lastFailedAction = "rocket";
       rocketInstalling = false;
@@ -272,7 +273,7 @@
       // 如果已有存档则用选中的 ID，否则用新建的名称
       const initName = existingSaves.length > 0 && selectedSaveId ? selectedSaveId : saveName;
       await invoke("init_server_save", { serverRoot, saveName: initName });
-    } catch (e: any) {
+    } catch (e) {
       error = `启动失败: ${e}`;
       lastFailedAction = "save";
       saveInitRunning = false;
@@ -352,7 +353,7 @@
       // 以第一个存档的 RCON 配置作为全局默认
       const firstId = existingSaves.length > 0 ? existingSaves[0].id : serverId;
       const firstRcon = rconConfigMap[firstId] || { port: 27115, password: generatePassword(16) };
-      await invoke("save_wizard_config", {
+      const result = await invoke<ConfigSaveResult>("save_wizard_config", {
         steamCmdPath, serverRoot,
         serverId: firstId,
         rconPort: firstRcon.port,
@@ -373,8 +374,13 @@
         }
       }
 
+      if (result.rocket_sync_warning) {
+        error = result.rocket_sync_warning;
+      } else {
+        error = "";
+      }
       onComplete();
-    } catch (e: any) {
+    } catch (e) {
       error = `保存失败: ${e}`;
     }
     saving = false;

@@ -1,9 +1,17 @@
-<script lang="ts">
+﻿<script lang="ts">
   import { onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { open as openDialog } from "@tauri-apps/plugin-dialog";
   import { open as openShell } from "@tauri-apps/plugin-shell";
   import { toastStore } from "../stores/toast.svelte";
+  import type {
+    AppSettings,
+    ConfigSaveResult,
+    EnvironmentCheckReport,
+    ServerProfile,
+    ServersConfig,
+    UpdateInfo,
+  } from "../types";
   import { escapeHtml } from "$lib/utils";
 
   declare const __APP_VERSION__: string;
@@ -12,23 +20,10 @@
   let steamCmdPath = $state("");
   let serverRoot = $state("");
   let saving = $state(false);
-  let existingConfig = $state<any>(null);
+  let existingConfig = $state<ServerProfile | null>(null);
 
   // --- 运行环境检测状态 ---
-  type EnvironmentItem = {
-    key: string;
-    label: string;
-    ok: boolean;
-    required: boolean;
-    message: string;
-    path?: string;
-  };
-  type EnvironmentReport = {
-    ok: boolean;
-    saveId?: string;
-    items: EnvironmentItem[];
-  };
-  let environmentReport = $state<EnvironmentReport | null>(null);
+  let environmentReport = $state<EnvironmentCheckReport | null>(null);
   let environmentChecking = $state(false);
   let environmentFullChecking = $state(false);
   let environmentRepairing = $state("");
@@ -47,12 +42,12 @@
   // --- 更新检测状态 ---
   type CheckStatus = "idle" | "checking" | "has_update" | "up_to_date" | "error";
   let checkStatus = $state<CheckStatus>("idle");
-  let updateInfo = $state<any>(null);
+  let updateInfo = $state<UpdateInfo | null>(null);
   let errorMsg = $state("");
 
   async function loadConfig() {
     try {
-      const config: any = await invoke("get_config");
+      const config = await invoke<ServersConfig>("get_config");
       if (config.servers && config.servers.length > 0) {
         const s = config.servers[0];
         existingConfig = s;
@@ -60,7 +55,7 @@
         serverRoot = s.serverRoot || "";
       }
 
-      const appSettings: any = await invoke("get_app_settings");
+      const appSettings = await invoke<AppSettings>("get_app_settings");
       closeToTray = appSettings.closeToTray || false;
       closeActionRemembered = appSettings.closeActionRemembered || false;
       logRetentionDays = Number(appSettings.logRetentionDays) || 15;
@@ -78,10 +73,13 @@
         serverRoot,
       };
       // save_config 期望 ServersConfig 结构体，包含 servers 数组
-      await invoke("save_config", { servers: { servers: [server] } });
-      toastStore.success("保存成功");
+      const result = await invoke<ConfigSaveResult>("save_config", { servers: { servers: [server] } });
+      toastStore.success(result.message || "保存成功");
+      if (result.rocket_sync_warning) {
+        toastStore.error(result.rocket_sync_warning);
+      }
       await checkEnvironment(false);
-    } catch (e: any) {
+    } catch (e) {
       toastStore.error(`保存失败: ${e}`);
     }
     saving = false;
@@ -117,11 +115,11 @@
       environmentChecking = true;
     }
     try {
-      environmentReport = await invoke("check_runtime_environment", { includeSteamTest }) as EnvironmentReport;
+      environmentReport = await invoke<EnvironmentCheckReport>("check_runtime_environment", { includeSteamTest });
       if (includeSteamTest) {
         toastStore.success(environmentReport.ok ? "检测完成，运行条件正常" : "检测完成，请查看异常项");
       }
-    } catch (e: any) {
+    } catch (e) {
       toastStore.error(`运行环境检测失败: ${e}`);
     } finally {
       environmentChecking = false;
@@ -132,10 +130,10 @@
   async function repairEnvironment(target: "rocket" | "bridge" | "all") {
     environmentRepairing = target;
     try {
-      const message = await invoke("install_runtime_requirement", { target }) as string;
+      const message = await invoke<string>("install_runtime_requirement", { target });
       toastStore.success(message);
       await checkEnvironment(false);
-    } catch (e: any) {
+    } catch (e) {
       toastStore.error(`安装失败: ${e}`);
     } finally {
       environmentRepairing = "";
@@ -147,10 +145,10 @@
     errorMsg = "";
     updateInfo = null;
     try {
-      const info: any = await invoke("check_for_updates");
+      const info = await invoke<UpdateInfo>("check_for_updates");
       updateInfo = info;
       checkStatus = info.has_update ? "has_update" : "up_to_date";
-    } catch (e: any) {
+    } catch (e) {
       checkStatus = "error";
       errorMsg = typeof e === "string" ? e : "网络连接失败，请检查网络后重试";
     }
@@ -187,7 +185,7 @@
         remember: closeActionRemembered
       });
       toastStore.success("关闭行为已保存");
-    } catch (e: any) {
+    } catch (e) {
       toastStore.error(`保存失败: ${e}`);
     }
   }
@@ -201,7 +199,7 @@
       closeToTray = false;
       closeActionRemembered = false;
       toastStore.success("已重置关闭行为");
-    } catch (e: any) {
+    } catch (e) {
       toastStore.error(`重置失败: ${e}`);
     }
   }
@@ -215,10 +213,10 @@
 
     logRetentionSaving = true;
     try {
-      const settings: any = await invoke("set_log_retention_days", { days });
+      const settings = await invoke<AppSettings>("set_log_retention_days", { days });
       logRetentionDays = Number(settings.logRetentionDays) || days;
       toastStore.success("日志保存时间已保存");
-    } catch (e: any) {
+    } catch (e) {
       toastStore.error(`保存失败: ${e}`);
     } finally {
       logRetentionSaving = false;
@@ -645,3 +643,4 @@
     </aside>
   </div>
 </div>
+

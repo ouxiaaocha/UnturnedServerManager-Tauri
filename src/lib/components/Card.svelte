@@ -1,4 +1,6 @@
 <script lang="ts">
+  import type { Snippet } from "svelte";
+
   let {
     hover = false,
     padding = 'md',
@@ -10,9 +12,9 @@
     hover?: boolean;
     padding?: 'none' | 'sm' | 'md' | 'lg';
     class?: string;
-    children?: any;
-    header?: any;
-    footer?: any;
+    children?: Snippet;
+    header?: Snippet;
+    footer?: Snippet;
   } = $props();
 
   const baseClasses = "bg-[var(--bg-card)] border border-[var(--border)] rounded-xl shadow-sm transition-all";

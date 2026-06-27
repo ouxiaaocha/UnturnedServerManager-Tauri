@@ -1,41 +1,22 @@
 import { invoke } from "@tauri-apps/api/core";
 import { classifyLogLevel, formatUptime } from "./utils";
+import { CircularBuffer } from "./CircularBuffer";
+import { toastStore } from "./stores/toast.svelte";
+import type {
+  UiPreferences,
+  SaveInfo,
+  RunningServerInfo,
+  ServerRuntimeState,
+  ServerInfoState,
+  LogEntry,
+  RconLogEntry,
+  AppSettings,
+  ServerSnapshot,
+  OperationResult,
+  SaveActiveTab,
+} from "./types";
 
-export type SaveActiveTab = "save" | "gameConfig" | "workshop" | "plugins" | "permissions";
-
-type UiPreferences = {
-  selectedSaveId: string;
-  saveActiveTab: SaveActiveTab;
-};
-
-type SaveSummary = {
-  id: string;
-  name?: string;
-};
-
-export type RunningServerInfo = {
-  save_id: string;
-  state: string;
-  pid?: number | null;
-  uptime_secs: number;
-  output_count: number;
-  launch_mode: string;
-};
-
-type ServerRuntimeState = {
-  status: string;
-  pid: string;
-  uptime: string;
-  loading: "" | "starting" | "stopping" | "restarting";
-  outputIndex: number;
-};
-
-type ServerInfoState = {
-  serverCode: string;
-  port: number;
-  portLoading: boolean;
-  codeParsed: boolean;
-};
+export type { SaveActiveTab } from "./types";
 
 const UI_PREFERENCES_STORAGE_KEY = "unturned-server-manager-ui-preferences";
 const DEFAULT_UI_PREFERENCES: UiPreferences = {
@@ -43,7 +24,7 @@ const DEFAULT_UI_PREFERENCES: UiPreferences = {
   saveActiveTab: "save",
 };
 
-function isSaveActiveTab(value: unknown): value is SaveActiveTab {
+function isSaveActiveTab(value: unknown): value is import("./types").SaveActiveTab {
   return (
     value === "save" ||
     value === "gameConfig" ||
@@ -87,19 +68,23 @@ function persistUiPreferences() {
 }
 
 // Global state that persists across page switches
-export const rconLogs: Array<{text: string, type: string}> = $state([]);
+// 使用循环缓冲区提升性能,避免频繁的数组 splice 操作
+const rconLogsBuffer = new CircularBuffer<RconLogEntry>(500);
+export const rconLogs: RconLogEntry[] = $state([]);
 
 export function addRconLog(text: string, type = "response") {
   const time = new Date().toLocaleTimeString("zh-CN", { hour12: false });
-  rconLogs.push({ text: `[${time}] ${text}`, type });
-  if (rconLogs.length > 500) rconLogs.splice(0, rconLogs.length - 500);
+  const entry = { text: `[${time}] ${text}`, type };
+  rconLogsBuffer.push(entry);
+  rconLogs.splice(0, rconLogs.length, ...rconLogsBuffer.toArray());
 }
 
 export function addRconLogs(lines: string[], type = "response") {
   if (lines.length === 0) return;
   const time = new Date().toLocaleTimeString("zh-CN", { hour12: false });
-  rconLogs.push(...lines.map((text) => ({ text: `[${time}] ${text}`, type })));
-  if (rconLogs.length > 500) rconLogs.splice(0, rconLogs.length - 500);
+  const entries = lines.map((text) => ({ text: `[${time}] ${text}`, type }));
+  rconLogsBuffer.pushMany(entries);
+  rconLogs.splice(0, rconLogs.length, ...rconLogsBuffer.toArray());
 }
 
 // Shared state across Dashboard and Server pages
@@ -117,7 +102,7 @@ export function setSelectedSaveId(id: string) {
   }
 }
 
-export function ensureSelectedSaveId(saves: SaveSummary[]) {
+export function ensureSelectedSaveId(saves: SaveInfo[]) {
   const current = uiPreferences.selectedSaveId;
   if (current && saves.some((save) => save.id === current)) {
     return current;
@@ -134,16 +119,19 @@ export function setSaveActiveTab(tab: SaveActiveTab) {
 }
 
 // Shared saves list (loaded once, reused by Dashboard & Server)
-export const sharedSaves = $state<any[]>([]);
+export const sharedSaves = $state<SaveInfo[]>([]);
 export const sharedSavesState = $state({ loaded: false });
 
 export async function loadSharedSaves() {
   if (sharedSavesState.loaded) return;
   try {
-    const saves = await invoke("list_server_saves");
-    sharedSaves.splice(0, sharedSaves.length, ...(saves as any[]));
+    const saves = await invoke<SaveInfo[]>("list_server_saves");
+    sharedSaves.splice(0, sharedSaves.length, ...saves);
     sharedSavesState.loaded = true;
-  } catch (e) { console.error("加载存档列表失败:", e); }
+  } catch (e) {
+    console.error("加载存档列表失败:", e);
+    toastStore.error(`加载存档列表失败: ${e instanceof Error ? e.message : String(e)}`);
+  }
 }
 
 // Shared app settings
@@ -155,16 +143,19 @@ export const sharedSettings = $state({
 export async function loadSharedSettings() {
   if (sharedSettings.loaded) return;
   try {
-    const settings: any = await invoke("get_app_settings");
+    const settings = await invoke<AppSettings>("get_app_settings");
     sharedSettings.autoUpdateHosting = !!settings.autoUpdateHosting;
     sharedSettings.loaded = true;
-  } catch (e) { console.error("加载应用设置失败:", e); }
+  } catch (e) {
+    console.error("加载应用设置失败:", e);
+    toastStore.error(`加载应用设置失败: ${e instanceof Error ? e.message : String(e)}`);
+  }
 }
 
-export async function toggleAutoUpdateHosting(saveId: string | null) {
+export async function toggleAutoUpdateHosting(saveId: string | null): Promise<OperationResult> {
   const nextEnabled = !sharedSettings.autoUpdateHosting;
   try {
-    const settings: any = await invoke("set_auto_update_hosting", {
+    const settings = await invoke<AppSettings>("set_auto_update_hosting", {
       enabled: nextEnabled,
       saveId,
     });
@@ -173,8 +164,9 @@ export async function toggleAutoUpdateHosting(saveId: string | null) {
       success: true,
       message: sharedSettings.autoUpdateHosting ? "托管已开启" : "托管已关闭",
     };
-  } catch (e: any) {
-    return { success: false, message: `设置失败: ${e}` };
+  } catch (e) {
+    const errorMessage = e instanceof Error ? e.message : String(e);
+    return { success: false, message: `设置失败: ${errorMessage}` };
   }
 }
 
@@ -232,6 +224,10 @@ function ensureRuntime(saveId: string) {
   if (!serverLogsBySave[key]) {
     serverLogsBySave[key] = [];
   }
+  // 确保该存档有对应的循环缓冲区
+  if (!serverLogsBuffers.has(key)) {
+    serverLogsBuffers.set(key, new CircularBuffer<LogEntry>(500));
+  }
   return { key, runtime: serverStatesBySave[key], logs: serverLogsBySave[key] };
 }
 
@@ -245,10 +241,12 @@ export const serverState = $state({
 });
 
 /** 服务器输出日志 */
-export const serverLogs: Array<{text: string, level: string}> = $state([]);
+export const serverLogs: LogEntry[] = $state([]);
 
 export const serverStatesBySave = $state<Record<string, ServerRuntimeState>>({});
-export const serverLogsBySave = $state<Record<string, Array<{text: string, level: string}>>>({});
+export const serverLogsBySave = $state<Record<string, LogEntry[]>>({});
+// 为每个存档维护独立的循环缓冲区
+const serverLogsBuffers = new Map<string, CircularBuffer<LogEntry>>();
 export const runningServers: RunningServerInfo[] = $state([]);
 
 function activeRuntimeSaveId() {
@@ -333,6 +331,7 @@ export async function refreshRunningServers() {
     return servers;
   } catch (e) {
     console.error("刷新运行服务器列表失败:", e);
+    // 静默失败,避免频繁轮询时打扰用户
     return runningServers;
   }
 }
@@ -342,6 +341,11 @@ export function clearServerLogs(saveId = activeRuntimeSaveId()) {
   const { runtime, logs, key } = ensureRuntime(saveId);
   logs.splice(0, logs.length);
   runtime.outputIndex = 0;
+  // 清空对应的循环缓冲区
+  const buffer = serverLogsBuffers.get(key);
+  if (buffer) {
+    buffer.clear();
+  }
   if (key === activeRuntimeKey()) {
     serverLogs.splice(0, serverLogs.length);
     serverState.outputIndex = 0;
@@ -352,59 +356,89 @@ export function clearServerLogs(saveId = activeRuntimeSaveId()) {
 export function appendServerLogs(lines: string[], saveId = activeRuntimeSaveId()) {
   const { logs, key } = ensureRuntime(saveId);
   const appended = lines.map((line) => ({ text: line, level: classifyLogLevel(line) }));
-  logs.push(...appended);
-  // 限制日志数量
-  if (logs.length > 500) {
-    logs.splice(0, logs.length - 500);
+
+  // 使用循环缓冲区高效管理日志
+  const buffer = serverLogsBuffers.get(key);
+  if (buffer) {
+    buffer.pushMany(appended);
+    logs.splice(0, logs.length, ...buffer.toArray());
+  } else {
+    // 降级方案：直接使用数组
+    logs.push(...appended);
+    if (logs.length > 500) {
+      logs.splice(0, logs.length - 500);
+    }
   }
+
   if (key === activeRuntimeKey()) {
     serverLogs.splice(0, serverLogs.length, ...logs);
   }
 }
 
+// 防止 refreshServerStatus 竞态条件的锁
+const refreshLocks = new Map<string, Promise<string[]>>();
+
 /** 刷新服务器状态（供 Dashboard 和 Server 页面共享），返回本次新增输出 */
 export async function refreshServerStatus(saveId = activeRuntimeSaveId()): Promise<string[]> {
-  const { runtime, key } = ensureRuntime(saveId);
-  try {
-    let s: any = await invoke("get_server_snapshot", {
-      saveId: saveId || null,
-      fromIndex: runtime.outputIndex,
-    });
+  const lockKey = saveId || "__default__";
 
-    // 重启后后端输出缓冲会重新计数；检测到计数回退时，从新进程的起点重新同步。
-    if (s.output_count < runtime.outputIndex) {
-      runtime.outputIndex = 0;
-      s = await invoke("get_server_snapshot", {
+  // 如果已经有正在进行的刷新，返回现有的 Promise
+  if (refreshLocks.has(lockKey)) {
+    return refreshLocks.get(lockKey)!;
+  }
+
+  // 创建新的刷新 Promise
+  const refreshPromise = (async () => {
+    const { runtime, key } = ensureRuntime(saveId);
+    try {
+      let snapshot = await invoke<ServerSnapshot>("get_server_snapshot", {
         saveId: saveId || null,
-        fromIndex: 0,
+        fromIndex: runtime.outputIndex,
       });
-    }
 
-    runtime.status = s.state;
-    runtime.pid = s.pid ? String(s.pid) : "--";
+      // 重启后后端输出缓冲会重新计数；检测到计数回退时，从新进程的起点重新同步。
+      if (snapshot.output_count < runtime.outputIndex) {
+        runtime.outputIndex = 0;
+        snapshot = await invoke<ServerSnapshot>("get_server_snapshot", {
+          saveId: saveId || null,
+          fromIndex: 0,
+        });
+      }
 
-    // 计算 uptime
-    runtime.uptime = formatUptime(s.uptime_secs);
+      runtime.status = snapshot.state;
+      runtime.pid = snapshot.pid ? String(snapshot.pid) : "--";
 
-    let newLines: string[] = [];
-    if (s.output_count > runtime.outputIndex) {
-      newLines = (s.output ?? []) as string[];
-      appendServerLogs(newLines, saveId);
-      runtime.outputIndex = s.output_count;
+      // 计算 uptime
+      runtime.uptime = formatUptime(snapshot.uptime_secs);
+
+      let newLines: string[] = [];
+      if (snapshot.output_count > runtime.outputIndex) {
+        newLines = snapshot.output ?? [];
+        appendServerLogs(newLines, saveId);
+        runtime.outputIndex = snapshot.output_count;
+        if (key === activeRuntimeKey()) {
+          syncSelectedServerRuntime(saveId);
+        }
+        await refreshRunningServers();
+        return newLines;
+      }
+
       if (key === activeRuntimeKey()) {
         syncSelectedServerRuntime(saveId);
       }
       await refreshRunningServers();
       return newLines;
+    } catch (e) {
+      console.error("刷新服务器状态失败:", e);
+      // 静默失败,避免频繁轮询时打扰用户
+      return [];
+    } finally {
+      // 清理锁
+      refreshLocks.delete(lockKey);
     }
+  })();
 
-    if (key === activeRuntimeKey()) {
-      syncSelectedServerRuntime(saveId);
-    }
-    await refreshRunningServers();
-    return newLines;
-  } catch (e) {
-    console.error("刷新服务器状态失败:", e);
-    return [];
-  }
+  // 存储 Promise
+  refreshLocks.set(lockKey, refreshPromise);
+  return refreshPromise;
 }

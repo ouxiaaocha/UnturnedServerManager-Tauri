@@ -179,10 +179,18 @@ fn resolve_delete_save_path(server_root: &str, save_id: &str) -> Result<PathBuf,
         return Err("存档不存在".to_string());
     }
 
-    if !save_dir.is_dir() {
+    // 检查目标本身是否为符号链接
+    let metadata =
+        fs::symlink_metadata(&save_dir).map_err(|e| format!("读取存档元数据失败: {}", e))?;
+    if metadata.is_symlink() {
+        return Err("不允许删除符号链接类型的存档目录".to_string());
+    }
+
+    if !metadata.is_dir() {
         return Err("存档路径不是目录".to_string());
     }
 
+    // 规范化路径检查
     let servers_dir =
         fs::canonicalize(&servers_dir).map_err(|e| format!("解析 Servers 目录失败: {}", e))?;
     let save_dir = fs::canonicalize(&save_dir).map_err(|e| format!("解析存档目录失败: {}", e))?;
@@ -190,6 +198,30 @@ fn resolve_delete_save_path(server_root: &str, save_id: &str) -> Result<PathBuf,
     if !save_dir.starts_with(&servers_dir) || save_dir == servers_dir {
         return Err("存档路径不安全".to_string());
     }
+
+    // 递归检查目录内是否包含符号链接（防止符号链接指向外部）
+    fn check_no_symlinks(dir: &Path) -> Result<(), String> {
+        for entry in fs::read_dir(dir).map_err(|e| format!("遍历目录失败: {}", e))? {
+            let entry = entry.map_err(|e| format!("读取目录项失败: {}", e))?;
+            let path = entry.path();
+            let metadata =
+                fs::symlink_metadata(&path).map_err(|e| format!("读取文件元数据失败: {}", e))?;
+
+            if metadata.is_symlink() {
+                return Err(format!(
+                    "存档目录内包含符号链接: {}，为安全起见禁止删除",
+                    path.display()
+                ));
+            }
+
+            if metadata.is_dir() {
+                check_no_symlinks(&path)?;
+            }
+        }
+        Ok(())
+    }
+
+    check_no_symlinks(&save_dir)?;
 
     Ok(save_dir)
 }
@@ -357,7 +389,10 @@ fn build_port_report(
                 kind: "occupied_game".to_string(),
                 port: info.game_port,
                 save_ids: vec![info.save_id.clone()],
-                message: format!("存档 {} 的游戏端口 {} 当前被系统占用", info.save_id, info.game_port),
+                message: format!(
+                    "存档 {} 的游戏端口 {} 当前被系统占用",
+                    info.save_id, info.game_port
+                ),
             });
         }
         if !is_tcp_port_available(info.rcon_port) {
@@ -365,7 +400,10 @@ fn build_port_report(
                 kind: "occupied_rcon".to_string(),
                 port: info.rcon_port,
                 save_ids: vec![info.save_id.clone()],
-                message: format!("存档 {} 的 RCON 端口 {} 当前被系统占用", info.save_id, info.rcon_port),
+                message: format!(
+                    "存档 {} 的 RCON 端口 {} 当前被系统占用",
+                    info.save_id, info.rcon_port
+                ),
             });
         }
     }
@@ -396,7 +434,10 @@ fn next_available_port(
 fn write_commands_dat_port(server_root: &str, save_id: &str, port: u16) -> Result<(), String> {
     let path = detect_commands_dat_path(server_root, save_id);
     let existing_content = fs::read_to_string(&path).unwrap_or_default();
-    let existing_lines: Vec<String> = existing_content.lines().map(|line| line.to_string()).collect();
+    let existing_lines: Vec<String> = existing_content
+        .lines()
+        .map(|line| line.to_string())
+        .collect();
     let mut info = parse_commands_dat(&existing_content);
     info.port = Some(port);
 
@@ -428,7 +469,9 @@ fn auto_assign_save_ports_blocking(
         ensure_save_not_running(&process, &save.id)?;
         let current = read_save_ports_for_report(&server_root, save, fallback_rcon_port);
 
-        let game_port = if used_game.contains(&current.game_port) || !is_udp_port_available(current.game_port) {
+        let game_port = if used_game.contains(&current.game_port)
+            || !is_udp_port_available(current.game_port)
+        {
             let assigned = next_available_port(next_game, &mut used_game, is_udp_port_available)?;
             next_game = assigned.saturating_add(1);
             assigned
@@ -437,7 +480,9 @@ fn auto_assign_save_ports_blocking(
             current.game_port
         };
 
-        let rcon_port = if used_rcon.contains(&current.rcon_port) || !is_tcp_port_available(current.rcon_port) {
+        let rcon_port = if used_rcon.contains(&current.rcon_port)
+            || !is_tcp_port_available(current.rcon_port)
+        {
             let assigned = next_available_port(next_rcon, &mut used_rcon, is_tcp_port_available)?;
             next_rcon = assigned.saturating_add(1);
             assigned
@@ -453,7 +498,12 @@ fn auto_assign_save_ports_blocking(
         if rcon_port != current.rcon_port {
             let rocket_path = rocket_config_path(&server_root, &save.id);
             if let Some((_, password)) = read_rocket_rcon_settings_actual(&rocket_path) {
-                let _ = ConfigService::update_rocket_config(&server_root, &save.id, rcon_port, &password);
+                let _ = ConfigService::update_rocket_config(
+                    &server_root,
+                    &save.id,
+                    rcon_port,
+                    &password,
+                );
             }
         }
     }
@@ -1196,11 +1246,10 @@ pub(crate) fn parse_permissions_config(
             }
             Ok(Event::CData(event)) => {
                 let value = String::from_utf8_lossy(event.as_ref()).to_string();
-                if current_group.is_some() {
-                    if stack.last().map(String::as_str) == Some("Permission") {
-                        if let Some(permission) = current_permission.as_mut() {
-                            permission.name = value;
-                        }
+                if current_group.is_some() && stack.last().map(String::as_str) == Some("Permission")
+                {
+                    if let Some(permission) = current_permission.as_mut() {
+                        permission.name = value;
                     }
                 }
             }
@@ -1507,9 +1556,11 @@ pub async fn auto_assign_save_ports(
     let config = config.inner().clone();
     let log = log.inner().clone();
     let process = process.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || auto_assign_save_ports_blocking(config, log, process))
-        .await
-        .map_err(|e| format!("自动分配端口任务失败: {}", e))?
+    tauri::async_runtime::spawn_blocking(move || {
+        auto_assign_save_ports_blocking(config, log, process)
+    })
+    .await
+    .map_err(|e| format!("自动分配端口任务失败: {}", e))?
 }
 
 #[tauri::command(async)]

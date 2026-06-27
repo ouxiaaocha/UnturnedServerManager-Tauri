@@ -2,16 +2,7 @@
   import { invoke } from "@tauri-apps/api/core";
   import { toastStore } from "../stores/toast.svelte";
   import SelectCustom from "../components/SelectCustom.svelte";
-
-  interface ScheduleTask {
-    id: string;
-    enabled: boolean;
-    type: string;
-    time: string | null;
-    interval_hours: number | null;
-    weekday: number | null;
-    announce_minutes: number[];
-  }
+  import type { ScheduleConfig, ScheduleTask } from "../types";
 
   let tasks: ScheduleTask[] = $state([]);
   let showAdd = $state(false);
@@ -24,7 +15,7 @@
 
   async function loadSchedules() {
     try {
-      const config: any = await invoke("get_schedules");
+      const config = await invoke<ScheduleConfig>("get_schedules");
       tasks = config.tasks || [];
     } catch (e) { console.error("加载定时任务失败:", e); }
   }
@@ -33,7 +24,7 @@
     try {
       await invoke("save_schedules", { tasks });
       toastStore.success("已保存");
-    } catch (e: any) {
+    } catch (e) {
       toastStore.error(`保存失败: ${e}`);
     }
   }

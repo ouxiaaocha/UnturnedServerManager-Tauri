@@ -6,7 +6,11 @@
     "dev": "vite --host 127.0.0.1",
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "test": "vitest",
+    "test:ui": "vitest --ui",
+    "test:run": "vitest run",
+    "test:coverage": "vitest run --coverage"
   },
   "keywords": [
     "unturned",
@@ -19,7 +23,7 @@
   "devEngines": {
     "packageManager": {
       "name": "pnpm",
-      "version": "^11.1.2",
+      "version": "^11.8.0",
       "onFail": "download"
     }
   },
@@ -28,10 +32,15 @@
     "@sveltejs/vite-plugin-svelte": "^7.1.2",
     "@tailwindcss/vite": "^4.3.0",
     "@tauri-apps/cli": "^2.11.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/svelte": "^5.4.2",
+    "@vitest/ui": "^4.1.9",
+    "jsdom": "^29.1.1",
     "svelte": "^5.55.7",
     "tailwindcss": "^4.3.0",
     "typescript": "^6.0.3",
-    "vite": "^8.0.13"
+    "vite": "^8.0.16",
+    "vitest": "^4.1.9"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.0",

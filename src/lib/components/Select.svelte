@@ -1,8 +1,12 @@
 <script lang="ts">
+  import type { Snippet } from "svelte";
+
   /**
    * Select 下拉框组件
    * 统一的下拉选择器样式和行为
    */
+
+  type SelectValue = string | number | boolean | null | undefined;
 
   let {
     value = $bindable(),
@@ -16,16 +20,16 @@
     children,
     ...props
   }: {
-    value?: any;
-    options?: Array<{ value: any; label: string; disabled?: boolean }>;
+    value?: SelectValue;
+    options?: Array<{ value: SelectValue; label: string; disabled?: boolean }>;
     placeholder?: string;
     disabled?: boolean;
     size?: 'sm' | 'md' | 'lg';
     fullWidth?: boolean;
     class?: string;
     onchange?: (e: Event) => void;
-    children?: any;
-    [key: string]: any;
+    children?: Snippet;
+    [key: string]: unknown;
   } = $props();
 
   const baseClasses = "bg-[var(--bg-primary)] border border-[var(--border)] rounded-lg text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/20 focus:border-[var(--accent)] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed appearance-none";
@@ -42,7 +46,7 @@
     lg: "w-5 h-5 right-3.5"
   };
 
-  const widthClass = fullWidth ? "w-full" : "min-w-[200px]";
+  const widthClass = $derived(fullWidth ? "w-full" : "min-w-[200px]");
 </script>
 
 <div class="relative inline-block {widthClass}">

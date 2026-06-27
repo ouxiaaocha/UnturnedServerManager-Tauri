@@ -64,7 +64,7 @@
 
   function getSaveName(saveId: string): string {
     if (!saveId) return "";
-    const save = sharedSaves.find((s: any) => s.id === saveId);
+    const save = sharedSaves.find((s) => s.id === saveId);
     return save ? (save.name ? `${save.id} - ${save.name}` : save.id) : saveId;
   }
 
@@ -128,7 +128,7 @@
         saveId: selectedSaveId || null,
         launchMode: appState.launchMode,
       });
-    } catch (e: any) {
+    } catch (e) {
       toastStore.error(`${e}`);
       appendServerLogs([`[错误] ${e}`], selectedSaveId);
     }
@@ -141,7 +141,7 @@
     setServerLoading(targetSaveId, "stopping");
     try {
       await invoke("stop_server", { saveId: targetSaveId || null });
-    } catch (e: any) {
+    } catch (e) {
       appendServerLogs([`[错误] ${e}`], targetSaveId);
     }
     setServerLoading(targetSaveId, "");
@@ -157,7 +157,7 @@
         saveId: targetSaveId || null,
         launchMode: selectedRunningServer?.launch_mode || appState.launchMode,
       });
-    } catch (e: any) {
+    } catch (e) {
       appendServerLogs([`[错误] ${e}`], targetSaveId);
     }
     setServerLoading(targetSaveId, "");
@@ -170,7 +170,7 @@
     try {
       await invoke("force_stop_server", { saveId: targetSaveId || null });
       await refreshStatus();
-    } catch (e: any) {
+    } catch (e) {
       appendServerLogs([`[错误] ${e}`], targetSaveId);
     }
   }
@@ -186,7 +186,7 @@
       autoScroller.autoScroll = true;
       await refreshStatus();
       await scrollLogsToBottomAfterRender();
-    } catch (e: any) {
+    } catch (e) {
       appendServerLogs([`[错误] 本地命令发送失败: ${e}`], viewingSaveId);
       await scrollLogsToBottomAfterRender();
     } finally {

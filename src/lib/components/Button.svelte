@@ -1,4 +1,6 @@
 <script lang="ts">
+  import type { Snippet } from "svelte";
+
   let {
     variant = 'primary',
     size = 'md',
@@ -17,8 +19,8 @@
     type?: 'button' | 'submit' | 'reset';
     class?: string;
     onclick?: (e: MouseEvent) => void;
-    children?: any;
-    [key: string]: any;
+    children?: Snippet;
+    [key: string]: unknown;
   } = $props();
 
   const baseClasses = "inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:pointer-events-none";

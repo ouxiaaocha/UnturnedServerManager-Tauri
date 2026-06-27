@@ -2,6 +2,7 @@
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
   import { onDestroy } from "svelte";
+  import type { ServerStatus } from "../types";
 
   let updating = $state(false);
   let output: string[] = $state([]);
@@ -14,7 +15,7 @@
 
   async function startUpdate() {
     try {
-      const s: any = await invoke("get_server_status");
+      const s = await invoke<ServerStatus>("get_server_status");
       if (s.state === "运行中") {
         appendOutput("[错误] 服务器正在运行中，请先停止服务器再更新");
         return;
@@ -31,7 +32,7 @@
 
     try {
       await invoke("run_update");
-    } catch (e: any) {
+    } catch (e) {
       appendOutput(`[错误] ${e}`);
     }
 

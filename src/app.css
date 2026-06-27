@@ -15,6 +15,7 @@
 
   --action: #2f6fed;
   --action-hover: #255fd2;
+  --action-glow: rgba(47, 111, 237, 0.13);
 
   --success: #169b62;
   --success-glow: rgba(22, 155, 98, 0.13);

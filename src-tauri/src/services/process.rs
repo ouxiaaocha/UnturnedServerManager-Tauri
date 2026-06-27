@@ -425,15 +425,120 @@ impl ProcessManager {
     }
 }
 
+/// Unturned 服务器允许的命令白名单
+/// 来源: https://github.com/SmartlyDressedGames/Unturned-Docs/blob/master/ServerHosting.md
+const ALLOWED_COMMANDS: &[&str] = &[
+    // 玩家管理
+    "admin",
+    "unadmin",
+    "kick",
+    "ban",
+    "unban",
+    "permit",
+    "unpermit",
+    // 物品和传送
+    "give",
+    "vehicle",
+    "teleport",
+    "experience",
+    // 服务器管理
+    "save",
+    "shutdown",
+    "slay",
+    "spy",
+    "filter",
+    "mode",
+    "name",
+    "password",
+    "port",
+    "sync",
+    "timeout",
+    "queue",
+    "chatrate",
+    "maxplayers",
+    "loadout",
+    // 信息和通知
+    "say",
+    "announce",
+    "welcome",
+    "decay",
+    // 时间和天气
+    "time",
+    "day",
+    "night",
+    "weather",
+    "storm",
+    "airdrop",
+    // 调试
+    "debug",
+    "cheats",
+    "cycle",
+    "gold",
+    "resetconfig",
+    // Rocket 插件命令（如果安装）
+    "rocket",
+    "reload",
+    "unload",
+    "load",
+];
+
 pub fn normalize_server_command(command: &str) -> Result<&str, String> {
+    // 检查换行符
     if command.contains('\n') || command.contains('\r') {
         return Err("命令不能包含换行".to_string());
     }
+
     let command = command.trim();
     if command.is_empty() {
         return Err("命令不能为空".to_string());
     }
+
+    // 检查危险字符（命令注入防护）
+    if command.contains(';') || command.contains('&') || command.contains('|') {
+        return Err("命令包含非法字符（; & |）".to_string());
+    }
+
+    // 提取命令名（第一个单词）
+    let command_name = command
+        .split_whitespace()
+        .next()
+        .unwrap_or("")
+        .to_lowercase();
+
+    // 白名单验证
+    if !ALLOWED_COMMANDS.contains(&command_name.as_str()) {
+        return Err(format!(
+            "不允许的命令: '{}'. 允许的命令: {}",
+            command_name,
+            ALLOWED_COMMANDS.join(", ")
+        ));
+    }
+
     Ok(command)
+}
+
+#[cfg(test)]
+mod command_validation_tests {
+    use super::*;
+
+    #[test]
+    fn test_valid_commands() {
+        assert!(normalize_server_command("save").is_ok());
+        assert!(normalize_server_command("  save  ").is_ok());
+        assert!(normalize_server_command("give 76561198000000000 122 1").is_ok());
+        assert!(normalize_server_command("SAY Hello World").is_ok());
+    }
+
+    #[test]
+    fn test_invalid_commands() {
+        assert!(normalize_server_command("").is_err());
+        assert!(normalize_server_command("   ").is_err());
+        assert!(normalize_server_command("save\nshutdown").is_err());
+        assert!(normalize_server_command("save; shutdown").is_err());
+        assert!(normalize_server_command("save && shutdown").is_err());
+        assert!(normalize_server_command("save | grep").is_err());
+        assert!(normalize_server_command("unknown_command").is_err());
+    }
 }
 
 pub fn start_output_cache_maintenance(

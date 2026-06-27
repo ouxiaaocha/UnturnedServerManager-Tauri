@@ -19,17 +19,27 @@
   import Toast from "./lib/components/Toast.svelte";
   import CloseConfirmDialog from "./lib/components/CloseConfirmDialog.svelte";
   import { toastStore } from "./lib/stores/toast.svelte";
+  import { setSaveActiveTab, setSelectedSaveId, toggleAutoUpdateHosting } from "./lib/stores.svelte";
+  import type {
+    AppSettings,
+    EnvironmentCheckReport,
+    EnvironmentCheckItem,
+    RunningServerInfo,
+    SavePortCheckReport,
+    SavePortIssue,
+  } from "./lib/types";
 
   let currentPage = $state("dashboard");
   let showWizard = $state(false);
   let loaded = $state(false);
   let isMaximized = $state(false);
   let showCloseDialog = $state(false);
-  let portCheckReport = $state<any | null>(null);
+  let portCheckReport = $state<SavePortCheckReport | null>(null);
   let portAutoAssigning = $state(false);
   let showRunningQuitDialog = $state(false);
-  let runningQuitServers = $state<any[]>([]);
+  let runningQuitServers = $state<RunningServerInfo[]>([]);
   let runningQuitResolve: ((value: boolean) => void) | null = null;
+  let quitRequestPending = $state(false);
 
   const navItems = [
     { id: "dashboard", label: "仪表盘", icon: "M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" },
@@ -65,7 +75,7 @@
   async function checkPortConflictsOnStartup() {
     if (!isTauriRuntime()) return;
     try {
-      const report: any = await invoke("check_save_port_conflicts");
+      const report = await invoke<SavePortCheckReport>("check_save_port_conflicts");
       if (report && !report.ok && Array.isArray(report.issues) && report.issues.length > 0) {
         portCheckReport = report;
       }
@@ -74,14 +84,13 @@
     }
   }
 
-  function portIssueLabel(issue: any) {
-    return issue?.message || `端口 ${issue?.port ?? "--"} 存在冲突`;
+  function portIssueLabel(issue: SavePortIssue) {
+    return issue.message || `端口 ${issue.port ?? "--"} 存在冲突`;
   }
 
   async function handleManualPortFix() {
     const saveId = portCheckReport?.issues?.[0]?.save_ids?.[0] || portCheckReport?.saves?.[0]?.save_id || "";
     if (saveId) {
-      const { setSelectedSaveId, setSaveActiveTab } = await import("./lib/stores.svelte");
       setSelectedSaveId(saveId);
       setSaveActiveTab("save");
     }
@@ -94,14 +103,14 @@
     if (portAutoAssigning) return;
     portAutoAssigning = true;
     try {
-      const report: any = await invoke("auto_assign_save_ports");
+      const report = await invoke<SavePortCheckReport>("auto_assign_save_ports");
       portCheckReport = report && !report.ok ? report : null;
       if (report?.ok) {
         toastStore.success("端口已自动分配完成");
       } else {
         toastStore.error("自动分配后仍有端口问题，请手动检查");
       }
-    } catch (e: any) {
+    } catch (e) {
       toastStore.error(`自动分配失败: ${e}`);
     } finally {
       portAutoAssigning = false;
@@ -111,12 +120,12 @@
   async function checkRuntimeEnvironmentOnStartup() {
     if (!isTauriRuntime()) return;
     try {
-      const report: any = await invoke("check_runtime_environment", { includeSteamTest: false });
+      const report = await invoke<EnvironmentCheckReport>("check_runtime_environment", { includeSteamTest: false });
       if (report?.ok) return;
 
       const missing = (report.items || [])
-        .filter((item: any) => item.required && !item.ok)
-        .map((item: any) => `• ${item.label}: ${item.message}`)
+        .filter((item: EnvironmentCheckItem) => item.required && !item.ok)
+        .map((item: EnvironmentCheckItem) => `• ${item.label}: ${item.message}`)
         .join("\n");
 
       if (missing) {
@@ -125,7 +134,7 @@
           { title: "运行环境检测", kind: "warning" },
         );
       }
-    } catch (e: any) {
+    } catch (e) {
       await message(`运行环境检测失败：${e}`, { title: "运行环境检测", kind: "error" });
     }
   }
@@ -192,7 +201,6 @@
 
     // 自动托管切换
     const unlistenToggle = await listen("toggle-auto-hosting", async () => {
-      const { toggleAutoUpdateHosting } = await import("./lib/stores.svelte");
       const result = await toggleAutoUpdateHosting(null);
       if (result.success) {
         toastStore.success(result.message);
@@ -212,30 +220,60 @@
       await handleCloseRequest();
     });
 
+    const unlistenQuit = await listen("quit-requested", async () => {
+      await handleQuitRequest();
+    });
+
     // 返回清理函数
     return () => {
       unlistenNavigate();
       unlistenToggle();
       unlistenClose();
+      unlistenQuit();
     };
   }
 
-  async function handleCloseRequest() {
-    try {
-      const shouldShow = await invoke<boolean>("should_show_close_dialog");
+  async function processCloseRequest(forceQuit = false) {
+    if (forceQuit) {
+      await quitWithRunningServersGuard();
+      return;
+    }
 
-      if (shouldShow) {
-        showCloseDialog = true;
+    const shouldShow = await invoke<boolean>("should_show_close_dialog");
+
+    if (shouldShow) {
+      showCloseDialog = true;
+    } else {
+      const settings = await invoke<AppSettings>("get_close_preference");
+      if (settings.closeToTray) {
+        await invoke("hide_window_to_tray");
       } else {
-        const settings: any = await invoke("get_close_preference");
-        if (settings.closeToTray) {
-          await invoke("hide_window_to_tray");
-        } else {
-          await quitWithRunningServersGuard();
-        }
+        await quitWithRunningServersGuard();
       }
+    }
+  }
+
+  async function handleCloseRequest() {
+    if (quitRequestPending) return;
+    try {
+      await processCloseRequest();
     } catch (e) {
       console.error("处理关闭请求失败:", e);
+    }
+  }
+
+  async function handleQuitRequest() {
+    if (quitRequestPending) return;
+    quitRequestPending = true;
+    try {
+      await processCloseRequest(true);
+    } catch (e) {
+      console.error("处理退出请求失败:", e);
+      toastStore.error(`退出失败: ${e}`);
+    } finally {
+      if (!showCloseDialog) {
+        quitRequestPending = false;
+      }
     }
   }
 
@@ -261,24 +299,27 @@
     } catch (e) {
       console.error("保存关闭偏好失败:", e);
       toastStore.error(`操作失败: ${e}`);
+    } finally {
+      quitRequestPending = false;
     }
   }
 
   function handleCloseCancel() {
     showCloseDialog = false;
+    quitRequestPending = false;
   }
 
-  function runningServerLabel(server: any) {
-    const saveId = server?.save_id || "未知存档";
-    const pid = server?.pid ? ` (PID ${server.pid})` : "";
+  function runningServerLabel(server: RunningServerInfo) {
+    const saveId = server.save_id || "未知存档";
+    const pid = server.pid ? ` (PID ${server.pid})` : "";
     return `${saveId}${pid}`;
   }
 
   async function confirmAndStopRunningServers() {
-    let servers: any[] = [];
+    let servers: RunningServerInfo[] = [];
     try {
-      servers = await invoke("list_running_servers") as any[];
-    } catch (e: any) {
+      servers = await invoke<RunningServerInfo[]>("list_running_servers");
+    } catch (e) {
       toastStore.error(`检查运行服务器失败: ${e}`);
       return false;
     }
@@ -296,7 +337,7 @@
       } catch {
         try {
           await invoke("force_stop_server", { saveId });
-        } catch (e: any) {
+        } catch (e) {
           toastStore.error(`关闭服务器 ${saveId || "默认"} 失败: ${e}`);
           return false;
         }
@@ -306,7 +347,7 @@
     return true;
   }
 
-  function requestRunningQuitConfirm(servers: any[]) {
+  function requestRunningQuitConfirm(servers: RunningServerInfo[]) {
     runningQuitServers = servers;
     showRunningQuitDialog = true;
     return new Promise<boolean>((resolve) => {

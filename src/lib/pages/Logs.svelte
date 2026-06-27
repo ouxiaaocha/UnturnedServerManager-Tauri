@@ -27,7 +27,7 @@
   async function loadDates() {
     const gen = ++dateGeneration;
     try {
-      const nextDates = await invoke("list_log_dates", { category }) as string[];
+      const nextDates = await invoke<string[]>("list_log_dates", { category });
       if (gen !== dateGeneration) return;
       const previousDate = selectedDate;
       const nextDate = nextDates[0] ?? "";
@@ -51,10 +51,10 @@
     const gen = ++loadGeneration;
     loading = true;
     try {
-      const lines = await invoke("read_log_file", { category, date: selectedDate }) as string[];
+      const lines = await invoke<string[]>("read_log_file", { category, date: selectedDate });
       if (gen !== loadGeneration) return;
       logLines = lines;
-    } catch (e: any) {
+    } catch (e) {
       if (gen !== loadGeneration) return;
       logLines = [`读取失败: ${e}`];
     }

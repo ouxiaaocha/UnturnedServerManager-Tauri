@@ -55,6 +55,16 @@ impl SystemMonitor {
     }
 
     fn compute_stats(&self) -> SystemStats {
+        let cpus = self.system.cpus();
+        let cpu_name = cpus
+            .first()
+            .map(|cpu| cpu.brand().trim())
+            .filter(|name| !name.is_empty())
+            .unwrap_or("未知 CPU")
+            .to_string();
+        let logical_core_count = cpus.len();
+        let physical_core_count = System::physical_core_count();
+        let cpu_frequency_mhz = cpus.first().map(|cpu| cpu.frequency()).unwrap_or(0);
         let cpu_usage = self.system.global_cpu_usage();
         let total_memory = self.system.total_memory();
         let used_memory = self.system.used_memory();
@@ -67,6 +77,10 @@ impl SystemMonitor {
         let (total_received, total_transmitted) = Self::sum_network_bytes(&self.networks);
 
         SystemStats {
+            cpu_name,
+            physical_core_count,
+            logical_core_count,
+            cpu_frequency_mhz,
             cpu_usage,
             total_memory,
             used_memory,

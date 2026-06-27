@@ -18,6 +18,13 @@
   import Select from "../components/Select.svelte";
   import SelectCustom from "../components/SelectCustom.svelte";
   import GameConfigTab from "./Save/GameConfigTab.svelte";
+  import type {
+    CommandsConfig,
+    PluginInfo,
+    RocketRconInfo,
+    SaveInfo,
+    WorkshopDownloadConfig,
+  } from "../types";
 
   type PermissionEntry = {
     name: string;
@@ -44,7 +51,7 @@
   };
 
   let activeTab = $derived(uiPreferences.saveActiveTab);
-  let saves = $state<any[]>([]);
+  let saves = $state<SaveInfo[]>([]);
   let selectedSaveId = $derived(uiPreferences.selectedSaveId);
   let selectedSaveRunning = $derived(isSaveRunning(selectedSaveId));
   let loading = $state(false);
@@ -68,10 +75,10 @@
   let rconPasswordMasked = $state(false);
   let showRconPassword = $state(false);
 
-  let plugins = $state<any[]>([]);
+  let plugins = $state<PluginInfo[]>([]);
   let pluginNotes = $state<Record<string, string>>({});
 
-  let workshopConfig = $state<any>(null);
+  let workshopConfig = $state<WorkshopDownloadConfig | null>(null);
   let workshopLoading = $state(false);
   let workshopSaving = $state(false);
   let workshopModNotes = $state<Record<string, string>>({});
@@ -134,7 +141,7 @@
     const gen = ++loadGeneration;
     try {
       await refreshRunningServers();
-      saves = await invoke("list_server_saves");
+      saves = await invoke<SaveInfo[]>("list_server_saves");
       if (gen !== loadGeneration) return;
       sharedSaves.splice(0, sharedSaves.length, ...saves);
       sharedSavesState.loaded = true;
@@ -184,7 +191,7 @@
     });
     try {
       await invoke("init_server_save", { saveName: newSaveName });
-    } catch (e: any) {
+    } catch (e) {
       alert(`启动失败: ${e}`);
       initRunning = false;
       unlisten();
@@ -217,7 +224,7 @@
     });
     try {
       await invoke("init_server_save", { saveName: selectedSaveId });
-    } catch (e: any) {
+    } catch (e) {
       alert(`启动失败: ${e}`);
       rocketInitRunning = false;
       unlisten();
@@ -229,7 +236,7 @@
     const gen = ++loadGeneration;
     loading = true;
     try {
-      const info: any = await invoke("read_commands_dat", { saveId: selectedSaveId });
+      const info = await invoke<CommandsConfig>("read_commands_dat", { saveId: selectedSaveId });
       if (gen !== loadGeneration) return; // 过期响应，丢弃
       cmdName = info.name ?? "";
       cmdMap = info.map ?? "";
@@ -244,7 +251,7 @@
       lastRawLines = info.raw_lines ?? [];
     } catch (e) { console.error("读取 Commands.dat 失败:", e); }
     try {
-      const rcon: any = await invoke("read_rocket_rcon_config", { saveId: selectedSaveId });
+      const rcon = await invoke<RocketRconInfo>("read_rocket_rcon_config", { saveId: selectedSaveId });
       if (gen !== loadGeneration) return;
       rconPort = rcon.port ?? 27115;
       rconPassword = rcon.password ?? "";
@@ -283,7 +290,7 @@
         password: rconPasswordMasked ? "" : rconPassword,
       });
       toastStore.success("配置已保存");
-    } catch (e: any) {
+    } catch (e) {
       alert(e);
     }
     saving = false;
@@ -295,12 +302,12 @@
     pluginsLoading = true;
     try {
       const [p, n] = await Promise.all([
-        invoke("list_plugins", { saveId: selectedSaveId }),
-        invoke("load_plugin_notes"),
+        invoke<PluginInfo[]>("list_plugins", { saveId: selectedSaveId }),
+        invoke<Record<string, string>>("load_plugin_notes"),
       ]);
       if (gen !== loadGeneration) return;
-      plugins = p as any[];
-      pluginNotes = n as Record<string, string>;
+      plugins = p;
+      pluginNotes = n;
     } catch (e) { console.error("加载插件失败:", e); }
     if (gen === loadGeneration) pluginsLoading = false;
   }
@@ -311,14 +318,14 @@
     workshopLoading = true;
     try {
       const [wc, mn] = await Promise.all([
-        invoke("read_workshop_config", { saveId: selectedSaveId }),
-        invoke("load_workshop_mod_notes"),
+        invoke<WorkshopDownloadConfig>("read_workshop_config", { saveId: selectedSaveId }),
+        invoke<Record<string, string>>("load_workshop_mod_notes"),
       ]);
       if (gen !== loadGeneration) return;
       workshopConfig = wc;
-      workshopModNotes = mn as Record<string, string>;
-      ignoreChildrenInput = ((wc as any).ignore_children_file_ids ?? []).join(", ");
-    } catch (e: any) {
+      workshopModNotes = mn;
+      ignoreChildrenInput = wc.ignore_children_file_ids.join(", ");
+    } catch (e) {
       console.error("加载创意工坊配置失败:", e);
       workshopConfig = {
         file_ids: [],
@@ -353,7 +360,7 @@
       newMemberInput = "";
       newPermissionName = "";
       newPermissionCooldown = 0;
-    } catch (e: any) {
+    } catch (e) {
       console.error("加载权限组配置失败:", e);
       alert(e);
     }
@@ -665,7 +672,7 @@
       });
       permissionsConfig = payload;
       toastStore.success("权限组配置已保存");
-    } catch (e: any) {
+    } catch (e) {
       alert(e);
     }
     permissionsSaving = false;
@@ -701,7 +708,7 @@
       workshopConfig = normalizedConfig;
       ignoreChildrenInput = normalizedConfig.ignore_children_file_ids.join(", ");
       toastStore.success("创意工坊配置已保存");
-    } catch (e: any) {
+    } catch (e) {
       alert(e);
     }
     workshopSaving = false;
@@ -759,7 +766,7 @@
   async function saveWorkshopModNotes() {
     try {
       await invoke("save_workshop_mod_notes", { notes: workshopModNotes });
-    } catch (e: any) {
+    } catch (e) {
       alert(e);
     }
   }
@@ -768,7 +775,7 @@
     const url = "https://steamcommunity.com/app/304930/workshop/";
     try {
       await openShell(url);
-    } catch (e: any) {
+    } catch (e) {
       toastStore.error(`打开失败: ${e}`);
     }
   }
@@ -777,7 +784,7 @@
     const url = `https://steamcommunity.com/sharedfiles/filedetails/?id=${modId}`;
     try {
       await openShell(url);
-    } catch (e: any) {
+    } catch (e) {
       toastStore.error(`打开失败: ${e}`);
     }
   }
@@ -785,7 +792,7 @@
   async function openPluginDir() {
     try {
       await invoke("open_plugin_config_dir", { saveId: selectedSaveId });
-    } catch (e: any) {
+    } catch (e) {
       alert(e);
     }
   }
@@ -796,8 +803,8 @@
     noteSaveTimer = setTimeout(async () => {
       try {
         await invoke("save_plugin_notes", { notes: pluginNotes });
-      } catch (e: any) {
-        alert(e);
+    } catch (e) {
+      alert(e);
       }
     }, 500);
   }
@@ -842,7 +849,7 @@
       await invoke("delete_server_save", { saveId: selectedSaveId });
       toastStore.success("存档已删除");
       await loadSaves();
-    } catch (e: any) {
+    } catch (e) {
       toastStore.error(`删除失败: ${e}`);
     } finally {
       deletingSave = false;

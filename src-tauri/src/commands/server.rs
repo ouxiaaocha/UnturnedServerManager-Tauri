@@ -44,9 +44,7 @@ impl ActiveRcon {
                 },
             );
         }
-        Self {
-            endpoints,
-        }
+        Self { endpoints }
     }
 
     pub fn set_for_save(&mut self, save_id: String, endpoint: RconEndpoint) {
@@ -320,7 +318,7 @@ pub fn start_server_inner(
         .map_err(|_| "存档 ID 包含非法字符".to_string())?;
 
     let mode = launch_mode.unwrap_or_else(|| "internet".to_string());
-    ensure_no_port_conflict(process, &config, &profile.server_root, &actual_id)?;
+    ensure_no_port_conflict(process, config, &profile.server_root, &actual_id)?;
     let entry_prefix = if mode == "lan" {
         "+LanServer"
     } else {
@@ -582,6 +580,48 @@ async fn wait_before_restart(process: &Arc<Mutex<ProcessManager>>, save_id: &str
     }
 
     tokio::time::sleep(RESTART_COOLDOWN_AFTER_EXIT).await;
+}
+
+pub async fn restart_server_for_scheduler(
+    process: &Arc<Mutex<ProcessManager>>,
+    config: &Arc<Mutex<ConfigService>>,
+    log: &Arc<Mutex<LogService>>,
+    active_rcon: &Arc<Mutex<ActiveRcon>>,
+    auto_update: &Arc<Mutex<AutoUpdateState>>,
+    save_id: Option<String>,
+    launch_mode: Option<String>,
+) -> Result<String, String> {
+    let target_save_id = resolve_actual_save_id(config, save_id.clone())?;
+    {
+        let mut state = auto_update.lock().unwrap_or_else(|e| e.into_inner());
+        state.mark_expected_stop();
+    }
+
+    {
+        let ls = log.lock().unwrap_or_else(|e| e.into_inner());
+        ls.log_operation("重启服务器");
+    }
+
+    local_bridge_shutdown(
+        process,
+        config,
+        auto_update,
+        log,
+        Some(target_save_id.clone()),
+    )
+    .await?;
+
+    wait_before_restart(process, &target_save_id).await;
+
+    start_server_inner(
+        process,
+        config,
+        log,
+        active_rcon,
+        auto_update,
+        Some(target_save_id),
+        launch_mode,
+    )
 }
 
 #[tauri::command(async)]
@@ -896,36 +936,14 @@ pub async fn restart_server(
     save_id: Option<String>,
     launch_mode: Option<String>,
 ) -> Result<String, String> {
-    let target_save_id = resolve_actual_save_id(config.inner(), save_id.clone())?;
-    {
-        let mut state = auto_update.lock().unwrap_or_else(|e| e.into_inner());
-        state.mark_expected_stop();
-    }
-
-    {
-        let ls = log.lock().unwrap_or_else(|e| e.into_inner());
-        ls.log_operation("重启服务器");
-    }
-
-    local_bridge_shutdown(
-        process.inner(),
-        config.inner(),
-        auto_update.inner(),
-        log.inner(),
-        Some(target_save_id.clone()),
-    )
-    .await?;
-
-    wait_before_restart(process.inner(), &target_save_id).await;
-
-    // 复用 start_server_inner 重新启动
-    start_server_inner(
+    restart_server_for_scheduler(
         process.inner(),
         config.inner(),
         log.inner(),
         active_rcon.inner(),
         auto_update.inner(),
-        Some(target_save_id),
+        save_id,
         launch_mode,
     )
+    .await
 }

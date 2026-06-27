@@ -34,7 +34,7 @@
 
   function getSaveName(saveId: string): string {
     if (!saveId) return "";
-    const save = sharedSaves.find((s: any) => s.id === saveId);
+    const save = sharedSaves.find((s) => s.id === saveId);
     return save ? (save.name ? `${save.id} - ${save.name}` : save.id) : saveId;
   }
 
@@ -60,9 +60,9 @@
 
   async function checkStatus(token = pollGeneration) {
     try {
-      const status = await invoke("rcon_status") as boolean;
+      const status = await invoke<boolean>("rcon_status");
       if (token !== pollGeneration) return;
-      const target = status ? await invoke("rcon_connected_save_id") as string | null : "";
+      const target = status ? await invoke<string | null>("rcon_connected_save_id") : "";
       if (token !== pollGeneration) return;
       if (connected && !status) {
         addRconLog("连接已断开（服务器可能已关闭）", "error");
@@ -87,7 +87,7 @@
   async function pollResponses(token = pollGeneration) {
     if (!connected) return;
     try {
-      const lines = await invoke("rcon_poll") as string[];
+      const lines = await invoke<string[]>("rcon_poll");
       if (token !== pollGeneration) return;
       if (lines.length > 0) {
         // Rocket RCON 服务器对每条命令发送 2 条响应（执行日志 + 结果），
@@ -119,12 +119,12 @@
     connecting = true;
     addRconLog(`正在连接 ${selectedRconSaveId}...`, "system");
     try {
-      const welcome = await invoke("rcon_connect", { saveId: selectedRconSaveId }) as string;
+      const welcome = await invoke<string>("rcon_connect", { saveId: selectedRconSaveId });
       connected = true;
       connectedSaveId = selectedRconSaveId;
       addRconLog(welcome, "info");
       addRconLog(`RCON 连接成功: ${selectedRconSaveId}`, "system");
-    } catch (e: any) {
+    } catch (e) {
       addRconLog(`连接失败: ${e}`, "error");
       connectedSaveId = "";
     }
@@ -135,7 +135,7 @@
   async function disconnect() {
     try {
       await invoke("rcon_disconnect");
-    } catch (e: any) {
+    } catch (e) {
       addRconLog(`断开时出错: ${e}`, "error");
     }
     connected = false;
@@ -159,7 +159,7 @@
 
     try {
       await invoke("rcon_send", { command: cmd });
-    } catch (e: any) {
+    } catch (e) {
       addRconLog(`发送失败: ${e}`, "error");
       connected = false;
     }

@@ -537,7 +537,7 @@
       values = nextValues;
       originalValues = { ...nextValues };
       selectedSection = result.sections[0]?.name ?? "";
-    } catch (e: any) {
+    } catch (e) {
       alert(e);
     } finally {
       if (gen === loadGeneration) loading = false;
@@ -564,7 +564,7 @@
       });
       toastStore.success("高级配置已保存");
       await loadGameConfig();
-    } catch (e: any) {
+    } catch (e) {
       alert(e);
     } finally {
       saving = false;

@@ -4,7 +4,7 @@ use std::time::Duration;
 use chrono::{Datelike, Local, Timelike};
 
 use crate::commands::schedule::ScheduleTask;
-use crate::commands::server::AutoUpdateState;
+use crate::commands::server::{self, ActiveRcon, AutoUpdateState};
 use crate::services::config_service::ConfigService;
 use crate::services::local_command_bridge;
 use crate::services::log_service::LogService;
@@ -15,6 +15,7 @@ pub fn start_scheduler(
     config: Arc<Mutex<ConfigService>>,
     process: Arc<Mutex<ProcessManager>>,
     log: Arc<Mutex<LogService>>,
+    active_rcon: Arc<Mutex<ActiveRcon>>,
     auto_update: Arc<Mutex<AutoUpdateState>>,
 ) {
     std::thread::spawn(move || {
@@ -103,6 +104,7 @@ pub fn start_scheduler(
                             &process,
                             &config,
                             &log,
+                            &active_rcon,
                             &auto_update,
                             task.server_id.as_deref(),
                         );
@@ -254,6 +256,7 @@ fn execute_restart(
     process: &Arc<Mutex<ProcessManager>>,
     config: &Arc<Mutex<ConfigService>>,
     log: &Arc<Mutex<LogService>>,
+    active_rcon: &Arc<Mutex<ActiveRcon>>,
     auto_update: &Arc<Mutex<AutoUpdateState>>,
     server_id: Option<&str>,
 ) {
@@ -270,58 +273,27 @@ fn execute_restart(
             return;
         }
     };
+    let launch_mode = if profile.server_entry.contains("+LanServer") {
+        "lan".to_string()
+    } else {
+        "internet".to_string()
+    };
 
-    for command in ["save", "shutdown"] {
-        match local_command_bridge::enqueue_command(&profile.server_root, &profile.id, command) {
-            Ok(sent) => {
-                let pm = process.lock().unwrap_or_else(|e| e.into_inner());
-                pm.record_sent_command_for(&profile.id, &sent);
-            }
-            Err(e) => {
-                let ls = log.lock().unwrap_or_else(|e| e.into_inner());
-                ls.log_operation(&format!(
-                    "[Warning] 定时任务命令发送失败 ({}): {}",
-                    command, e
-                ));
-            }
-        }
-        std::thread::sleep(Duration::from_millis(300));
-    }
+    let restart_result = tauri::async_runtime::block_on(server::restart_server_for_scheduler(
+        process,
+        config,
+        log,
+        active_rcon,
+        auto_update,
+        Some(profile.id.clone()),
+        Some(launch_mode),
+    ));
 
-    // 等待进程退出，最多 30 秒
-    for _ in 0..30 {
-        std::thread::sleep(Duration::from_secs(1));
-        let is_running = {
-            let mut pm = process.lock().unwrap_or_else(|e| e.into_inner());
-            pm.is_running_for(&profile.id)
-        };
-        if !is_running {
-            break;
-        }
-    }
-
-    // 仍在运行则强制停止
-    {
-        let mut pm = process.lock().unwrap_or_else(|e| e.into_inner());
-        if pm.is_running_for(&profile.id) {
-            let _ = pm.force_stop_for(&profile.id);
-        }
-    }
-
-    std::thread::sleep(Duration::from_secs(2));
-
-    let _ = local_command_bridge::ensure_bridge_installed(&profile.server_root, &profile.id);
-    {
-        let mut pm = process.lock().unwrap_or_else(|e| e.into_inner());
-        let launch_mode = if profile.server_entry.contains("+LanServer") {
-            "lan"
-        } else {
-            "internet"
-        };
-        let _ = pm.start(&profile.id, launch_mode, &profile);
-    }
     let ls = log.lock().unwrap_or_else(|e| e.into_inner());
-    ls.log_operation("定时任务: 服务器已重启");
+    match restart_result {
+        Ok(message) => ls.log_operation(&format!("定时任务: {}", message)),
+        Err(e) => ls.log_operation(&format!("[ERROR] 定时任务重启失败: {}", e)),
+    }
 }
 
 #[cfg(test)]

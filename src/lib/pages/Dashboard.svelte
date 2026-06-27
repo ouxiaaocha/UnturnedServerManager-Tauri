@@ -5,6 +5,7 @@
   import { toastStore } from "../stores/toast.svelte";
   import { createPoller } from "../utils/polling.svelte";
   import SaveSelector from "../components/SaveSelector.svelte";
+  import type { SystemStats } from "../types";
 
   // 使用共享的服务器状态
   let status = $derived(serverState.status);
@@ -26,6 +27,10 @@
   let autoUpdateSaving = $state(false);
   let autoUpdateMessage = $state("");
 
+  let cpuName = $state("读取中");
+  let cpuPhysicalCores = $state<number | null>(null);
+  let cpuLogicalCores = $state(0);
+  let cpuFrequencyMhz = $state(0);
   let cpuUsage = $state(0);
   let memUsed = $state(0);
   let memTotal = $state(0);
@@ -61,6 +66,22 @@
     if (percent >= 85) return "var(--danger)";
     if (percent >= 60) return "var(--warning)";
     return "var(--success)";
+  }
+
+  function clampPercent(value: number): number {
+    return Math.max(0, Math.min(value, 100));
+  }
+
+  function formatCpuCores(): string {
+    const logical = cpuLogicalCores > 0 ? `${cpuLogicalCores} 线程` : "线程读取中";
+    const physical = cpuPhysicalCores && cpuPhysicalCores > 0 ? `${cpuPhysicalCores} 核` : "物理核心未知";
+    return `${physical} / ${logical}`;
+  }
+
+  function formatCpuFrequency(): string {
+    if (!cpuFrequencyMhz) return "频率读取中";
+    if (cpuFrequencyMhz >= 1000) return `${(cpuFrequencyMhz / 1000).toFixed(2)} GHz`;
+    return `${cpuFrequencyMhz} MHz`;
   }
 
   async function loadSaves() {
@@ -121,7 +142,7 @@
 
   function getSaveName(saveId: string): string {
     if (!saveId) return "";
-    const save = sharedSaves.find((s: any) => s.id === saveId);
+    const save = sharedSaves.find((s) => s.id === saveId);
     return save ? (save.name ? `${save.id} - ${save.name}` : save.id) : saveId;
   }
 
@@ -170,7 +191,11 @@
 
   async function refreshSystemStats() {
     try {
-      const s: any = await invoke("get_system_stats");
+      const s = await invoke<SystemStats>("get_system_stats");
+      cpuName = s.cpu_name || "未知 CPU";
+      cpuPhysicalCores = s.physical_core_count ?? null;
+      cpuLogicalCores = s.logical_core_count;
+      cpuFrequencyMhz = s.cpu_frequency_mhz;
       cpuUsage = s.cpu_usage;
       memUsed = s.used_memory;
       memTotal = s.total_memory;
@@ -210,7 +235,7 @@
         saveId: selectedSaveId || null,
         launchMode: appState.launchMode,
       });
-    } catch (e: any) {
+    } catch (e) {
       toastStore.error(`${e}`);
     }
     setServerLoading(selectedSaveId, "");
@@ -223,7 +248,7 @@
     try {
       await invoke("stop_server", { saveId: targetSaveId || null });
       resetServerInfoForSave(targetSaveId);
-    } catch (e: any) {
+    } catch (e) {
       toastStore.error(`${e}`);
     }
     setServerLoading(targetSaveId, "");
@@ -240,7 +265,7 @@
         saveId: targetSaveId || null,
         launchMode: selectedRunningServer?.launch_mode || appState.launchMode,
       });
-    } catch (e: any) {
+    } catch (e) {
       toastStore.error(`${e}`);
     }
     setServerLoading(targetSaveId, "");
@@ -251,12 +276,7 @@
     if (polling) return;
     polling = true;
     try {
-      // 服务器运行中时同时刷新状态和系统监控，否则只刷新状态
-      if (serverState.loading || serverState.status === "运行中") {
-        await Promise.all([refreshStatus(), refreshSystemStats()]);
-      } else {
-        await refreshStatus();
-      }
+      await Promise.all([refreshStatus(), refreshSystemStats()]);
     } finally {
       polling = false;
     }
@@ -478,63 +498,87 @@
       系统监控
     </h2>
     <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3 md:gap-5">
-      <div class="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-5 hover:border-[var(--accent)] transition-all duration-[var(--transition-normal)]">
-        <div class="flex items-center gap-3 mb-4">
-          <div class="w-10 h-10 rounded-lg bg-[var(--accent-subtle)] flex items-center justify-center">
-            <svg class="w-5 h-5 text-[var(--accent-light)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <div class="flex min-h-[230px] flex-col rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-5 transition-all duration-[var(--transition-normal)] hover:border-[var(--accent)]">
+        <div class="mb-4 flex items-center gap-3">
+          <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[var(--accent-subtle)]">
+            <svg class="h-5 w-5 text-[var(--accent-light)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
             </svg>
           </div>
-          <p class="text-xs text-[var(--text-muted)] uppercase tracking-wider">CPU 使用率</p>
+          <div class="min-w-0">
+            <p class="text-xs uppercase tracking-wider text-[var(--text-muted)]">CPU 使用率</p>
+            <p class="mt-1 truncate text-sm font-semibold text-[var(--text-primary)]" title={cpuName}>{cpuName}</p>
+          </div>
         </div>
-        <p class="text-2xl font-bold mb-3" style="color: {getStatusColor(cpuUsage)}">{cpuUsage.toFixed(1)}%</p>
-        <div class="w-full h-2 rounded-full bg-[var(--border)]">
-          <div class="h-full rounded-full transition-all duration-500" style="width: {Math.min(cpuUsage, 100)}%; background-color: {getStatusColor(cpuUsage)}"></div>
+        <div class="grid grid-cols-[minmax(92px,auto)_1fr] gap-x-4 gap-y-2 text-xs">
+          <span class="text-[var(--text-muted)]">规格</span>
+          <span class="truncate font-medium text-[var(--text-secondary)]">{formatCpuCores()}</span>
+          <span class="text-[var(--text-muted)]">基础频率</span>
+          <span class="truncate font-medium text-[var(--text-secondary)]">{formatCpuFrequency()}</span>
+        </div>
+        <div class="mt-auto pt-5">
+          <div class="mb-3 flex items-end justify-between gap-3">
+            <span class="text-xs font-medium text-[var(--text-muted)]">当前负载</span>
+            <span class="text-2xl font-bold tabular-nums" style="color: {getStatusColor(cpuUsage)}">{cpuUsage.toFixed(1)}%</span>
+          </div>
+          <div class="h-2.5 w-full overflow-hidden rounded-full bg-[var(--border)]">
+            <div class="h-full rounded-full transition-all duration-500" style="width: {clampPercent(cpuUsage)}%; background-color: {getStatusColor(cpuUsage)}"></div>
+          </div>
         </div>
       </div>
 
-      <div class="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-5 hover:border-[var(--action)] transition-all duration-[var(--transition-normal)]">
-        <div class="flex items-center gap-3 mb-4">
-          <div class="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center">
-            <svg class="w-5 h-5 text-[var(--action)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <div class="flex min-h-[230px] flex-col rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-5 transition-all duration-[var(--transition-normal)] hover:border-[var(--action)]">
+        <div class="mb-4 flex items-center gap-3">
+          <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[var(--action-glow)]">
+            <svg class="h-5 w-5 text-[var(--action)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
             </svg>
           </div>
-          <p class="text-xs text-[var(--text-muted)] uppercase tracking-wider">内存使用</p>
+          <div class="min-w-0">
+            <p class="text-xs uppercase tracking-wider text-[var(--text-muted)]">内存使用</p>
+            <p class="mt-1 truncate text-sm font-semibold text-[var(--text-primary)]">总容量 {memTotal ? formatBytes(memTotal) : "读取中"}</p>
+          </div>
         </div>
-        <p class="text-2xl font-bold mb-1" style="color: {getStatusColor(memPercent)}">{memPercent.toFixed(1)}%</p>
-        <p class="text-xs text-[var(--text-muted)] mb-3">{formatBytes(memUsed)} / {formatBytes(memTotal)}</p>
-        <div class="w-full h-2 rounded-full bg-[var(--border)]">
-          <div class="h-full rounded-full bg-[var(--action)] transition-all duration-500" style="width: {Math.min(memPercent, 100)}%"></div>
+        <div class="grid grid-cols-[minmax(92px,auto)_1fr] gap-x-4 gap-y-2 text-xs">
+          <span class="text-[var(--text-muted)]">已用</span>
+          <span class="truncate font-medium text-[var(--text-secondary)]">{formatBytes(memUsed)}</span>
+          <span class="text-[var(--text-muted)]">可用</span>
+          <span class="truncate font-medium text-[var(--text-secondary)]">{formatBytes(Math.max(memTotal - memUsed, 0))}</span>
+        </div>
+        <div class="mt-auto pt-5">
+          <div class="mb-3 flex items-end justify-between gap-3">
+            <span class="text-xs font-medium text-[var(--text-muted)]">占用比例</span>
+            <span class="text-2xl font-bold tabular-nums" style="color: {getStatusColor(memPercent)}">{memPercent.toFixed(1)}%</span>
+          </div>
+          <div class="h-2.5 w-full overflow-hidden rounded-full bg-[var(--border)]">
+            <div class="h-full rounded-full transition-all duration-500" style="width: {clampPercent(memPercent)}%; background-color: {getStatusColor(memPercent)}"></div>
+          </div>
         </div>
       </div>
 
-      <div class="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-5 hover:border-[var(--accent)] transition-all duration-[var(--transition-normal)]">
-        <div class="flex items-center gap-3 mb-4">
-          <div class="w-10 h-10 rounded-lg bg-[var(--success-glow)] flex items-center justify-center">
-            <svg class="w-5 h-5 text-[var(--success)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <div class="flex min-h-[230px] flex-col rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-5 transition-all duration-[var(--transition-normal)] hover:border-[var(--success)] md:col-span-2 xl:col-span-1">
+        <div class="mb-4 flex items-center gap-3">
+          <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[var(--success-glow)]">
+            <svg class="h-5 w-5 text-[var(--success)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
             </svg>
           </div>
-          <p class="text-xs text-[var(--text-muted)] uppercase tracking-wider">网络流量</p>
-        </div>
-        <div class="space-y-2 mb-3">
-          <div class="flex items-center gap-2">
-            <svg class="w-4 h-4 text-[var(--success)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3" />
-            </svg>
-            <span class="text-lg font-bold text-[var(--success)]">{formatRate(netDownRate)}</span>
-          </div>
-          <div class="flex items-center gap-2">
-            <svg class="w-4 h-4 text-[var(--accent-light)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 10l7-7m0 0l7 7m-7-7v18" />
-            </svg>
-            <span class="text-lg font-bold text-[var(--accent-light)]">{formatRate(netUpRate)}</span>
+          <div>
+            <p class="text-xs uppercase tracking-wider text-[var(--text-muted)]">网络流量</p>
+            <p class="mt-1 text-sm font-semibold text-[var(--text-primary)]">本次启动累计</p>
           </div>
         </div>
-        <div class="text-xs text-[var(--text-muted)] space-y-1">
-          <p>总下载: {formatBytes(totalDown)}</p>
-          <p>总上传: {formatBytes(totalUp)}</p>
+        <div class="grid flex-1 grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-1">
+          <div class="rounded-lg bg-[var(--bg-primary)] px-4 py-3">
+            <p class="text-xs text-[var(--text-muted)]">下载速率</p>
+            <p class="mt-1 text-lg font-bold tabular-nums text-[var(--success)]">{formatRate(netDownRate)}</p>
+            <p class="mt-1 text-xs text-[var(--text-muted)]">累计 {formatBytes(totalDown)}</p>
+          </div>
+          <div class="rounded-lg bg-[var(--bg-primary)] px-4 py-3">
+            <p class="text-xs text-[var(--text-muted)]">上传速率</p>
+            <p class="mt-1 text-lg font-bold tabular-nums text-[var(--accent-light)]">{formatRate(netUpRate)}</p>
+            <p class="mt-1 text-xs text-[var(--text-muted)]">累计 {formatBytes(totalUp)}</p>
+          </div>
         </div>
       </div>
     </div>

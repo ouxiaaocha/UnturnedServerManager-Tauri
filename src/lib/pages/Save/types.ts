@@ -38,7 +38,7 @@ export type SaveInfo = {
   id: string;
   name: string;
   map: string;
-  [key: string]: any;
+  [key: string]: unknown;
 };
 
 /**
@@ -47,7 +47,7 @@ export type SaveInfo = {
 export type WorkshopItem = {
   id: string;
   name?: string;
-  [key: string]: any;
+  [key: string]: unknown;
 };
 
 /**
@@ -56,5 +56,5 @@ export type WorkshopItem = {
 export type PluginInfo = {
   name: string;
   installed: boolean;
-  [key: string]: any;
+  [key: string]: unknown;
 };

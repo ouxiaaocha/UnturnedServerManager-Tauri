@@ -1,6 +1,8 @@
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
-use tauri::{Manager, Emitter, AppHandle};
+use tauri::{AppHandle, Emitter, Manager};
 
 mod commands;
 mod models;
@@ -13,6 +15,28 @@ use services::process::{start_output_cache_maintenance, ProcessManager};
 use services::rcon_client::RconClient;
 use services::scheduler;
 use services::system_monitor::SystemMonitor;
+
+const PORTABLE_DATA_DIR_NAME: &str = "UnturnedServerManagerData";
+
+fn executable_dir() -> PathBuf {
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+        .unwrap_or_else(|| std::env::current_dir().unwrap())
+}
+
+fn migrate_legacy_portable_dirs(exe_dir: &Path, data_dir: &Path) {
+    for dir in ["config", "logs", "data", "backups"] {
+        let source = exe_dir.join(dir);
+        let target = data_dir.join(dir);
+        if source.exists() && !target.exists() {
+            if let Some(parent) = target.parent() {
+                let _ = fs::create_dir_all(parent);
+            }
+            let _ = fs::rename(&source, &target);
+        }
+    }
+}
 
 // 构建托盘菜单
 fn build_tray_menu(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
@@ -32,62 +56,70 @@ fn build_tray_menu(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error
     // 创建菜单项
     let show_i = tauri::menu::MenuItem::with_id(app, "show", "显示窗口", true, None::<&str>)?;
     let sep1 = tauri::menu::PredefinedMenuItem::separator(app)?;
-    let dashboard_i = tauri::menu::MenuItem::with_id(app, "dashboard", "仪表盘", true, None::<&str>)?;
+    let dashboard_i =
+        tauri::menu::MenuItem::with_id(app, "dashboard", "仪表盘", true, None::<&str>)?;
     let server_i = tauri::menu::MenuItem::with_id(app, "server", "服务器", true, None::<&str>)?;
     let settings_i = tauri::menu::MenuItem::with_id(app, "settings", "设置", true, None::<&str>)?;
     let sep2 = tauri::menu::PredefinedMenuItem::separator(app)?;
-    let auto_hosting_i = tauri::menu::MenuItem::with_id(app, "auto_hosting", hosting_label, true, None::<&str>)?;
+    let auto_hosting_i =
+        tauri::menu::MenuItem::with_id(app, "auto_hosting", hosting_label, true, None::<&str>)?;
     let sep3 = tauri::menu::PredefinedMenuItem::separator(app)?;
     let quit_i = tauri::menu::MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
 
-    let menu = tauri::menu::Menu::with_items(app, &[
-        &show_i,
-        &sep1,
-        &dashboard_i,
-        &server_i,
-        &settings_i,
-        &sep2,
-        &auto_hosting_i,
-        &sep3,
-        &quit_i,
-    ])?;
+    let menu = tauri::menu::Menu::with_items(
+        app,
+        &[
+            &show_i,
+            &sep1,
+            &dashboard_i,
+            &server_i,
+            &settings_i,
+            &sep2,
+            &auto_hosting_i,
+            &sep3,
+            &quit_i,
+        ],
+    )?;
 
     // 构建托盘图标
     let _tray = tauri::tray::TrayIconBuilder::with_id("main")
         .menu(&menu)
         .icon(app.default_window_icon().unwrap().clone())
-        .on_menu_event(|app, event| {
-            match event.id.as_ref() {
-                "show" => {
-                    if let Some(window) = app.get_webview_window("main") {
-                        let _ = window.show();
-                        let _ = window.set_focus();
-                    }
+        .on_menu_event(|app, event| match event.id.as_ref() {
+            "show" => {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
                 }
-                "dashboard" | "server" | "settings" => {
-                    if let Some(window) = app.get_webview_window("main") {
-                        let _ = window.show();
-                        let _ = window.set_focus();
-                        let _ = window.emit("navigate", event.id.as_ref());
-                    }
-                }
-                "auto_hosting" => {
-                    if let Some(window) = app.get_webview_window("main") {
-                        let _ = window.emit("toggle-auto-hosting", ());
-                    }
-                }
-                "quit" => {
-                    app.exit(0);
-                }
-                _ => {}
             }
+            "dashboard" | "server" | "settings" => {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                    let _ = window.emit("navigate", event.id.as_ref());
+                }
+            }
+            "auto_hosting" => {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.emit("toggle-auto-hosting", ());
+                }
+            }
+            "quit" => {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+                let _ = app.emit("quit-requested", ());
+            }
+            _ => {}
         })
         .on_tray_icon_event(|tray, event| {
             if let tauri::tray::TrayIconEvent::Click {
                 button: tauri::tray::MouseButton::Left,
                 button_state: tauri::tray::MouseButtonState::Up,
                 ..
-            } = event {
+            } = event
+            {
                 let app = tray.app_handle();
                 if let Some(window) = app.get_webview_window("main") {
                     if window.is_visible().unwrap_or(false) {
@@ -123,34 +155,37 @@ fn rebuild_tray_menu(app: AppHandle) -> Result<(), String> {
     // 创建菜单项
     let show_i = tauri::menu::MenuItem::with_id(&app, "show", "显示窗口", true, None::<&str>)
         .map_err(|e| e.to_string())?;
-    let sep1 = tauri::menu::PredefinedMenuItem::separator(&app)
-        .map_err(|e| e.to_string())?;
-    let dashboard_i = tauri::menu::MenuItem::with_id(&app, "dashboard", "仪表盘", true, None::<&str>)
-        .map_err(|e| e.to_string())?;
+    let sep1 = tauri::menu::PredefinedMenuItem::separator(&app).map_err(|e| e.to_string())?;
+    let dashboard_i =
+        tauri::menu::MenuItem::with_id(&app, "dashboard", "仪表盘", true, None::<&str>)
+            .map_err(|e| e.to_string())?;
     let server_i = tauri::menu::MenuItem::with_id(&app, "server", "服务器", true, None::<&str>)
         .map_err(|e| e.to_string())?;
     let settings_i = tauri::menu::MenuItem::with_id(&app, "settings", "设置", true, None::<&str>)
         .map_err(|e| e.to_string())?;
-    let sep2 = tauri::menu::PredefinedMenuItem::separator(&app)
-        .map_err(|e| e.to_string())?;
-    let auto_hosting_i = tauri::menu::MenuItem::with_id(&app, "auto_hosting", hosting_label, true, None::<&str>)
-        .map_err(|e| e.to_string())?;
-    let sep3 = tauri::menu::PredefinedMenuItem::separator(&app)
-        .map_err(|e| e.to_string())?;
+    let sep2 = tauri::menu::PredefinedMenuItem::separator(&app).map_err(|e| e.to_string())?;
+    let auto_hosting_i =
+        tauri::menu::MenuItem::with_id(&app, "auto_hosting", hosting_label, true, None::<&str>)
+            .map_err(|e| e.to_string())?;
+    let sep3 = tauri::menu::PredefinedMenuItem::separator(&app).map_err(|e| e.to_string())?;
     let quit_i = tauri::menu::MenuItem::with_id(&app, "quit", "退出", true, None::<&str>)
         .map_err(|e| e.to_string())?;
 
-    let menu = tauri::menu::Menu::with_items(&app, &[
-        &show_i,
-        &sep1,
-        &dashboard_i,
-        &server_i,
-        &settings_i,
-        &sep2,
-        &auto_hosting_i,
-        &sep3,
-        &quit_i,
-    ]).map_err(|e| e.to_string())?;
+    let menu = tauri::menu::Menu::with_items(
+        &app,
+        &[
+            &show_i,
+            &sep1,
+            &dashboard_i,
+            &server_i,
+            &settings_i,
+            &sep2,
+            &auto_hosting_i,
+            &sep3,
+            &quit_i,
+        ],
+    )
+    .map_err(|e| e.to_string())?;
 
     // 更新托盘菜单
     if let Some(tray) = app.tray_by_id("main") {
@@ -162,10 +197,9 @@ fn rebuild_tray_menu(app: AppHandle) -> Result<(), String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let base_dir = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|p| p.to_path_buf()))
-        .unwrap_or_else(|| std::env::current_dir().unwrap());
+    let exe_dir = executable_dir();
+    let base_dir = exe_dir.join(PORTABLE_DATA_DIR_NAME);
+    migrate_legacy_portable_dirs(&exe_dir, &base_dir);
 
     let config_service = ConfigService::new(base_dir.clone());
     config_service.ensure_directories();
@@ -190,6 +224,7 @@ pub fn run() {
         Arc::clone(&config_arc),
         Arc::clone(&process_arc),
         Arc::clone(&log_arc),
+        Arc::clone(&active_rcon_arc),
         Arc::clone(&auto_update_arc),
     );
     start_output_cache_maintenance(Arc::clone(&process_arc), Arc::clone(&log_arc));
@@ -313,8 +348,6 @@ pub fn run() {
             commands::window::show_window_from_tray,
             commands::window::quit_app,
             rebuild_tray_menu,
-            commands::window::show_window_from_tray,
-            commands::window::quit_app,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

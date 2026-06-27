@@ -6,6 +6,8 @@
 
   import { onMount } from 'svelte';
 
+  type SelectValue = string | number | boolean | null | undefined;
+
   let {
     value = $bindable(),
     options = [],
@@ -16,14 +18,14 @@
     class: className = '',
     onchange,
   }: {
-    value?: any;
-    options: Array<{ value: any; label: string; disabled?: boolean }>;
+    value?: SelectValue;
+    options: Array<{ value: SelectValue; label: string; disabled?: boolean }>;
     placeholder?: string;
     disabled?: boolean;
     size?: 'sm' | 'md' | 'lg';
     fullWidth?: boolean;
     class?: string;
-    onchange?: (value: any) => void;
+    onchange?: (value: SelectValue) => void;
   } = $props();
 
   let isOpen = $state(false);
@@ -46,7 +48,7 @@
     options.find(opt => opt.value === value)
   );
 
-  function handleSelect(optionValue: any) {
+  function handleSelect(optionValue: SelectValue) {
     if (disabled) return;
     value = optionValue;
     isOpen = false;

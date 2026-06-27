@@ -6,6 +6,12 @@ use tauri::State;
 use crate::models::config::{AppSettings, RconConfig, ServerProfile, ServersConfig};
 use crate::services::config_service::ConfigService;
 
+#[derive(Serialize)]
+pub struct ConfigSaveResult {
+    pub message: String,
+    pub rocket_sync_warning: Option<String>,
+}
+
 fn contains_chinese(s: &str) -> bool {
     s.chars().any(|c| matches!(c, '\u{4e00}'..='\u{9fff}' | '\u{3400}'..='\u{4dbf}' | '\u{f900}'..='\u{faff}'))
 }
@@ -133,7 +139,7 @@ pub fn set_log_retention_days(
 pub fn save_config(
     config: State<'_, Arc<Mutex<ConfigService>>>,
     servers: ServersConfig,
-) -> Result<String, String> {
+) -> Result<ConfigSaveResult, String> {
     for server in &servers.servers {
         crate::services::config_service::validate_id(&server.id)
             .map_err(|_| "服务器 ID 包含非法字符".to_string())?;
@@ -148,16 +154,22 @@ pub fn save_config(
     let cfg = config.lock().unwrap_or_else(|e| e.into_inner());
     cfg.save_servers_config(&servers)?;
 
+    let mut rocket_sync_warning = None;
     if let Some(profile) = servers.servers.first() {
-        let _ = ConfigService::update_rocket_config(
+        if let Err(e) = ConfigService::update_rocket_config(
             &profile.server_root,
             &profile.id,
             profile.rcon.port,
             &profile.rcon.password,
-        );
+        ) {
+            rocket_sync_warning = Some(format!("Rocket 配置同步失败: {}", e));
+        }
     }
 
-    Ok("配置已保存".to_string())
+    Ok(ConfigSaveResult {
+        message: "配置已保存".to_string(),
+        rocket_sync_warning,
+    })
 }
 
 #[tauri::command]
@@ -174,7 +186,7 @@ pub fn save_wizard_config(
     server_id: String,
     rcon_port: u16,
     rcon_password: String,
-) -> Result<String, String> {
+) -> Result<ConfigSaveResult, String> {
     crate::services::config_service::validate_id(&server_id)
         .map_err(|_| "服务器 ID 包含非法字符".to_string())?;
     if rcon_port == 0 {
@@ -209,8 +221,13 @@ pub fn save_wizard_config(
 
     cfg.save_servers_config(&servers_config)?;
 
-    let _ =
-        ConfigService::update_rocket_config(&server_root, &server_id, rcon_port, &rcon_password);
+    let rocket_sync_warning =
+        ConfigService::update_rocket_config(&server_root, &server_id, rcon_port, &rcon_password)
+            .err()
+            .map(|e| format!("Rocket 配置同步失败: {}", e));
 
-    Ok("配置已保存".to_string())
+    Ok(ConfigSaveResult {
+        message: "配置已保存".to_string(),
+        rocket_sync_warning,
+    })
 }
